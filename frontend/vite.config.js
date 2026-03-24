@@ -20,6 +20,10 @@ export default defineConfig({
   },
   // 构建优化
   build: {
+    // 输出到backend/public目录
+    outDir: '../backend/public',
+    // 清空输出目录
+    emptyOutDir: true,
     // 启用代码分割
     rollupOptions: {
       output: {

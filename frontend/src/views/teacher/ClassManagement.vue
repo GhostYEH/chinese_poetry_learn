@@ -32,8 +32,8 @@
             <span class="stat-value">{{ Math.round(cls.avg_study_time || 0) }}分钟</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">平均完成率</span>
-            <span class="stat-value">{{ Math.round((cls.avg_completion_rate || 0) * 100) }}%</span>
+            <span class="stat-label">学习诗词数</span>
+            <span class="stat-value">{{ cls.total_poems_studied || 0 }}首</span>
           </div>
         </div>
         <div class="class-actions">

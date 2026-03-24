@@ -76,6 +76,15 @@ const routes = [
     }
   },
   {
+    path: '/feihualing/online',
+    name: 'FeiHuaLingOnline',
+    component: () => import('../views/FeiHuaLingMultiplayer.vue'),
+    meta: {
+      title: '在线飞花令 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
     path: '/collection',
     name: 'Collection',
     component: Collection,
@@ -274,57 +283,99 @@ const router = createRouter({
   }
 })
 
-// 路由守卫，设置页面标题和认证
-router.beforeEach((to, from, next) => {
-  // 设置页面标题
+function isTokenExpired(token) {
+  if (!token) return true
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    if (!payload.exp) return false
+    return payload.exp * 1000 < Date.now()
+  } catch {
+    return true
+  }
+}
+
+async function verifyToken(token, type) {
+  if (!token || isTokenExpired(token)) {
+    return false
+  }
+  
+  try {
+    const endpoint = type === 'teacher' 
+      ? 'http://localhost:3000/api/teacher/dashboard'
+      : 'http://localhost:3000/api/auth/verify'
+    
+    const response = await fetch(endpoint, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+router.beforeEach(async (to, from, next) => {
   if (to.meta.title) {
     document.title = to.meta.title
   }
   
-  // 清除无效的身份缓存
   const token = localStorage.getItem('token')
   const teacherToken = localStorage.getItem('teacherToken')
   
-  // 如果同时存在两种token，清理其中一个
   if (token && teacherToken) {
-    // 检查当前路由类型，保留对应token
     if (to.path.startsWith('/teacher/')) {
-      // 访问教师端，清理学生token
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('userInfo')
       localStorage.removeItem('studentId')
       localStorage.removeItem('userRole')
     } else {
-      // 访问学生端，清理教师token
       localStorage.removeItem('teacherToken')
       localStorage.removeItem('teacher')
       localStorage.removeItem('teacherInfo')
     }
   }
   
-  // 检查是否需要教师认证
   if (to.meta.requiresTeacherAuth) {
     const teacherToken = localStorage.getItem('teacherToken')
+    
     if (!teacherToken) {
-      // 未登录，跳转到教师登录页
+      localStorage.setItem('teacherRedirectPath', to.fullPath)
       next('/teacher/login')
-    } else {
-      // 已登录，继续
-      next()
+      return
     }
+    
+    if (isTokenExpired(teacherToken)) {
+      localStorage.removeItem('teacherToken')
+      localStorage.removeItem('teacher')
+      localStorage.removeItem('teacherInfo')
+      localStorage.setItem('teacherRedirectPath', to.fullPath)
+      next('/teacher/login')
+      return
+    }
+    
+    next()
   } 
-  // 检查是否需要学生认证
   else if (to.meta.requiresAuth) {
     const token = localStorage.getItem('token')
+    
     if (!token) {
-      // 未登录，跳转到登录页，并存储当前路由信息
       localStorage.setItem('redirectPath', to.fullPath)
       next('/login')
-    } else {
-      // 已登录，继续
-      next()
+      return
     }
+    
+    if (isTokenExpired(token)) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('userInfo')
+      localStorage.setItem('redirectPath', to.fullPath)
+      next('/login')
+      return
+    }
+    
+    next()
   } else {
     next()
   }

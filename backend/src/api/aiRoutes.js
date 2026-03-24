@@ -4,6 +4,9 @@ const aiService = require('../services/aiService');
 const crypto = require('crypto');
 const axios = require('axios');
 
+// 加载环境变量
+require('dotenv').config();
+
 // 图像生成相关缓存和任务管理
 const imageCache = new Map();
 const generationTasks = new Map();
@@ -558,10 +561,22 @@ async function generateImage(poemId, title, author, content, socket) {
   });
   
   try {
-    const SILICON_FLOW_API_KEY = process.env.SILICONFLOW_API_KEY || 'YOUR-API-KEY';
+    const SILICON_FLOW_API_KEY = process.env.SILICONFLOW_API_KEY;
+    
+    // 检查API密钥是否配置
+    if (!SILICON_FLOW_API_KEY || SILICON_FLOW_API_KEY === 'your-siliconflow-api-key-here') {
+      console.error('硅基流动API密钥未配置，请在backend/.env文件中设置SILICONFLOW_API_KEY');
+      socket.emit('image-generate-fail', {
+        poemId,
+        error: 'API密钥未配置，请联系管理员配置SILICONFLOW_API_KEY'
+      });
+      return null;
+    }
+    
     const prompt = `根据古诗词《${title}》（作者：${author}）的内容生成一幅中国风图像，画面要准确描绘诗中所描述的场景和意境，${content}，中国传统风格，高清细腻，氛围感强，无任何文字、无水印、无logo，画面干净统一，适合做网页背景图`;
     
     console.log('生成图像的prompt:', prompt);
+    console.log('使用API密钥:', SILICON_FLOW_API_KEY.substring(0, 10) + '...');
     
     const response = await axios.post('https://api.siliconflow.cn/v1/images/generations', {
       model: 'Kwai-Kolors/Kolors',
@@ -580,27 +595,46 @@ async function generateImage(poemId, title, author, content, socket) {
     console.log('API响应:', response.data);
     
     if (response.data && response.data.images && response.data.images[0]) {
-      let base64Image = response.data.images[0];
-      // 检查base64Image的类型，如果是对象，尝试提取其中的base64字符串
-      if (typeof base64Image === 'object' && base64Image !== null) {
-        // 尝试不同的可能字段名
-        if (base64Image.data) {
-          base64Image = base64Image.data;
-        } else if (base64Image.base64) {
-          base64Image = base64Image.base64;
+      let imageData = response.data.images[0];
+      let imageUrl;
+      
+      // 检查返回的数据类型
+      if (typeof imageData === 'object' && imageData !== null) {
+        // API返回的是对象，可能包含URL或Base64数据
+        console.log('API返回对象结构:', JSON.stringify(imageData));
+        
+        if (imageData.url) {
+          // 返回的是URL
+          imageUrl = imageData.url;
+          console.log('使用API返回的URL:', imageUrl);
+        } else if (imageData.data) {
+          // 返回的是Base64数据
+          imageUrl = `data:image/png;base64,${imageData.data}`;
+          console.log('使用API返回的Base64数据');
+        } else if (imageData.base64) {
+          // 返回的是Base64数据（另一种字段名）
+          imageUrl = `data:image/png;base64,${imageData.base64}`;
+          console.log('使用API返回的Base64数据');
         } else {
-          // 将对象转换为字符串，看看具体结构
-          console.log('base64Image对象结构:', JSON.stringify(base64Image));
+          console.error('无法识别的图片数据格式:', imageData);
           throw new Error('API返回的图片数据格式不正确');
         }
+      } else if (typeof imageData === 'string') {
+        // 直接返回字符串，可能是URL或Base64
+        if (imageData.startsWith('http://') || imageData.startsWith('https://')) {
+          // 是URL
+          imageUrl = imageData;
+          console.log('使用API返回的URL:', imageUrl);
+        } else {
+          // 假设是Base64数据
+          imageUrl = `data:image/png;base64,${imageData}`;
+          console.log('使用API返回的Base64数据');
+        }
+      } else {
+        console.error('无法识别的图片数据类型:', typeof imageData);
+        throw new Error('API返回的图片数据类型不正确');
       }
-      // 确保base64Image是字符串
-      if (typeof base64Image !== 'string') {
-        console.error('base64Image不是字符串:', typeof base64Image);
-        throw new Error('API返回的图片数据不是字符串');
-      }
-      // 将base64转换为数据URL
-      const imageUrl = `data:image/png;base64,${base64Image}`;
+      
       // 缓存结果
       imageCache.set(cacheKey, {
         url: imageUrl,

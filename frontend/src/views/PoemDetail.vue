@@ -2,10 +2,16 @@
   <div class="poem-detail" :class="{ 'immersive-mode': isImmersiveMode }">
     <button class="back-btn" @click="goBack">← 返回</button>
     
-    <!-- 开始学习按钮 -->
-    <button v-if="!isImmersiveMode && poem" class="start-learning-btn" @click="enterImmersiveMode">
-      开始学习
-    </button>
+    <!-- 初始状态：只显示开始学习按钮 -->
+    <div v-if="!loading && poem && !isImmersiveMode" class="initial-state">
+      <button class="start-learning-btn" @click="enterImmersiveMode">
+        开始学习
+      </button>
+      <div v-if="imageStatus === 'pending'" class="loading-indicator">
+        <div class="loading-spinner"></div>
+        <p>正在生成诗意图境...</p>
+      </div>
+    </div>
     
     <!-- 沉浸式学习模式背景 -->
     <div v-if="isImmersiveMode" class="immersive-background">
@@ -30,7 +36,7 @@
     <div v-if="loading" class="loading">加载中...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!poem" class="empty">诗词不存在</div>
-    <div v-else class="poem-layout" :class="{ 'immersive-content': isImmersiveMode }">
+    <div v-else-if="isImmersiveMode" class="poem-layout" :class="{ 'immersive-content': isImmersiveMode }">
       <!-- 左侧栏 -->
       <div class="left-column">
         <!-- 诗词基本信息 -->
@@ -361,27 +367,54 @@
   overflow: hidden;
 }
 
-.start-learning-btn {
+/* 初始状态样式 */
+.initial-state {
   position: fixed;
-  bottom: 30px;
-  right: 30px;
-  padding: 15px 30px;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  z-index: 999;
+}
+
+.start-learning-btn {
+  padding: 20px 40px;
   background-color: #4CAF50;
   color: white;
   border: none;
   border-radius: 50px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
   cursor: pointer;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
   z-index: 1000;
   transition: all 0.3s ease;
+  margin-bottom: 20px;
 }
 
 .start-learning-btn:hover {
   background-color: #45a049;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.loading-indicator {
+  text-align: center;
+  color: #333;
+}
+
+.loading-indicator .loading-spinner {
+  margin: 0 auto 10px;
+}
+
+.loading-indicator p {
+  font-size: 14px;
+  margin: 0;
 }
 
 .immersive-background {
@@ -406,6 +439,7 @@
   height: 100%;
   object-fit: cover;
   animation: slowZoom 25s ease-in-out infinite;
+  transition: opacity 1s ease-in-out;
 }
 
 @keyframes slowZoom {
@@ -500,12 +534,23 @@
 .immersive-content {
   position: relative;
   z-index: 10;
-  background-color: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
-  border-radius: 10px;
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius);
   margin: 20px;
   padding: 20px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--glass-shadow);
+  transition: var(--transition);
+}
+
+.immersive-content:hover {
+  transform: translateY(-4px);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px));
+  box-shadow: 0 12px 24px rgba(31, 38, 135, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 /* 响应式设计 */
@@ -741,22 +786,32 @@ export default {
         })
         
         this.socket.on('image-generate-success', (data) => {
-          console.log('图像生成成功:', data)
-          this.imageStatus = 'success'
-          this.backgroundImage = data.url
-          
-          // 预加载图片
-          this.preloadImage(data.url)
-          
-          // 如果是轮播图，添加到轮播列表
-          if (data.isCarousel) {
-            this.carouselImages.push(data.url)
-          }
-        })
+      console.log('图像生成成功:', data)
+      this.imageStatus = 'success'
+      
+      // 预加载图片
+      const img = new Image()
+      img.src = data.url
+      img.onload = () => {
+        // 图片加载完成后，平滑过渡到新背景
+        this.backgroundImage = data.url
+        console.log('图片加载完成，已更新背景')
+      }
+      
+      // 如果是轮播图，添加到轮播列表并更新当前背景
+      if (data.isCarousel) {
+        this.carouselImages.push(data.url)
+        // 直接更新背景为新生成的轮播图
+        this.backgroundImage = data.url
+        console.log('轮播图已更新')
+      }
+    })
         
         this.socket.on('image-generate-fail', (data) => {
           console.log('图像生成失败:', data)
           this.imageStatus = 'fail'
+          // 显示错误提示
+          this.$message?.error(data.error || '背景图生成失败，将使用默认背景')
         })
       } catch (error) {
         console.error('Socket初始化失败:', error)
@@ -827,10 +882,10 @@ export default {
     },
     // 开始轮播
     startCarousel() {
-      // 每15-20秒生成新图
+      // 每60秒生成新图（避免超过后端速率限制）
       this.carouselInterval = setInterval(() => {
         this.generateCarouselImage()
-      }, Math.random() * 5000 + 15000)
+      }, 60000)
     },
     // 生成轮播图
     generateCarouselImage() {
@@ -1983,6 +2038,7 @@ export default {
   padding: 20px;
   max-width: 1200px;
   margin: 0 auto;
+  background: transparent;
 }
 
 /* 双栏布局 */
@@ -1991,6 +2047,24 @@ export default {
   gap: 40px;
   margin-top: 20px;
   align-items: flex-start;
+  position: relative;
+  z-index: 10;
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  box-shadow: var(--glass-shadow);
+  transition: var(--transition);
+}
+
+.poem-layout:hover {
+  transform: translateY(-4px);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px));
+  box-shadow: 0 12px 24px rgba(31, 38, 135, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .left-column {
@@ -2028,6 +2102,7 @@ export default {
   
   .poem-layout {
     gap: 20px;
+    padding: 15px;
   }
   
   .left-column,
@@ -2557,9 +2632,11 @@ export default {
   width: 16px;
   left: 4px;
   bottom: 4px;
-  background-color: white;
+  background-color: rgba(255, 255, 255, 0.9);
   transition: .4s;
   border-radius: 50%;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 input:checked + .slider {
@@ -2592,16 +2669,40 @@ input:checked + .slider:before {
 .recitation-pair {
   margin-bottom: 24px;
   padding: 16px;
-  background-color: #f9f9f9;
-  border-radius: 8px;
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius);
   border-left: 4px solid #4CAF50;
+  box-shadow: var(--glass-shadow);
+  transition: var(--transition);
+}
+
+.recitation-pair:hover {
+  transform: translateY(-2px);
+  backdrop-filter: blur(calc(var(--glass-blur) + 2px));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 2px));
+  box-shadow: 0 8px 16px rgba(31, 38, 135, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .recitation-prompt {
   margin-bottom: 12px;
   padding: 12px;
-  background-color: rgba(76, 175, 80, 0.1);
-  border-radius: 4px;
+  background: rgba(76, 175, 80, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  border-radius: 8px;
+  transition: var(--transition);
+}
+
+.recitation-prompt:hover {
+  background: rgba(76, 175, 80, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: rgba(76, 175, 80, 0.3);
 }
 
 .prompt-label {
@@ -3045,9 +3146,22 @@ input:checked + .slider:before {
   color: #f44336;
   padding: 10px;
   margin: 10px 0;
-  border-radius: 4px;
-  background-color: #ffebee;
+  border-radius: var(--border-radius);
+  background: rgba(244, 67, 54, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(244, 67, 54, 0.2);
   border-left: 4px solid #f44336;
+  box-shadow: 0 4px 16px rgba(244, 67, 54, 0.1);
+  transition: var(--transition);
+}
+
+.error-message:hover {
+  background: rgba(244, 67, 54, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(244, 67, 54, 0.15);
+  border-color: rgba(244, 67, 54, 0.3);
 }
 
 /* 加载动画 */
@@ -3073,10 +3187,19 @@ input:checked + .slider:before {
   text-align: center;
   padding: 40px;
   color: #666;
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius);
+  box-shadow: var(--glass-shadow);
+  margin: 20px 0;
 }
 
 .error {
   color: #f44336;
+  background: rgba(244, 67, 54, 0.1);
+  border-color: rgba(244, 67, 54, 0.2);
 }
 
 /* 背诵检测功能样式 */
@@ -3366,10 +3489,22 @@ input:checked + .slider:before {
 }
 
 .ai-advice-container {
-  background-color: white;
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
   padding: 16px;
-  border-radius: 6px;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-radius: var(--border-radius);
+  box-shadow: var(--glass-shadow);
+  transition: var(--transition);
+}
+
+.ai-advice-container:hover {
+  transform: translateY(-2px);
+  backdrop-filter: blur(calc(var(--glass-blur) + 2px));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 2px));
+  box-shadow: 0 8px 16px rgba(31, 38, 135, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .ai-advice {

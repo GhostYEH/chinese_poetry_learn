@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const feihuaService = require('../services/feihuaService');
+const feihualingService = require('../services/feihualingService');
 const authenticateToken = require('../middleware/auth');
 
 // 保存飞花令游戏记录接口
@@ -59,6 +60,33 @@ router.get('/high-score', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('获取最高得分失败:', error);
     res.status(500).json({ message: '获取最高得分失败' });
+  }
+});
+
+// 获取在线对战历史
+router.get('/fight-history', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.user;
+    const user = await new Promise((resolve, reject) => {
+      require('../utils/db').db.get('SELECT username FROM users WHERE id = ?', [id], (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+    
+    if (!user) {
+      return res.status(404).json({ message: '用户不存在' });
+    }
+    
+    const history = await feihualingService.getFightHistory(user.username);
+    
+    res.json({
+      success: true,
+      data: history
+    });
+  } catch (error) {
+    console.error('获取对战历史失败:', error);
+    res.status(500).json({ message: '获取对战历史失败' });
   }
 });
 

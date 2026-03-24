@@ -474,7 +474,7 @@ export default {
 .stat-divider {
   width: 1px;
   height: 40px;
-  background: linear-gradient(to bottom, transparent, rgba(205, 133, 63, 0.3), transparent;
+  background: linear-gradient(to bottom, transparent, rgba(205, 133, 63, 0.3), transparent);
 }
 
 .question-card {

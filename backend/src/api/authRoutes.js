@@ -203,7 +203,7 @@ router.get('/verify', (req, res) => {
       return res.status(401).json({ message: '未提供令牌' });
     }
     
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    jwt.verify(token, config.jwt.secret, (err, decoded) => {
       if (err) {
         return res.status(401).json({ message: '令牌无效' });
       }

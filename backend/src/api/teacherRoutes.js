@@ -509,20 +509,177 @@ router.get('/poem/:id/detail', authenticateTeacher, async (req, res) => {
 // 新增 - 获取所有班级列表及统计数据
 router.get('/classes', authenticateTeacher, (req, res) => {
   try {
-    db.all('SELECT * FROM class_stats ORDER BY class_id', (err, classes) => {
-      if (err) {
-        console.error('获取班级列表失败:', err);
-        return res.status(500).json({ message: '获取班级列表失败' });
+    db.all(
+      `SELECT 
+        u.class_id,
+        COUNT(DISTINCT u.id) as total_students,
+        COUNT(DISTINCT lr.poem_id) as total_poems_studied,
+        AVG(lr.study_time) as avg_study_time
+       FROM users u
+       LEFT JOIN learning_records lr ON u.id = lr.user_id
+       WHERE u.class_id IS NOT NULL
+       GROUP BY u.class_id
+       ORDER BY u.class_id`,
+      (err, classes) => {
+        if (err) {
+          console.error('获取班级列表失败:', err);
+          return res.status(500).json({ message: '获取班级列表失败' });
+        }
+        
+        res.json({
+          success: true,
+          data: classes
+        });
       }
-      
-      res.json({
-        success: true,
-        data: classes
-      });
-    });
+    );
   } catch (error) {
     console.error('获取班级列表失败:', error);
     res.status(500).json({ message: '获取班级列表失败' });
+  }
+});
+
+// 新增 - 添加班级
+router.post('/classes/add', authenticateTeacher, (req, res) => {
+  try {
+    const { className } = req.body;
+    
+    if (!className || !className.trim()) {
+      return res.status(400).json({ message: '班级名称不能为空' });
+    }
+    
+    db.run(
+      'INSERT INTO classes (class_name) VALUES (?)',
+      [className.trim()],
+      function(err) {
+        if (err) {
+          console.error('添加班级失败:', err);
+          if (err.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ message: '班级名称已存在' });
+          }
+          return res.status(500).json({ message: '添加班级失败' });
+        }
+        
+        res.status(201).json({
+          success: true,
+          message: '班级添加成功',
+          classId: this.lastID
+        });
+      }
+    );
+  } catch (error) {
+    console.error('添加班级失败:', error);
+    res.status(500).json({ message: '添加班级失败' });
+  }
+});
+
+// 新增 - 添加学生
+router.post('/students/add', authenticateTeacher, (req, res) => {
+  try {
+    const { username, email, password, class_id } = req.body;
+    
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: '用户名、邮箱和密码不能为空' });
+    }
+    
+    const bcrypt = require('bcrypt');
+    const passwordHash = bcrypt.hashSync(password, 10);
+    const now = new Date().toISOString();
+    
+    db.run(
+      'INSERT INTO users (username, email, password_hash, class_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [username, email, passwordHash, class_id || null, now, now],
+      function(err) {
+        if (err) {
+          console.error('添加学生失败:', err);
+          if (err.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ message: '用户名或邮箱已存在' });
+          }
+          return res.status(500).json({ message: '添加学生失败' });
+        }
+        
+        res.status(201).json({
+          success: true,
+          message: '学生添加成功',
+          studentId: this.lastID
+        });
+      }
+    );
+  } catch (error) {
+    console.error('添加学生失败:', error);
+    res.status(500).json({ message: '添加学生失败' });
+  }
+});
+
+// 新增 - 修改学生密码
+router.put('/students/:id/password', authenticateTeacher, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+    
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ message: '密码长度不能少于6位' });
+    }
+    
+    const bcrypt = require('bcrypt');
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    
+    db.run(
+      'UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?',
+      [passwordHash, new Date().toISOString(), id],
+      function(err) {
+        if (err) {
+          console.error('修改密码失败:', err);
+          return res.status(500).json({ message: '修改密码失败' });
+        }
+        
+        if (this.changes === 0) {
+          return res.status(404).json({ message: '学生不存在' });
+        }
+        
+        res.json({
+          success: true,
+          message: '密码修改成功'
+        });
+      }
+    );
+  } catch (error) {
+    console.error('修改密码失败:', error);
+    res.status(500).json({ message: '修改密码失败' });
+  }
+});
+
+// 新增 - 获取指定班级的详情
+router.get('/classes/:classId', authenticateTeacher, (req, res) => {
+  try {
+    const { classId } = req.params;
+    
+    db.get(
+      `SELECT 
+        u.class_id,
+        COUNT(DISTINCT u.id) as total_students,
+        COUNT(DISTINCT lr.poem_id) as total_poems_studied,
+        AVG(lr.study_time) as avg_study_time
+       FROM users u
+       LEFT JOIN learning_records lr ON u.id = lr.user_id
+       WHERE u.class_id = ?
+       GROUP BY u.class_id`,
+      [classId],
+      (err, classData) => {
+        if (err) {
+          console.error('获取班级详情失败:', err);
+          return res.status(500).json({ message: '获取班级详情失败' });
+        }
+        
+        if (!classData) {
+          return res.status(404).json({ message: '班级不存在' });
+        }
+        
+        res.json(classData);
+      }
+    );
+  } catch (error) {
+    console.error('获取班级详情失败:', error);
+    res.status(500).json({ message: '获取班级详情失败' });
   }
 });
 
@@ -560,29 +717,50 @@ router.get('/classes/:classId/students', authenticateTeacher, (req, res) => {
   }
 });
 
-// 新增 - 获取全平台学生总排名
+// 新增 - 获取全平台学生总排名（带分页）
 router.get('/rankings/overall', authenticateTeacher, (req, res) => {
   try {
-    db.all(
-      `SELECT u.id, u.username, u.email, u.class_id,
-              COUNT(DISTINCT lr.poem_id) as poem_count,
-              SUM(lr.study_time) as total_study_time,
-              MAX(lr.last_view_time) as last_study_time
+    const { page = 1, limit = 50 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    db.get(
+      `SELECT COUNT(DISTINCT u.id) as total
        FROM users u
-       LEFT JOIN learning_records lr ON u.id = lr.user_id
-       WHERE u.class_id IS NOT NULL
-       GROUP BY u.id, u.username, u.email, u.class_id
-       ORDER BY total_study_time DESC`,
-      (err, students) => {
+       WHERE u.class_id IS NOT NULL`,
+      (err, countRow) => {
         if (err) {
-          console.error('获取总排名失败:', err);
+          console.error('获取总排名数量失败:', err);
           return res.status(500).json({ message: '获取总排名失败' });
         }
         
-        res.json({
-          success: true,
-          data: students
-        });
+        db.all(
+          `SELECT u.id, u.username, u.email, u.class_id,
+                  COUNT(DISTINCT lr.poem_id) as poem_count,
+                  COALESCE(SUM(lr.study_time), 0) as total_study_time,
+                  MAX(lr.last_view_time) as last_study_time
+           FROM users u
+           LEFT JOIN learning_records lr ON u.id = lr.user_id
+           WHERE u.class_id IS NOT NULL
+           GROUP BY u.id, u.username, u.email, u.class_id
+           ORDER BY total_study_time DESC
+           LIMIT ? OFFSET ?`,
+          [parseInt(limit), offset],
+          (err, students) => {
+            if (err) {
+              console.error('获取总排名失败:', err);
+              return res.status(500).json({ message: '获取总排名失败' });
+            }
+            
+            res.json({
+              success: true,
+              data: students || [],
+              total: countRow?.total || 0,
+              page: parseInt(page),
+              limit: parseInt(limit),
+              totalPages: Math.ceil((countRow?.total || 0) / parseInt(limit))
+            });
+          }
+        );
       }
     );
   } catch (error) {
@@ -629,13 +807,16 @@ router.get('/rankings/class/:classId', authenticateTeacher, (req, res) => {
 router.get('/classes/comparison', authenticateTeacher, (req, res) => {
   try {
     db.all(
-      `SELECT c.class_id,
-              c.total_students,
-              c.total_poems_studied,
-              c.avg_study_time,
-              c.avg_completion_rate
-       FROM class_stats c
-       ORDER BY c.class_id`,
+      `SELECT 
+        u.class_id,
+        COUNT(DISTINCT u.id) as total_students,
+        COUNT(DISTINCT lr.poem_id) as total_poems_studied,
+        AVG(lr.study_time) as avg_study_time
+       FROM users u
+       LEFT JOIN learning_records lr ON u.id = lr.user_id
+       WHERE u.class_id IS NOT NULL
+       GROUP BY u.class_id
+       ORDER BY u.class_id`,
       (err, classes) => {
         if (err) {
           console.error('获取班级对比数据失败:', err);

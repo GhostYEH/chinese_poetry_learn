@@ -6,6 +6,9 @@
         <div class="tab active">
           <router-link to="/feihualing/single">单人模式</router-link>
         </div>
+        <div class="tab">
+          <router-link to="/feihualing/online">在线对战</router-link>
+        </div>
       </div>
       
       <h1 class="game-title">飞花令</h1>

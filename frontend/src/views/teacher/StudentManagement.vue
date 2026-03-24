@@ -87,6 +87,7 @@
                 <div class="action-buttons">
                   <button class="btn-small" @click="viewStudentDetail(student.id)">详情</button>
                   <button class="btn-small secondary" @click="viewStudentChallenge(student.id)">闯关</button>
+                  <button class="btn-small warning" @click="openPasswordModal(student)">改密</button>
                 </div>
               </td>
             </tr>
@@ -129,6 +130,25 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showPasswordModal" class="modal-overlay" @click.self="showPasswordModal = false">
+      <div class="modal-content">
+        <h2>修改学生密码</h2>
+        <p class="modal-subtitle">学生：{{ passwordStudent?.username }}</p>
+        <div class="form-group">
+          <label>新密码</label>
+          <input v-model="newPassword" type="password" placeholder="请输入新密码（至少6位）" />
+        </div>
+        <div class="form-group">
+          <label>确认密码</label>
+          <input v-model="confirmPassword" type="password" placeholder="请再次输入新密码" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn-secondary" @click="showPasswordModal = false">取消</button>
+          <button class="btn-primary" @click="updatePassword">确认修改</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -149,6 +169,10 @@ const newStudent = ref({
   password: '',
   class_id: ''
 })
+const showPasswordModal = ref(false)
+const passwordStudent = ref(null)
+const newPassword = ref('')
+const confirmPassword = ref('')
 
 const totalPoems = computed(() => {
   return students.value.reduce((sum, s) => sum + (s.poem_count || 0), 0)
@@ -240,6 +264,40 @@ const addStudent = async () => {
   } catch (err) {
     console.error('添加学生失败:', err)
     alert('添加学生失败')
+  }
+}
+
+const openPasswordModal = (student) => {
+  passwordStudent.value = student
+  newPassword.value = ''
+  confirmPassword.value = ''
+  showPasswordModal.value = true
+}
+
+const updatePassword = async () => {
+  if (!newPassword.value || newPassword.value.length < 6) {
+    alert('密码长度不能少于6位')
+    return
+  }
+  
+  if (newPassword.value !== confirmPassword.value) {
+    alert('两次输入的密码不一致')
+    return
+  }
+  
+  try {
+    await request(`/students/${passwordStudent.value.id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ newPassword: newPassword.value })
+    })
+    alert('密码修改成功')
+    showPasswordModal.value = false
+    passwordStudent.value = null
+    newPassword.value = ''
+    confirmPassword.value = ''
+  } catch (err) {
+    console.error('修改密码失败:', err)
+    alert('修改密码失败')
   }
 }
 
@@ -491,6 +549,16 @@ onMounted(async () => {
   background: rgba(205,133,63,0.1);
 }
 
+.btn-small.warning {
+  background: rgba(220, 53, 69, 0.1);
+  border-color: rgba(220, 53, 69, 0.3);
+  color: #dc3545;
+}
+
+.btn-small.warning:hover {
+  background: rgba(220, 53, 69, 0.2);
+}
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -521,7 +589,15 @@ onMounted(async () => {
 .modal-content h2 {
   font-family: 'SimSun', 'STSong', serif;
   color: #8b4513;
+  margin: 0 0 10px 0;
+}
+
+.modal-subtitle {
+  color: #666;
+  font-size: 14px;
   margin: 0 0 20px 0;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(205,133,63,0.2);
 }
 
 .form-group {

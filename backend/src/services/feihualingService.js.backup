@@ -1,0 +1,488 @@
+const { v4: uuidv4 } = require('uuid');
+const { db } = require('../utils/db');
+
+class FeihualingService {
+  constructor() {
+    this.onlineUsers = new Map();
+    this.rooms = new Map();
+    this.pendingInvitations = new Map();
+    this.roomLocks = new Map();
+    this.disconnectedPlayers = new Map();
+    this.RECONNECT_TIMEOUT = 30000;
+  }
+
+  addUser(userId, username, socketId) {
+    const existingUser = this.onlineUsers.get(userId);
+    if (existingUser) {
+      this.onlineUsers.set(userId, {
+        ...existingUser,
+        socketId,
+        inRoom: existingUser.inRoom
+      });
+      
+      if (existingUser.inRoom) {
+        const room = this.rooms.get(existingUser.inRoom);
+        if (room) {
+          const player = room.players.find(p => p.id === userId);
+          if (player) {
+            player.socketId = socketId;
+            player.disconnected = false;
+          }
+        }
+      }
+      
+      this.disconnectedPlayers.delete(userId);
+      
+      return Array.from(this.onlineUsers.values()).map(u => ({
+        id: u.id,
+        username: u.username,
+        inRoom: u.inRoom
+      }));
+    }
+    
+    this.onlineUsers.set(userId, {
+      id: userId,
+      username,
+      socketId,
+      inRoom: null
+    });
+    return Array.from(this.onlineUsers.values()).map(u => ({
+      id: u.id,
+      username: u.username,
+      inRoom: u.inRoom
+    }));
+  }
+
+  removeUser(socketId) {
+    for (const [userId, user] of this.onlineUsers) {
+      if (user.socketId === socketId) {
+        if (user.inRoom) {
+          const room = this.rooms.get(user.inRoom);
+          if (room && room.status === 'playing') {
+            const player = room.players.find(p => p.id === userId);
+            if (player) {
+              player.disconnected = true;
+              player.disconnectTime = Date.now();
+            }
+            
+            this.disconnectedPlayers.set(userId, {
+              roomId: user.inRoom,
+              username: user.username,
+              disconnectTime: Date.now()
+            });
+            
+            setTimeout(() => {
+              this.handleReconnectTimeout(userId);
+            }, this.RECONNECT_TIMEOUT);
+            
+            continue;
+          }
+        }
+        this.onlineUsers.delete(userId);
+        this.pendingInvitations.delete(userId);
+        break;
+      }
+    }
+    return Array.from(this.onlineUsers.values()).map(u => ({
+      id: u.id,
+      username: u.username,
+      inRoom: u.inRoom
+    }));
+  }
+
+  handleReconnectTimeout(userId) {
+    const disconnectedInfo = this.disconnectedPlayers.get(userId);
+    if (!disconnectedInfo) return;
+    
+    const room = this.rooms.get(disconnectedInfo.roomId);
+    if (!room || room.status !== 'playing') {
+      this.disconnectedPlayers.delete(userId);
+      return;
+    }
+    
+    const player = room.players.find(p => p.id === userId);
+    if (player && player.disconnected) {
+      this.disconnectedPlayers.delete(userId);
+      const winner = room.players.find(p => p.id !== userId);
+      room.status = 'finished';
+      room.winner = winner;
+      room.endReason = 'disconnect_timeout';
+      
+      this.saveFightHistory(room);
+      
+      room.players.forEach(p => {
+        const user = this.onlineUsers.get(p.id);
+        if (user) user.inRoom = null;
+      });
+      
+      this.rooms.delete(disconnectedInfo.roomId);
+      
+      if (winner && winner.socketId) {
+        return {
+          event: 'opponent-disconnected',
+          winnerSocketId: winner.socketId,
+          winner,
+          reason: '对手断线超时，你获胜！'
+        };
+      }
+    }
+    
+    this.disconnectedPlayers.delete(userId);
+    return null;
+  }
+
+  getOnlineUsers() {
+    return Array.from(this.onlineUsers.values()).map(u => ({
+      id: u.id,
+      username: u.username,
+      inRoom: u.inRoom
+    }));
+  }
+
+  sendInvitation(fromUserId, toUserId) {
+    const fromUser = this.onlineUsers.get(fromUserId);
+    const toUser = this.onlineUsers.get(toUserId);
+    
+    if (!fromUser || !toUser) {
+      return { success: false, error: '用户不在线' };
+    }
+    
+    if (toUser.inRoom) {
+      return { success: false, error: '对方正在游戏中' };
+    }
+    
+    if (fromUser.inRoom) {
+      return { success: false, error: '你正在游戏中' };
+    }
+    
+    const invitationId = uuidv4();
+    this.pendingInvitations.set(toUserId, {
+      id: invitationId,
+      from: {
+        id: fromUserId,
+        username: fromUser.username
+      },
+      to: {
+        id: toUserId,
+        username: toUser.username
+      },
+      timestamp: Date.now()
+    });
+    
+    return {
+      success: true,
+      invitationId,
+      toSocketId: toUser.socketId,
+      from: { id: fromUserId, username: fromUser.username }
+    };
+  }
+
+  acceptInvitation(userId) {
+    const invitation = this.pendingInvitations.get(userId);
+    if (!invitation) {
+      return { success: false, error: '邀请不存在或已过期' };
+    }
+    
+    if (Date.now() - invitation.timestamp > 60000) {
+      this.pendingInvitations.delete(userId);
+      return { success: false, error: '邀请已过期' };
+    }
+    
+    const fromUser = this.onlineUsers.get(invitation.from.id);
+    const toUser = this.onlineUsers.get(userId);
+    
+    if (!fromUser || !toUser) {
+      return { success: false, error: '用户不在线' };
+    }
+    
+    if (fromUser.inRoom || toUser.inRoom) {
+      return { success: false, error: '对方已在游戏中' };
+    }
+    
+    this.pendingInvitations.delete(userId);
+    
+    const roomId = uuidv4();
+    const keywords = ['春', '花', '月', '风', '山', '水', '雪', '云', '雨', '夜', '秋', '愁', '情', '梦', '酒'];
+    const keyword = keywords[Math.floor(Math.random() * keywords.length)];
+    
+    const room = {
+      id: roomId,
+      players: [
+        { id: fromUser.id, username: fromUser.username, socketId: fromUser.socketId, disconnected: false },
+        { id: toUser.id, username: toUser.username, socketId: toUser.socketId, disconnected: false }
+      ],
+      currentTurn: 0,
+      keyword,
+      usedPoems: [],
+      usedPoemsNormalized: [],
+      status: 'playing',
+      startTime: Date.now(),
+      rounds: 0,
+      turnStartTime: Date.now(),
+      turnTimeLimit: 30,
+      lastActivity: Date.now()
+    };
+    
+    this.rooms.set(roomId, room);
+    this.roomLocks.set(roomId, false);
+    fromUser.inRoom = roomId;
+    toUser.inRoom = roomId;
+    
+    return {
+      success: true,
+      room,
+      fromSocketId: fromUser.socketId,
+      toSocketId: toUser.socketId
+    };
+  }
+
+  declineInvitation(userId) {
+    const invitation = this.pendingInvitations.get(userId);
+    if (!invitation) {
+      return { success: false, error: '邀请不存在' };
+    }
+    
+    const fromUser = this.onlineUsers.get(invitation.from.id);
+    this.pendingInvitations.delete(userId);
+    
+    return {
+      success: true,
+      fromSocketId: fromUser?.socketId
+    };
+  }
+
+  acquireLock(roomId) {
+    if (this.roomLocks.get(roomId)) {
+      return false;
+    }
+    this.roomLocks.set(roomId, true);
+    return true;
+  }
+
+  releaseLock(roomId) {
+    this.roomLocks.set(roomId, false);
+  }
+
+  normalizePoem(poem) {
+    return poem
+      .replace(/[，。！？、；：""''（）【】《》\s]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  submitAnswer(roomId, userId, poem) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return { success: false, error: '房间不存在' };
+    }
+    
+    if (room.status !== 'playing') {
+      return { success: false, error: '游戏已结束' };
+    }
+    
+    if (!this.acquireLock(roomId)) {
+      return { success: false, error: '正在处理中，请稍候' };
+    }
+    
+    try {
+      const currentPlayer = room.players[room.currentTurn];
+      if (currentPlayer.id !== userId) {
+        return { success: false, error: '不是你的回合' };
+      }
+      
+      const normalizedPoem = this.normalizePoem(poem);
+      if (room.usedPoemsNormalized.includes(normalizedPoem)) {
+        return { success: false, error: '诗句已使用过', isDuplicate: true };
+      }
+      
+      room.lastActivity = Date.now();
+      
+      return {
+        success: true,
+        room,
+        currentPlayer,
+        poem,
+        normalizedPoem
+      };
+    } finally {
+      this.releaseLock(roomId);
+    }
+  }
+
+  verifyAnswer(roomId, userId, poem, isValid, normalizedPoem) {
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      return null;
+    }
+    
+    if (!this.acquireLock(roomId)) {
+      return null;
+    }
+    
+    try {
+      if (isValid) {
+        room.usedPoems.push(poem);
+        if (normalizedPoem) {
+          room.usedPoemsNormalized.push(normalizedPoem);
+        }
+        room.rounds++;
+        room.currentTurn = (room.currentTurn + 1) % room.players.length;
+        room.turnStartTime = Date.now();
+        
+        return {
+          success: true,
+          room,
+          isCorrect: true,
+          nextPlayer: room.players[room.currentTurn]
+        };
+      } else {
+        const winner = room.players[(room.currentTurn + 1) % room.players.length];
+        room.status = 'finished';
+        room.winner = winner;
+        room.endReason = 'wrong_answer';
+        
+        this.saveFightHistory(room);
+        
+        room.players.forEach(p => {
+          const user = this.onlineUsers.get(p.id);
+          if (user) user.inRoom = null;
+        });
+        
+        this.rooms.delete(roomId);
+        this.roomLocks.delete(roomId);
+        
+        return {
+          success: true,
+          room,
+          isCorrect: false,
+          winner
+        };
+      }
+    } finally {
+      this.releaseLock(roomId);
+    }
+  }
+
+  handleTimeout(roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room || room.status !== 'playing') {
+      return null;
+    }
+    
+    if (!this.acquireLock(roomId)) {
+      return null;
+    }
+    
+    try {
+      const elapsed = (Date.now() - room.turnStartTime) / 1000;
+      if (elapsed < room.turnTimeLimit) {
+        return null;
+      }
+      
+      const loser = room.players[room.currentTurn];
+      const winner = room.players[(room.currentTurn + 1) % room.players.length];
+      
+      room.status = 'finished';
+      room.winner = winner;
+      room.endReason = 'timeout';
+      
+      this.saveFightHistory(room);
+      
+      room.players.forEach(p => {
+        const user = this.onlineUsers.get(p.id);
+        if (user) user.inRoom = null;
+      });
+      
+      this.rooms.delete(roomId);
+      this.roomLocks.delete(roomId);
+      
+      return {
+        success: true,
+        winner,
+        loser,
+        reason: '回答超时'
+      };
+    } finally {
+      this.releaseLock(roomId);
+    }
+  }
+
+  leaveRoom(roomId, userId) {
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+    
+    if (!this.acquireLock(roomId)) {
+      return null;
+    }
+    
+    try {
+      const leavingPlayer = room.players.find(p => p.id === userId);
+      if (!leavingPlayer) return null;
+      
+      const winner = room.players.find(p => p.id !== userId);
+      room.status = 'finished';
+      room.winner = winner;
+      room.endReason = 'player_left';
+      
+      this.saveFightHistory(room);
+      
+      room.players.forEach(p => {
+        const user = this.onlineUsers.get(p.id);
+        if (user) user.inRoom = null;
+      });
+      
+      this.rooms.delete(roomId);
+      this.roomLocks.delete(roomId);
+      
+      return {
+        room,
+        winner,
+        leaver: leavingPlayer,
+        otherPlayer: winner
+      };
+    } finally {
+      this.releaseLock(roomId);
+    }
+  }
+
+  saveFightHistory(room) {
+    const player1 = room.players[0]?.username || '';
+    const player2 = room.players[1]?.username || '';
+    const winner = room.winner?.username || null;
+    
+    db.run(
+      'INSERT INTO fight_history (player1, player2, winner, rounds, date) VALUES (?, ?, ?, ?, datetime("now"))',
+      [player1, player2, winner, room.rounds],
+      (err) => {
+        if (err) {
+          console.error('保存对战历史失败:', err);
+        }
+      }
+    );
+  }
+
+  getFightHistory(username) {
+    return new Promise((resolve, reject) => {
+      db.all(
+        `SELECT * FROM fight_history 
+         WHERE player1 = ? OR player2 = ? 
+         ORDER BY date DESC 
+         LIMIT 20`,
+        [username, username],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(rows);
+          }
+        }
+      );
+    });
+  }
+
+  getRoom(roomId) {
+    return this.rooms.get(roomId);
+  }
+}
+
+module.exports = new FeihualingService();

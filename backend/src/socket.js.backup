@@ -1,0 +1,321 @@
+const feihualingService = require('./services/feihualingService');
+const { db } = require('./utils/db');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = 'your-secret-key-change-in-production';
+
+const roomTimers = new Map();
+
+function setupSocket(io) {
+  io.on('connection', (socket) => {
+    console.log('新的Socket连接:', socket.id);
+    
+    let currentUserId = null;
+
+    socket.on('feihualing:login', (data) => {
+      try {
+        const token = data.token;
+        if (!token) {
+          socket.emit('feihualing:error', { error: '未提供token' });
+          return;
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        currentUserId = decoded.id.toString();
+        
+        const onlineUsers = feihualingService.addUser(currentUserId, decoded.username, socket.id);
+        
+        socket.emit('feihualing:online-users', { users: onlineUsers });
+        io.emit('feihualing:user-joined', { 
+          user: { id: currentUserId, username: decoded.username, inRoom: null } 
+        });
+        
+        console.log(`用户 ${decoded.username} 加入飞花令在线状态`);
+      } catch (error) {
+        console.error('登录失败:', error);
+        socket.emit('feihualing:error', { error: '登录失败，请重新登录' });
+      }
+    });
+
+    socket.on('feihualing:get-online-users', () => {
+      const users = feihualingService.getOnlineUsers();
+      socket.emit('feihualing:online-users', { users });
+    });
+
+    socket.on('feihualing:send-invitation', (data) => {
+      const toUserId = data.toUserId.toString();
+      const result = feihualingService.sendInvitation(currentUserId, toUserId);
+      
+      if (!result.success) {
+        socket.emit('feihualing:error', { error: result.error });
+        return;
+      }
+      
+      if (result.toSocketId) {
+        io.to(result.toSocketId).emit('feihualing:invitation-received', {
+          from: result.from
+        });
+      }
+      
+      socket.emit('feihualing:invitation-sent', { success: true });
+    });
+
+    socket.on('feihualing:accept-invitation', () => {
+      const result = feihualingService.acceptInvitation(currentUserId);
+      
+      if (!result.success) {
+        socket.emit('feihualing:error', { error: result.error });
+        return;
+      }
+      
+      const { room, fromSocketId, toSocketId } = result;
+      
+      if (fromSocketId) {
+        io.to(fromSocketId).emit('feihualing:game-started', { room });
+      }
+      
+      if (toSocketId) {
+        io.to(toSocketId).emit('feihualing:game-started', { room });
+      }
+      
+      startTurnTimer(room.id, io);
+      
+      const users = feihualingService.getOnlineUsers();
+      io.emit('feihualing:online-users', { users });
+    });
+
+    socket.on('feihualing:decline-invitation', () => {
+      const result = feihualingService.declineInvitation(currentUserId);
+      
+      if (!result.success) {
+        socket.emit('feihualing:error', { error: result.error });
+        return;
+      }
+      
+      if (result.fromSocketId) {
+        io.to(result.fromSocketId).emit('feihualing:invitation-declined');
+      }
+      
+      socket.emit('feihualing:invitation-declined', { success: true });
+    });
+
+    socket.on('feihualing:submit-answer', async (data) => {
+      const { roomId, poem } = data;
+      
+      const submitResult = feihualingService.submitAnswer(roomId, currentUserId, poem);
+      
+      if (!submitResult.success) {
+        socket.emit('feihualing:error', { error: submitResult.error, isDuplicate: submitResult.isDuplicate });
+        return;
+      }
+      
+      const { room, currentPlayer, normalizedPoem } = submitResult;
+      
+      room.players.forEach(player => {
+        if (player.socketId) {
+          io.to(player.socketId).emit('feihualing:validating', { 
+            poem,
+            submittedBy: currentPlayer.username 
+          });
+        }
+      });
+      
+      const isValid = await validatePoem(poem, room.keyword);
+      
+      const verifyResult = feihualingService.verifyAnswer(roomId, currentUserId, poem, isValid, normalizedPoem);
+      
+      if (!verifyResult) {
+        socket.emit('feihualing:error', { error: '验证失败' });
+        return;
+      }
+      
+      clearTurnTimer(roomId);
+      
+      room.players.forEach(player => {
+        if (player.socketId) {
+          io.to(player.socketId).emit('feihualing:answer-result', {
+            ...verifyResult,
+            submittedBy: currentPlayer.username,
+            poem,
+            isValid
+          });
+        }
+      });
+      
+      if (verifyResult.isCorrect) {
+        startTurnTimer(roomId, io);
+        
+        socket.emit('feihualing:answer-correct', {
+          nextPlayer: verifyResult.nextPlayer
+        });
+      } else {
+        room.players.forEach(player => {
+          if (player.socketId) {
+            io.to(player.socketId).emit('feihualing:game-ended', {
+              winner: verifyResult.winner,
+              reason: '回答错误'
+            });
+          }
+        });
+      }
+    });
+
+    socket.on('feihualing:leave-game', (data) => {
+      const { roomId } = data;
+      clearTurnTimer(roomId);
+      
+      const result = feihualingService.leaveRoom(roomId, currentUserId);
+      
+      if (!result) {
+        socket.emit('feihualing:error', { error: '离开房间失败' });
+        return;
+      }
+      
+      if (result.otherPlayer && result.otherPlayer.socketId) {
+        io.to(result.otherPlayer.socketId).emit('feihualing:opponent-left', {
+          winner: result.winner,
+          reason: '对手主动离开'
+        });
+      }
+      
+      socket.emit('feihualing:left-game', { success: true });
+      
+      const users = feihualingService.getOnlineUsers();
+      io.emit('feihualing:online-users', { users });
+    });
+
+    socket.on('feihualing:get-room', (data) => {
+      const { roomId } = data;
+      const room = feihualingService.getRoom(roomId);
+      if (room) {
+        socket.emit('feihualing:room-info', { room });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Socket断开连接:', socket.id);
+      
+      if (currentUserId) {
+        const onlineUsers = feihualingService.removeUser(socket.id);
+        io.emit('feihualing:user-left', { userId: currentUserId });
+        io.emit('feihualing:online-users', { users: onlineUsers });
+      }
+    });
+
+    socket.on('ping', () => {
+      socket.emit('pong');
+    });
+  });
+  
+  return io;
+}
+
+function startTurnTimer(roomId, io) {
+  clearTurnTimer(roomId);
+  
+  const room = feihualingService.getRoom(roomId);
+  if (!room) return;
+  
+  const timer = setInterval(() => {
+    const currentRoom = feihualingService.getRoom(roomId);
+    if (!currentRoom || currentRoom.status !== 'playing') {
+      clearTurnTimer(roomId);
+      return;
+    }
+    
+    const elapsed = Math.floor((Date.now() - currentRoom.turnStartTime) / 1000);
+    const remaining = currentRoom.turnTimeLimit - elapsed;
+    
+    currentRoom.players.forEach(player => {
+      if (player.socketId) {
+        io.to(player.socketId).emit('feihualing:timer-tick', {
+          remaining,
+          total: currentRoom.turnTimeLimit,
+          currentPlayerId: currentRoom.players[currentRoom.currentTurn].id
+        });
+      }
+    });
+    
+    if (remaining <= 0) {
+      clearTurnTimer(roomId);
+      
+      const result = feihualingService.handleTimeout(roomId);
+      if (result) {
+        currentRoom.players.forEach(player => {
+          if (player.socketId) {
+            io.to(player.socketId).emit('feihualing:game-ended', {
+              winner: result.winner,
+              reason: result.reason
+            });
+          }
+        });
+      }
+    }
+  }, 1000);
+  
+  roomTimers.set(roomId, timer);
+}
+
+function clearTurnTimer(roomId) {
+  if (roomTimers.has(roomId)) {
+    clearInterval(roomTimers.get(roomId));
+    roomTimers.delete(roomId);
+  }
+}
+
+async function validatePoem(poem, keyword) {
+  try {
+    const cleanPoem = poem.replace(/[，。！？、；：""''（）【】《》\s]/g, '');
+    
+    if (!cleanPoem.includes(keyword)) {
+      return false;
+    }
+    
+    return new Promise((resolve) => {
+      const searchTerms = [
+        cleanPoem,
+        cleanPoem.substring(0, Math.min(cleanPoem.length, 10)),
+        cleanPoem.substring(Math.max(0, cleanPoem.length - 10))
+      ];
+      
+      const searchPromises = searchTerms.map(term => {
+        return new Promise((res) => {
+          db.get(
+            'SELECT * FROM poems WHERE content LIKE ? LIMIT 1',
+            [`%${term}%`],
+            (err, row) => {
+              if (err || !row) {
+                res(false);
+              } else {
+                res(true);
+              }
+            }
+          );
+        });
+      });
+      
+      Promise.any(searchPromises).then((found) => {
+        resolve(found);
+      }).catch(() => {
+        resolve(false);
+      });
+    });
+  } catch (error) {
+    console.error('验证诗句失败:', error);
+    return false;
+  }
+}
+
+function emitToUser(userId, event, data) {
+  return false;
+}
+
+function broadcast(event, data) {
+  if (global.io) {
+    global.io.emit(event, data);
+  }
+}
+
+module.exports = setupSocket;
+module.exports.emitToUser = emitToUser;
+module.exports.broadcast = broadcast;

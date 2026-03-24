@@ -3,7 +3,8 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '../../db/poetry.db');
+// 使用环境变量配置数据库路径，支持打包后的相对路径
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../db/poetry.db');
 
 // 确保数据库目录存在
 const DB_DIR = path.dirname(DB_PATH);

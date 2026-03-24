@@ -29,8 +29,8 @@
         <p class="class-info-value">{{ Math.round((classData.avg_study_time || 0) / 60) }}分钟</p>
       </div>
       <div class="class-info-item">
-        <h3>平均完成率</h3>
-        <p class="class-info-value">{{ Math.round((classData.avg_completion_rate || 0) * 100) }}%</p>
+        <h3>学习诗词总数</h3>
+        <p class="class-info-value">{{ classData.total_poems_studied || 0 }}首</p>
       </div>
     </div>
 
@@ -125,8 +125,8 @@
               <span class="stat-value">{{ formatTime(quickViewStudent?.last_study_time) }}</span>
             </div>
             <div class="quick-stat-item">
-              <span class="stat-label">完成率</span>
-              <span class="stat-value">{{ Math.round((quickViewStudent?.completion_rate || 0) * 100) }}%</span>
+              <span class="stat-label">学习诗词</span>
+              <span class="stat-value">{{ quickViewStudent?.poem_count || 0 }}首</span>
             </div>
           </div>
         </div>
@@ -188,7 +188,7 @@ const loadClassData = async () => {
 
     if (studentsResponse.ok) {
       const data = await studentsResponse.json()
-      students.value = data
+      students.value = data.data || data
     }
 
     // 模拟班级排名
@@ -200,14 +200,13 @@ const loadClassData = async () => {
       class_id: classId.value,
       total_students: 3,
       total_poems_studied: 150,
-      avg_study_time: 2100,
-      avg_completion_rate: 0.88
+      avg_study_time: 2100
     }
     
     students.value = [
-      { user_id: 1, username: '张三', poem_count: 60, total_study_time: 1800, last_study_time: '2026-03-23', completion_rate: 0.92 },
-      { user_id: 2, username: '李四', poem_count: 50, total_study_time: 1500, last_study_time: '2026-03-22', completion_rate: 0.85 },
-      { user_id: 3, username: '王五', poem_count: 40, total_study_time: 1200, last_study_time: '2026-03-21', completion_rate: 0.87 }
+      { user_id: 1, username: '张三', poem_count: 60, total_study_time: 1800, last_study_time: '2026-03-23' },
+      { user_id: 2, username: '李四', poem_count: 50, total_study_time: 1500, last_study_time: '2026-03-22' },
+      { user_id: 3, username: '王五', poem_count: 40, total_study_time: 1200, last_study_time: '2026-03-21' }
     ]
   } finally {
     loading.value = false
@@ -279,7 +278,7 @@ const studentAbilityChartData = computed(() => {
       indicator: [
         { name: '诗词数量', max: 100 },
         { name: '学习时长', max: 100 },
-        { name: '完成率', max: 100 },
+        { name: '学习频率', max: 100 },
         { name: '活跃度', max: 100 }
       ],
       shape: 'circle',
@@ -313,7 +312,7 @@ const studentAbilityChartData = computed(() => {
           value: [
             Math.min((student.poem_count || 0) * 0.8, 100),
             Math.min(Math.round((student.total_study_time || 0) / 30), 100),
-            Math.round((student.completion_rate || 0) * 100),
+            Math.min(Math.round((student.poem_count || 0) / 10 * 100), 100),
             Math.floor(Math.random() * 50) + 50
           ],
           name: student.username
