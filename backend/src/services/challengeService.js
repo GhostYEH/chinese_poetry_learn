@@ -2,6 +2,7 @@ const { db } = require('../utils/db');
 const aiService = require('./aiService');
 
 const questionCache = new Map();
+const generatedQuestions = new Set();
 
 function getDifficulty(level) {
   if (level <= 50) return 'easy';
@@ -12,9 +13,10 @@ function getDifficulty(level) {
 
 function normalizeAnswer(answer) {
   if (!answer) return '';
-  let normalized = answer.replace(/\s/g, '');
-  normalized = normalized.replace(/[，。！？；：""''（）【】、]/g, '');
-  normalized = normalized.replace(/[，。！？；：""''（）【】、]/g, '');
+  let normalized = answer.replace(/\s/g, ''); // 移除所有空格
+  normalized = normalized.replace(/[，。！？；：""''（）【】、,.!?;:"'()\[\]\\/]/g, ''); // 移除所有标点符号
+  
+  // 全角转半角
   const fullWidthMap = {
     '０': '0', '１': '1', '２': '2', '３': '3', '４': '4',
     '５': '5', '６': '6', '７': '7', '８': '8', '９': '9',
@@ -27,14 +29,43 @@ function normalizeAnswer(answer) {
     'Ｆ': 'F', 'Ｇ': 'G', 'Ｈ': 'H', 'Ｉ': 'I', 'Ｊ': 'J',
     'Ｋ': 'K', 'Ｌ': 'L', 'Ｍ': 'M', 'Ｎ': 'N', 'Ｏ': 'O',
     'Ｐ': 'P', 'Ｑ': 'Q', 'Ｒ': 'R', 'Ｓ': 'S', 'Ｔ': 'T',
-    'Ｕ': 'U', 'Ｖ': 'V', 'Ｗ': 'W', 'Ｘ': 'X', 'Ｙ': 'Y', 'Ｚ': 'Z'
+    'Ｕ': 'U', 'Ｖ': 'V', 'Ｗ': 'W', 'Ｘ': 'X', 'Ｙ': 'Y', 'Ｚ': 'Z',
+    '　': ' ' // 全角空格
   };
-  return normalized.split('').map(char => fullWidthMap[char] || char).join('');
+  
+  normalized = normalized.split('').map(char => {
+    // 处理全角字符
+    if (fullWidthMap[char]) {
+      return fullWidthMap[char];
+    }
+    // 处理全角转半角（通用方法）
+    const code = char.charCodeAt(0);
+    if (code >= 65281 && code <= 65374) {
+      return String.fromCharCode(code - 65248);
+    }
+    return char;
+  }).join('');
+  
+  // 移除剩余的空格
+  normalized = normalized.replace(/\s/g, '');
+  
+  return normalized;
 }
 
 function checkAnswer(userAnswer, correctAnswer) {
   const normalizedUser = normalizeAnswer(userAnswer);
   const normalizedCorrect = normalizeAnswer(correctAnswer);
+  
+  // 日志记录，便于调试
+  if (normalizedUser !== normalizedCorrect) {
+    console.log('答案比对:', {
+      userInput: userAnswer,
+      correctAnswer,
+      normalizedUser,
+      normalizedCorrect
+    });
+  }
+  
   return normalizedUser === normalizedCorrect;
 }
 
@@ -122,7 +153,10 @@ async function generateQuestions(startLevel, count) {
    - 51-120：中等（上下句）
    - 121-180：困难（指定字填空）
    - 181-200：挑战（多空）
-3. 必须保证：
+3. 题目类型要多样化，包括：
+   - 上句填下句（如：床前明月光，____。）
+   - 下句填上句（如：____，疑是地上霜。）
+4. 必须保证：
    - 诗句完全正确（不能编造）
    - 上下句关系正确
    - 不重复
@@ -146,23 +180,38 @@ async function generateQuestions(startLevel, count) {
     let questions = await aiService.getAIGeneratedQuestions(prompt);
     
     if (!questions || !Array.isArray(questions) || questions.length === 0) {
-      questions = generateMockQuestions(startLevel, count, difficulty);
+      throw new Error('AI生成题目失败');
+    }
+    
+    // 过滤重复题目，确保每个题目都是唯一的
+    const uniqueQuestions = [];
+    for (const q of questions) {
+      const questionKey = `${q.question}_${q.answer}`;
+      if (!generatedQuestions.has(questionKey)) {
+        generatedQuestions.add(questionKey);
+        uniqueQuestions.push(q);
+      }
+    }
+    
+    if (uniqueQuestions.length < count) {
+      throw new Error('AI生成的题目不足');
     }
     
     questionCache.set(cacheKey, {
-      questions,
+      questions: uniqueQuestions.slice(0, count),
       timestamp: Date.now()
     });
     
-    return questions;
+    return uniqueQuestions.slice(0, count);
   } catch (error) {
-    console.error('AI生成题目失败，使用默认题目:', error);
-    const questions = generateMockQuestions(startLevel, count, difficulty);
+    console.error('AI生成题目失败，使用模拟数据:', error);
+    // 使用模拟数据作为备用
+    const mockQuestions = generateMockQuestions(startLevel, count, difficulty);
     questionCache.set(cacheKey, {
-      questions,
+      questions: mockQuestions,
       timestamp: Date.now()
     });
-    return questions;
+    return mockQuestions;
   }
 }
 
@@ -177,17 +226,89 @@ function generateMockQuestions(startLevel, count, difficulty) {
     { title: "悯农", author: "李绅", content: "锄禾日当午，汗滴禾下土。谁知盘中餐，粒粒皆辛苦。" },
     { title: "鹅", author: "骆宾王", content: "鹅鹅鹅，曲项向天歌。白毛浮绿水，红掌拨清波。" },
     { title: "咏柳", author: "贺知章", content: "碧玉妆成一树高，万条垂下绿丝绦。不知细叶谁裁出，二月春风似剪刀。" },
-    { title: "凉州词", author: "王翰", content: "葡萄美酒夜光杯，欲饮琵琶马上催。醉卧沙场君莫笑，古来征战几人回。" }
+    { title: "凉州词", author: "王翰", content: "葡萄美酒夜光杯，欲饮琵琶马上催。醉卧沙场君莫笑，古来征战几人回。" },
+    { title: "送孟浩然之广陵", author: "李白", content: "故人西辞黄鹤楼，烟花三月下扬州。孤帆远影碧空尽，唯见长江天际流。" },
+    { title: "望天门山", author: "李白", content: "天门中断楚江开，碧水东流至此回。两岸青山相对出，孤帆一片日边来。" },
+    { title: "绝句", author: "杜甫", content: "两个黄鹂鸣翠柳，一行白鹭上青天。窗含西岭千秋雪，门泊东吴万里船。" },
+    { title: "九月九日忆山东兄弟", author: "王维", content: "独在异乡为异客，每逢佳节倍思亲。遥知兄弟登高处，遍插茱萸少一人。" },
+    { title: "望洞庭", author: "刘禹锡", content: "湖光秋月两相和，潭面无风镜未磨。遥望洞庭山水翠，白银盘里一青螺。" }
   ];
 
   const questions = [];
+  const usedPoemLines = new Set();
+  
   for (let i = 0; i < count; i++) {
-    const poem = defaultPoems[i % defaultPoems.length];
-    const lines = poem.content.split('。').filter(l => l.trim());
-    const firstLine = lines[0] + '。';
-    const parts = firstLine.split('，');
-    const question = `${parts[0]}，____。`;
-    const answer = parts[1].replace('。', '');
+    let poem, question, answer, analysis;
+    let attempts = 0;
+    const maxAttempts = 100;
+    
+    // 确保找到未使用的诗句
+    while (attempts < maxAttempts) {
+      const poemIndex = (i + attempts) % defaultPoems.length;
+      poem = defaultPoems[poemIndex];
+      const lines = poem.content.split('。').filter(l => l.trim());
+      
+      // 随机选择题目类型：0=上句填下句，1=下句填上句
+      const questionType = Math.random() > 0.5 ? 0 : 1;
+      
+      // 根据难度选择不同的行
+      let lineIndex;
+      switch (difficulty) {
+        case 'easy':
+          lineIndex = 0; // 第一行（名句）
+          break;
+        case 'medium':
+          lineIndex = 1; // 第二行（上下句）
+          break;
+        case 'hard':
+        case 'challenge':
+          lineIndex = Math.floor(Math.random() * lines.length); // 随机行
+          break;
+        default:
+          lineIndex = 0;
+      }
+      
+      const line = lines[lineIndex];
+      if (!line || line.length < 8) {
+        attempts++;
+        continue;
+      }
+      
+      const parts = line.split('，');
+      if (parts.length < 2) {
+        attempts++;
+        continue;
+      }
+      
+      if (questionType === 0) {
+        // 上句填下句
+        question = `${parts[0]}，____。`;
+        answer = parts[1];
+        analysis = `此句出自${poem.author}的《${poem.title}》，上句描述了${parts[0]}的场景，下句应该接`;
+      } else {
+        // 下句填上句
+        question = `____，${parts[1]}。`;
+        answer = parts[0];
+        analysis = `此句出自${poem.author}的《${poem.title}》，下句描述了${parts[1]}的场景，上句应该是`;
+      }
+      
+      const questionKey = `${question}_${answer}`;
+      
+      if (!generatedQuestions.has(questionKey) && !usedPoemLines.has(questionKey)) {
+        usedPoemLines.add(questionKey);
+        break;
+      }
+      
+      attempts++;
+    }
+    
+    // 如果找不到合适的诗句，使用默认的
+    if (!poem) {
+      poem = defaultPoems[0];
+      question = "床前明月光，____。";
+      answer = "疑是地上霜";
+      analysis = "经典古诗词";
+    }
     
     questions.push({
       id: i + 1,
@@ -198,7 +319,7 @@ function generateMockQuestions(startLevel, count, difficulty) {
       author: poem.author,
       title: poem.title,
       difficulty,
-      analysis: "经典古诗词"
+      analysis
     });
   }
   

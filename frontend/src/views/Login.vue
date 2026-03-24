@@ -32,7 +32,7 @@
             还没有账号？ <router-link to="/register">立即注册</router-link>
           </p>
           <p class="teacher-link">
-            教师登录？ <router-link to="/teacher/login">切换为教师登录</router-link>
+            教师登录？ <a href="#" @click.prevent="switchToTeacherLogin">切换为教师登录</a>
           </p>
         </div>
       </form>
@@ -81,6 +81,8 @@ const handleLogin = async () => {
       // 存储token到localStorage
       localStorage.setItem('token', data.data.token)
       localStorage.setItem('user', JSON.stringify(data.data.user))
+      // 设置当前登录类型为学生
+      localStorage.setItem('currentLoginType', 'student')
       
       // 检查是否有重定向路径
       const redirectPath = localStorage.getItem('redirectPath')
@@ -101,6 +103,13 @@ const handleLogin = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const switchToTeacherLogin = () => {
+  // 设置当前登录类型为教师
+  localStorage.setItem('currentLoginType', 'teacher')
+  // 跳转到教师登录页
+  router.push('/teacher/login')
 }
 </script>
 

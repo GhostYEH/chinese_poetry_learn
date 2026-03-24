@@ -153,6 +153,30 @@ export const api = {
       method: 'DELETE'
     }),
     getLeaderboard: () => request('/challenge/leaderboard', { includeAuth: false })
+  },
+
+  // 错题复习相关
+  wrongQuestions: {
+    getStats: () => request('/wrong-questions/stats'),
+    getQuestions: (limit = 20) => request(`/wrong-questions/questions?limit=${limit}`),
+    add: (data) => request('/wrong-questions/add', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    submitAnswer: (questionId, userAnswer) => request('/wrong-questions/answer', {
+      method: 'POST',
+      body: JSON.stringify({ questionId, userAnswer })
+    }),
+    markAsMastered: (id) => request(`/wrong-questions/master/${id}`, {
+      method: 'POST'
+    }),
+    delete: (id) => request(`/wrong-questions/${id}`, {
+      method: 'DELETE'
+    }),
+    getHints: (data) => request('/wrong-questions/hints', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
   }
 };
 

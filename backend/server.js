@@ -31,6 +31,7 @@ const collectionsRoutes = require('./src/api/collectionsRoutes');
 const feihuaRoutes = require('./src/api/feihuaRoutes');
 const teacherRoutes = require('./src/api/teacherRoutes');
 const challengeRoutes = require('./src/api/challengeRoutes');
+const wrongQuestionRoutes = require('./src/api/wrongQuestionRoutes');
 
 // 提取router对象
 const poemRoutes = poemRoutesModule.router;
@@ -179,6 +180,9 @@ app.use('/api/creation', creationRoutes);
 
 // 闯关模块路由
 app.use('/api/challenge', challengeRoutes);
+
+// 错题复习模块路由
+app.use('/api/wrong-questions', wrongQuestionRoutes);
 
 // 导出poems变量，供其他模块使用
 module.exports = { poems };

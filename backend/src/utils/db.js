@@ -32,7 +32,8 @@ function initDatabase() {
         password_hash TEXT NOT NULL,
         class_id INTEGER DEFAULT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (class_id) REFERENCES class_stats(class_id) ON DELETE SET NULL
       )
     `, (err) => {
       if (err) {
@@ -48,7 +49,8 @@ function initDatabase() {
           author TEXT NOT NULL,
           dynasty TEXT NOT NULL,
           content TEXT NOT NULL,
-          tags TEXT
+          tags TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
       `, (err) => {
         if (err) {
@@ -62,13 +64,8 @@ function initDatabase() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             poem_id INTEGER NOT NULL,
-            view_count INTEGER DEFAULT 0,
-            ai_explain_count INTEGER DEFAULT 0,
-            recite_attempts INTEGER DEFAULT 0,
-            best_score INTEGER DEFAULT 0,
-            total_score INTEGER DEFAULT 0,
             study_time INTEGER DEFAULT 0,
-            last_view_time TEXT,
+            last_view_time TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (poem_id) REFERENCES poems(id)
           )
@@ -78,13 +75,12 @@ function initDatabase() {
             return;
           }
 
-          // 创建错题表
+          // 创建错题本表
           db.run(`
             CREATE TABLE IF NOT EXISTS mistakes (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               user_id INTEGER NOT NULL,
               poem_id INTEGER NOT NULL,
-              mistake_content TEXT NOT NULL,
               mistake_type TEXT NOT NULL,
               created_at TEXT NOT NULL,
               FOREIGN KEY (user_id) REFERENCES users(id),
@@ -113,15 +109,15 @@ function initDatabase() {
                 return;
               }
 
-              // 创建飞花令游戏记录表
+              // 创建创作表
               db.run(`
-                CREATE TABLE IF NOT EXISTS feihua_games (
+                CREATE TABLE IF NOT EXISTS creations (
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER NOT NULL,
-                  keyword TEXT NOT NULL,
-                  score INTEGER NOT NULL,
-                  poem_count INTEGER NOT NULL,
-                  history TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  content TEXT NOT NULL,
+                  type TEXT NOT NULL,
+                  score INTEGER DEFAULT 0,
                   created_at TEXT NOT NULL,
                   FOREIGN KEY (user_id) REFERENCES users(id)
                 )
@@ -131,12 +127,12 @@ function initDatabase() {
                   return;
                 }
 
-                // 创建教师表
+                // 创建班级表
                 db.run(`
-                  CREATE TABLE IF NOT EXISTS teachers (
+                  CREATE TABLE IF NOT EXISTS classes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL,
-                    password TEXT NOT NULL,
+                    class_name TEXT UNIQUE NOT NULL,
+                    teacher_id INTEGER,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                   )
                 `, (err) => {
@@ -145,16 +141,14 @@ function initDatabase() {
                     return;
                   }
 
-                  // 创建班级统计表
+                  // 创建飞花令对战历史表
                   db.run(`
-                    CREATE TABLE IF NOT EXISTS class_stats (
+                    CREATE TABLE IF NOT EXISTS fight_history (
                       id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      class_id INTEGER UNIQUE,
-                      total_students INTEGER DEFAULT 0,
-                      total_poems_studied INTEGER DEFAULT 0,
-                      avg_study_time INTEGER DEFAULT 0,
-                      avg_completion_rate FLOAT DEFAULT 0,
-                      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                      player1 TEXT NOT NULL,
+                      player2 TEXT NOT NULL,
+                      winner TEXT NOT NULL,
+                      date TEXT NOT NULL
                     )
                   `, (err) => {
                     if (err) {
@@ -162,46 +156,115 @@ function initDatabase() {
                       return;
                     }
 
-                    // 创建学生学习统计视图
+                    // 创建对战历史索引
+                    db.run(`CREATE INDEX IF NOT EXISTS idx_fight_player1 ON fight_history(player1)`);
+                    db.run(`CREATE INDEX IF NOT EXISTS idx_fight_player2 ON fight_history(player2)`);
+                    db.run(`CREATE INDEX IF NOT EXISTS idx_fight_date ON fight_history(date)`);
+                    console.log('✓ 飞花令对战历史表创建成功');
+
+                    // 创建错题复习表
                     db.run(`
-                      CREATE VIEW IF NOT EXISTS v_student_learning_stats AS
-                      SELECT 
-                        u.id AS user_id,
-                        u.username,
-                        u.class_id,
-                        COUNT(DISTINCT lr.poem_id) AS poem_count,
-                        SUM(lr.study_time) AS total_study_time,
-                        MAX(lr.last_view_time) AS last_study_time
-                      FROM users u
-                      LEFT JOIN learning_records lr ON u.id = lr.user_id
-                      GROUP BY u.id, u.username
+                      CREATE TABLE IF NOT EXISTS wrong_questions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        question_id INTEGER,
+                        question TEXT,
+                        answer TEXT,
+                        user_answer TEXT,
+                        level INTEGER,
+                        wrong_count INTEGER DEFAULT 1,
+                        last_wrong_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        correct_streak INTEGER DEFAULT 0,
+                        mastered INTEGER DEFAULT 0,
+                        full_poem TEXT,
+                        author TEXT,
+                        title TEXT
+                      )
                     `, (err) => {
                       if (err) {
                         reject(err);
                         return;
                       }
 
-                      // 初始化创作模块数据表
-                      initCreationTables()
-                        .then(() => {
-                          // 检查诗词表是否为空
-                          db.get('SELECT COUNT(*) as count FROM poems', (err, row) => {
+                      // 创建错题复习索引
+                      db.run(`CREATE INDEX IF NOT EXISTS idx_wrong_user ON wrong_questions(user_id)`);
+                      db.run(`CREATE INDEX IF NOT EXISTS idx_wrong_mastered ON wrong_questions(mastered)`);
+                      console.log('✓ 错题复习表创建成功');
+
+                      // 创建教师表
+                      db.run(`
+                        CREATE TABLE IF NOT EXISTS teachers (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          username TEXT UNIQUE NOT NULL,
+                          password TEXT NOT NULL,
+                          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                      `, (err) => {
+                        if (err) {
+                          reject(err);
+                          return;
+                        }
+
+                        // 创建班级统计表
+                        db.run(`
+                          CREATE TABLE IF NOT EXISTS class_stats (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            class_id INTEGER UNIQUE,
+                            total_students INTEGER DEFAULT 0,
+                            total_poems_studied INTEGER DEFAULT 0,
+                            avg_study_time INTEGER DEFAULT 0,
+                            avg_completion_rate FLOAT DEFAULT 0,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                          )
+                        `, (err) => {
+                          if (err) {
+                            reject(err);
+                            return;
+                          }
+
+                          // 创建学生学习统计视图
+                          db.run(`
+                            CREATE VIEW IF NOT EXISTS v_student_learning_stats AS
+                            SELECT 
+                              u.id AS user_id,
+                              u.username,
+                              u.class_id,
+                              COUNT(DISTINCT lr.poem_id) AS poem_count,
+                              SUM(lr.study_time) AS total_study_time,
+                              MAX(lr.last_view_time) AS last_study_time
+                            FROM users u
+                            LEFT JOIN learning_records lr ON u.id = lr.user_id
+                            GROUP BY u.id, u.username
+                          `, (err) => {
                             if (err) {
                               reject(err);
                               return;
                             }
 
-                            if (row.count === 0) {
-                              // 插入默认诗词数据
-                              insertDefaultPoems()
-                                .then(() => resolve())
-                                .catch(err => reject(err));
-                            } else {
-                              resolve();
-                            }
+                            // 初始化创作模块数据表
+                            initCreationTables()
+                              .then(() => {
+                                // 检查诗词表是否为空
+                                db.get('SELECT COUNT(*) as count FROM poems', (err, row) => {
+                                  if (err) {
+                                    reject(err);
+                                    return;
+                                  }
+
+                                  if (row.count === 0) {
+                                    // 插入默认诗词数据
+                                    insertDefaultPoems()
+                                      .then(() => resolve())
+                                      .catch(err => reject(err));
+                                  } else {
+                                    resolve();
+                                  }
+                                });
+                              })
+                              .catch(err => reject(err));
                           });
-                        })
-                        .catch(err => reject(err));
+                        });
+                      });
                     });
                   });
                 });
@@ -374,7 +437,61 @@ function initCreationTables() {
                 return;
               }
 
-              resolve();
+              // 创建在线飞花令对战记录表
+              db.run(`
+                CREATE TABLE IF NOT EXISTS feihua_battles (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  player1_id INTEGER NOT NULL,
+                  player2_id INTEGER NOT NULL,
+                  keyword TEXT NOT NULL,
+                  winner_id INTEGER,
+                  loser_id INTEGER,
+                  total_rounds INTEGER DEFAULT 0,
+                  player1_throw_count INTEGER DEFAULT 0,
+                  player2_throw_count INTEGER DEFAULT 0,
+                  battle_history TEXT,
+                  started_at TEXT NOT NULL,
+                  ended_at TEXT,
+                  FOREIGN KEY (player1_id) REFERENCES users(id),
+                  FOREIGN KEY (player2_id) REFERENCES users(id),
+                  FOREIGN KEY (winner_id) REFERENCES users(id),
+                  FOREIGN KEY (loser_id) REFERENCES users(id)
+                )
+              `, (err) => {
+                if (err) {
+                  reject(err);
+                  return;
+                }
+
+                // 创建用户飞花令最高记录表
+                db.run(`
+                  CREATE TABLE IF NOT EXISTS feihua_high_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    keyword TEXT NOT NULL,
+                    max_rounds INTEGER DEFAULT 0,
+                    total_battles INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    UNIQUE(user_id, keyword)
+                  )
+                `, (err) => {
+                  if (err) {
+                    reject(err);
+                    return;
+                  }
+
+                  // 创建索引
+                  db.run(`CREATE INDEX IF NOT EXISTS idx_feihua_battles_player1 ON feihua_battles(player1_id)`);
+                  db.run(`CREATE INDEX IF NOT EXISTS idx_feihua_battles_player2 ON feihua_battles(player2_id)`);
+                  db.run(`CREATE INDEX IF NOT EXISTS idx_feihua_high_records_user ON feihua_high_records(user_id)`);
+                  console.log('✓ 在线飞花令表创建成功');
+
+                  resolve();
+                });
+              });
             });
           });
         });

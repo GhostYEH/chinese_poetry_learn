@@ -6,9 +6,6 @@
         <div class="tab active">
           <router-link to="/feihualing/single">单人模式</router-link>
         </div>
-        <div class="tab" @click="switchTab('lobby')">
-          <router-link to="/feihualing/lobby">联机对战</router-link>
-        </div>
       </div>
       
       <h1 class="game-title">飞花令</h1>
@@ -846,12 +843,7 @@ export default {
       this.$router.push('/')
     },
     
-    // 切换标签
-    switchTab(tab) {
-      if (tab === 'lobby') {
-        this.$router.push('/feihualing/lobby')
-      }
-    },
+
     
     // 收藏诗句到错题本
     collectPoem(item) {

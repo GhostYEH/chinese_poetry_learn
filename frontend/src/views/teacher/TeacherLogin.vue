@@ -32,7 +32,7 @@
             还没有账号？ <router-link to="/teacher/register">立即注册</router-link>
           </p>
           <p class="student-link">
-            学生登录？ <router-link to="/login">切换到学生登录</router-link>
+            学生登录？ <a href="#" @click.prevent="switchToStudentLogin">切换到学生登录</a>
           </p>
         </div>
       </form>
@@ -78,9 +78,12 @@ const handleLogin = async () => {
       localStorage.removeItem('studentId')
       localStorage.removeItem('userRole')
       
-      // 存储token到localStorage
+      // 存储教师相关数据到localStorage
       localStorage.setItem('teacherToken', data.token)
       localStorage.setItem('teacher', JSON.stringify(data.teacher))
+      localStorage.setItem('teacherInfo', JSON.stringify(data.teacher))
+      // 设置当前登录类型为教师
+      localStorage.setItem('currentLoginType', 'teacher')
       
       // 跳转到教师看板
       router.push('/teacher/dashboard')
@@ -93,6 +96,13 @@ const handleLogin = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const switchToStudentLogin = () => {
+  // 设置当前登录类型为学生
+  localStorage.setItem('currentLoginType', 'student')
+  // 跳转到学生登录页
+  router.push('/login')
 }
 </script>
 

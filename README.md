@@ -1,219 +1,223 @@
-# 古诗词学习系统
+# 古诗词学习系统 - 教师端
 
-一个基于 Node.js 和 Vue 3 的古诗词学习系统，集成了 AI 讲解功能，帮助用户更好地理解和学习古诗词。
+## 项目概述
+
+这是一个古诗词学习系统，分为教师端和学生端，支持不同身份的账号登录实现。
 
 ## 项目结构
 
-### 后端结构
 ```
-backend/
-├── src/
-│   ├── api/           # API路由模块
-│   │   ├── poemRoutes.js     # 诗词相关的API路由
-│   │   └── aiRoutes.js       # AI相关的API路由
-│   ├── config/        # 配置文件
-│   │   └── config.js         # 主配置文件
-│   ├── services/      # 业务逻辑服务
-│   │   └── aiService.js      # AI服务模块
-│   ├── utils/         # 工具函数
-│   │   ├── cache.js          # 缓存工具函数
-│   │   └── dataLoader.js     # 数据加载工具函数
-│   ├── components/    # 组件（如果需要）
-│   ├── store/         # 状态管理（如果需要）
-├── server.js          # 主服务器文件
-├── package.json       # 依赖管理
-```
-
-### 前端结构
-```
-frontend/
-├── src/
-│   ├── assets/        # 静态资源
-│   │   └── style.css         # 样式文件
-│   ├── components/     # Vue组件
-│   ├── config/         # 配置文件
-│   ├── router/         # 路由配置
-│   │   └── index.js          # 路由配置文件
-│   ├── services/       # 服务层（API调用等）
-│   ├── store/          # 状态管理
-│   ├── utils/          # 工具函数
-│   ├── views/           # 页面组件
-│   │   ├── Home.vue           # 首页
-│   │   ├── PoemDetail.vue      # 诗词详情页
-│   │   ├── Profile.vue         # 个人中心
-│   │   └── Search.vue          # 搜索页
-│   ├── App.vue          # 根组件
-│   ├── main.js          # 入口文件
-├── index.html          # HTML模板
-├── package.json         # 依赖管理
-├── vite.config.js       # Vite配置
+chinese-poetry-master/
+├── backend/          # 后端服务
+│   ├── src/
+│   │   ├── api/     # API路由
+│   │   ├── config/  # 配置文件
+│   │   ├── middleware/ # 中间件
+│   │   ├── services/ # 业务逻辑
+│   │   └── utils/   # 工具函数
+│   ├── db/          # 数据库文件
+│   └── server.js    # 主服务器文件
+├── frontend/         # 前端应用
+│   ├── src/
+│   │   ├── components/ # 组件
+│   │   ├── views/     # 页面组件
+│   │   ├── router/    # 路由配置
+│   │   └── services/  # API服务
+│   └── index.html    # HTML模板
+└── poetry/           # 诗词数据
 ```
 
-## 核心功能
+## 环境配置
 
-### 后端功能
-1. **诗词数据管理**：加载和管理诗词数据
-2. **诗词列表查询**：支持分页查询和随机获取诗词
-3. **诗词详情查询**：根据ID查询诗词详情
-4. **每日一诗**：随机获取一首诗词作为每日一诗
-5. **AI讲解**：使用 SiliconFlow API 对诗词进行讲解，包括：
-   - 生活化诗意解释
-   - 关键词深度解析
-   - 意境赏析
-   - 引导性思考题
-6. **AI背诵检测**：检测用户背诵的诗词是否正确，并提供AI反馈
-7. **缓存管理**：对AI讲解结果进行缓存，提高性能
+### 1. 复制环境变量文件
 
-### 前端功能
-1. **诗词列表展示**：展示诗词列表，支持分页和随机获取
-2. **诗词详情展示**：展示诗词的详细信息，包括标题、作者、内容等
-3. **AI讲解展示**：展示AI对诗词的讲解结果
-4. **背诵检测**：用户可以背诵诗词，系统会检测背诵是否正确
-5. **搜索功能**：搜索诗词和作者
-6. **个人中心**：用户可以查看自己的学习记录
+```bash
+cp .env.example .env
+```
 
-## 技术栈
+### 2. 配置环境变量
 
-### 后端
-- Node.js
-- Express
-- SiliconFlow API (AI 服务)
-- Python (数据加载和AI背诵检测)
+编辑 `.env` 文件，设置以下变量：
 
-### 前端
-- Vue 3
-- Vite
-- Vue Router
+```env
+# 应用配置
+PORT=3000
+NODE_ENV=development
 
-## 安装和运行
+# JWT配置
+JWT_SECRET=your-secret-key-change-this-in-production
 
-### 后端安装和运行
-1. 进入后端目录
-   ```bash
-   cd backend
-   ```
-2. 安装依赖
-   ```bash
-   npm install
-   ```
-3. 运行服务器
-   ```bash
-   npm start
-   ```
-   服务器将在 `http://localhost:3000` 上运行
+# 数据库配置
+DB_PATH=./db/poetry.db
 
-### 前端安装和运行
-1. 进入前端目录
-   ```bash
-   cd frontend
-   ```
-2. 安装依赖
-   ```bash
-   npm install
-   ```
-3. 运行开发服务器
-   ```bash
-   npm run dev
-   ```
-   前端将在 `http://localhost:5173` 上运行
+# 硅基流动API配置（可选）
+SILICONFLOW_API_KEY=your-siliconflow-api-key
 
-## API 接口
+# CORS配置
+CORS_ORIGIN=http://localhost:8080
 
-### 诗词相关接口
-1. **获取诗词列表**
-   - URL: `/api/poems`
-   - Method: GET
-   - Query参数:
-     - page: 页码，默认1
-     - pageSize: 每页数量，默认30
-     - random: 是否随机获取，默认false
-   - 返回: 诗词列表
+# 日志配置
+LOG_LEVEL=info
+```
 
-2. **获取诗词详情**
-   - URL: `/api/poems/:id`
-   - Method: GET
-   - 返回: 诗词详情
+### 3. 安装依赖
 
-3. **获取每日一诗**
-   - URL: `/api/daily-poem`
-   - Method: GET
-   - 返回: 随机一首诗词
+```bash
+# 后端依赖
+cd backend
+npm install
 
-### AI 相关接口
-1. **获取诗词讲解**
-   - URL: `/api/ai/explainPoem`
-   - Method: POST
-   - Body参数:
-     - poem: 诗词内容
-     - title: 诗词标题
-     - author: 诗词作者
-   - 返回: AI讲解结果，包含生活化诗意解释、关键词深度解析、意境赏析和引导性思考题
+# 前端依赖
+cd ../frontend
+npm install
+```
 
-2. **获取诗词生活化解释**
-   - URL: `/api/ai/explainPoem/daily_life_explanation`
-   - Method: POST
-   - Body参数:
-     - poem: 诗词内容
-     - title: 诗词标题
-     - author: 诗词作者
-   - 返回: 诗词的生活化解释
+### 4. 启动服务
 
-3. **获取诗词关键词解析**
-   - URL: `/api/ai/explainPoem/keyword_analysis`
-   - Method: POST
-   - Body参数:
-     - poem: 诗词内容
-     - title: 诗词标题
-     - author: 诗词作者
-   - 返回: 诗词的关键词深度解析
+```bash
+# 启动后端服务
+cd backend
+npm start
 
-4. **获取诗词意境赏析**
-   - URL: `/api/ai/explainPoem/artistic_conception`
-   - Method: POST
-   - Body参数:
-     - poem: 诗词内容
-     - title: 诗词标题
-     - author: 诗词作者
-   - 返回: 诗词的意境赏析
+# 启动前端开发服务器
+cd ../frontend
+npm run dev
+```
 
-5. **获取诗词引导性思考题**
-   - URL: `/api/ai/explainPoem/thinking_questions`
-   - Method: POST
-   - Body参数:
-     - poem: 诗词内容
-     - title: 诗词标题
-     - author: 诗词作者
-   - 返回: 诗词的引导性思考题
+## 教师端功能
 
-6. **背诵检测**
-   - URL: `/api/ai/recite-check`
-   - Method: POST
-   - Body参数:
-     - original: 原始诗词内容
-     - input: 用户背诵的内容
-   - 返回: 背诵检测结果，包含得分、错误字符、缺失字符、多余字符和AI建议
+### 登录/注册
+- 教师专用登录页面：`/teacher/login`
+- 教师注册页面：`/teacher/register`
+- 与学生端登录分离，使用不同的JWT令牌
 
-## 配置文件
+### 数据看板
+- 学生总数统计
+- 今日活跃学生数
+- 平均关卡进度
+- 错题总数统计
+- 学习趋势图表
+- 关卡分布图表
+- 错题TOP10排行榜
+- 正确率vs错误率图表
 
-### 后端配置文件
-`backend/src/config/config.js` 文件包含以下配置项：
-- **服务器配置**：端口、主机等
-- **AI模型配置**：API密钥、模型名称、API URL等
-- **缓存配置**：缓存目录、缓存过期时间等
-- **数据加载配置**：Python脚本路径、默认数据等
+### 学生管理
+- 查看学生学习详情
+- 学习记录分析
+- 学习偏好对比
+- 学习时段分布
+- 记忆遗忘曲线
+- 学习能力分析
+- 个性化诗词推荐
 
-### 环境变量
-后端需要设置以下环境变量：
-- **SILICONFLOW_API_KEY**：SiliconFlow API 密钥
+### 班级管理
+- 班级列表查看
+- 班级对比数据
+- 学生排名统计
+- 闯关排名数据
 
-## 数据来源
+### 数据导出
+- 支持Excel格式导出
+- 可导出排名数据
+- 可导出学习统计
 
-诗词数据来源于项目根目录下的各个文件夹，如 `全唐诗`、`宋词`、`元曲` 等。
+## 数据库初始化
 
-## 贡献指南
+系统首次启动时会自动创建以下表：
 
-请参考 [CONTRIBUTING.md](CONTRIBUTING.md) 文件，了解项目的文件命名规范、模块间依赖关系和代码风格规范。
+1. **用户表 (users)** - 学生信息
+2. **教师表 (teachers)** - 教师信息
+3. **诗词表 (poems)** - 诗词数据
+4. **学习记录表 (learning_records)** - 学生学习记录
+5. **错题本表 (mistakes)** - 学生错题记录
+6. **收藏表 (collections)** - 学生收藏记录
+7. **创作表 (creations)** - 学生创作记录
+8. **班级表 (classes)** - 班级信息
+9. **班级统计表 (class_stats)** - 班级统计数据
+10. **用户闯关进度表 (user_challenge_progress)** - 闯关进度
+11. **用户答题记录表 (user_challenge_records)** - 答题记录
+12. **用户错题本表 (user_error_book)** - 错题复习
+13. **教师备注表 (teacher_notes)** - 教师对学生备注
+14. **学生标签表 (student_tags)** - 学生标签
+
+## 安全配置
+
+### JWT认证
+- 教师和学生使用不同的JWT令牌
+- 令牌包含角色信息（teacher/student）
+- 令牌有效期24小时
+- 使用环境变量配置密钥
+
+### 路由守卫
+- 教师端路由需要教师认证
+- 学生端路由需要学生认证
+- 自动清理冲突的token
+
+### 数据库安全
+- 使用参数化查询防止SQL注入
+- 密码使用bcrypt哈希存储
+- 外键约束和级联删除
+
+## API接口
+
+### 教师端API
+- `POST /api/teacher/register` - 教师注册
+- `POST /api/teacher/login` - 教师登录
+- `GET /api/teacher/dashboard` - 看板数据
+- `GET /api/teacher/student/:id/detail` - 学生详情
+- `GET /api/teacher/student/:id/analysis` - 学生分析
+- `GET /api/teacher/classes` - 班级列表
+- `GET /api/teacher/rankings/overall` - 总排名
+- `GET /api/teacher/rankings/class/:classId` - 班级排名
+- `GET /api/teacher/challenge/rankings` - 闯关排名
+- `POST /api/teacher/export` - 数据导出
+
+### 学生端API
+- `POST /api/auth/register` - 学生注册
+- `POST /api/auth/login` - 学生登录
+- `GET /api/poems` - 获取诗词
+- `POST /api/learn/record` - 记录学习
+- `GET /api/challenge/progress` - 闯关进度
+
+## 常见问题
+
+### 1. 数据库连接失败
+- 确保数据库目录存在：`backend/db/`
+- 检查SQLite数据库文件权限
+
+### 2. JWT认证失败
+- 检查JWT_SECRET环境变量
+- 确保教师和学生使用不同的角色标识
+
+### 3. 前端无法连接后端
+- 检查后端服务是否运行在正确端口（默认3000）
+- 检查CORS配置
+- 确保前端代理配置正确
+
+### 4. 硅基流动API调用失败
+- 检查SILICONFLOW_API_KEY环境变量
+- 确保网络连接正常
+- API调用失败时会返回模拟数据
+
+## 开发说明
+
+### 添加新功能
+1. 在后端`src/api/`中添加新的路由文件
+2. 在前端`src/views/teacher/`中添加新的页面组件
+3. 在路由配置中添加新的路由
+4. 更新数据库表结构（如果需要）
+
+### 修改样式
+- 使用CSS变量统一颜色主题
+- 响应式设计支持移动端
+- 使用ECharts进行数据可视化
+
+### 部署说明
+1. 设置生产环境变量
+2. 构建前端应用：`npm run build`
+3. 配置Nginx反向代理
+4. 使用PM2管理Node.js进程
 
 ## 许可证
 
-本项目采用 MIT 许可证，请参考 [LICENSE](LICENSE) 文件。
+MIT License

@@ -489,6 +489,7 @@ export default {
   font-weight: bold;
 }
 
+
 .search-container {
   display: flex;
   margin-bottom: 30px;
@@ -833,6 +834,10 @@ export default {
 }
 
 @media (max-width: 768px) {
+  .quick-actions {
+    grid-template-columns: 1fr;
+  }
+  
   .poem-list {
     grid-template-columns: 1fr;
     gap: 20px;

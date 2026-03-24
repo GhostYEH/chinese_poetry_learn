@@ -1,15 +1,17 @@
 // 配置文件
+require('dotenv').config();
 
 module.exports = {
   // 服务器配置
   server: {
-    port: 3000,
-    host: 'localhost'
+    port: process.env.PORT || 3000,
+    host: process.env.HOST || 'localhost'
   },
   
   // JWT配置
   jwt: {
-    secret: 'your-secret-key' // 仅用于开发环境，生产环境必须用环境变量覆盖
+    secret: process.env.JWT_SECRET || 'your-secret-key', // 优先使用环境变量
+    expiresIn: process.env.JWT_EXPIRES_IN || '24h'
   },
   
   // 认证配置

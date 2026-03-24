@@ -1,7 +1,6 @@
 // JWT认证中间件
 const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = 'your-secret-key';
+const config = require('../config/config');
 
 // 认证中间件
 function authenticateToken(req, res, next) {
@@ -13,7 +12,7 @@ function authenticateToken(req, res, next) {
       return res.status(401).json({ message: '未提供认证令牌' });
     }
     
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    jwt.verify(token, config.jwt.secret, (err, decoded) => {
       if (err) {
         return res.status(403).json({ message: '无效的认证令牌' });
       }

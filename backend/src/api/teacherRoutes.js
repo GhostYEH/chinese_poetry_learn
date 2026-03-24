@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { db } = require('../utils/db');
+const config = require('../config/config');
 const router = express.Router();
 
 // 教师注册
@@ -59,8 +60,8 @@ router.post('/login', (req, res) => {
       // 生成JWT Token
       const token = jwt.sign(
         { id: row.id, username: row.username, role: 'teacher' },
-        'your-secret-key', // 应该使用环境变量
-        { expiresIn: '24h' }
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn }
       );
 
       res.json({ token, teacher: { id: row.id, username: row.username } });
@@ -75,7 +76,7 @@ const authenticateTeacher = (req, res, next) => {
     return res.status(401).json({ error: '未提供认证令牌' });
   }
 
-  jwt.verify(token, 'your-secret-key', (err, decoded) => {
+  jwt.verify(token, config.jwt.secret, (err, decoded) => {
     if (err) {
       return res.status(401).json({ error: '无效的认证令牌' });
     }
@@ -125,7 +126,7 @@ const axios = require('axios');
 const siliconFlowApi = axios.create({
   baseURL: 'https://api.siliconflow.cn/v1',
   headers: {
-    'Authorization': `Bearer ${process.env.SILICONFLOW_API_KEY}`,
+    'Authorization': `Bearer ${process.env.SILICONFLOW_API_KEY || 'your-api-key'}`,
     'Content-Type': 'application/json'
   },
   timeout: 30000

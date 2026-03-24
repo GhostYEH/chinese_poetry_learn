@@ -5,6 +5,7 @@
       <div class="header-actions">
         <router-link to="/challenge/rank" class="glass-nav-button">排行榜</router-link>
         <router-link to="/challenge/error-book" class="glass-nav-button">错题本</router-link>
+        <router-link to="/challenge/review" class="glass-nav-button review-btn">错题复习</router-link>
       </div>
     </div>
 
@@ -118,15 +119,16 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import api from '../services/api';
 
 export default {
   name: 'PoemChallenge',
   setup() {
     const router = useRouter();
-    const isLoggedIn = computed(() => !!localStorage.getItem('token'));
+    const route = useRoute();
+    const isLoggedIn = ref(false);
     const loading = ref(true);
     const loadingLeaderboard = ref(true);
     const retryLoading = ref(false);
@@ -240,6 +242,22 @@ export default {
         currentRecordId.value = result.recordId;
         if (result.correct) {
           highestLevel.value = Math.max(highestLevel.value, currentLevel.value);
+        } else {
+          try {
+            await api.wrongQuestions.add({
+              question_id: currentQuestion.value.id,
+              question: currentQuestion.value.question,
+              answer: currentQuestion.value.answer,
+              user_answer: userAnswer.value,
+              level: currentLevel.value,
+              full_poem: currentQuestion.value.full_poem,
+              author: currentQuestion.value.author,
+              title: currentQuestion.value.title
+            });
+            console.log('已自动添加到错题复习');
+          } catch (addError) {
+            console.error('添加到错题复习失败:', addError);
+          }
         }
       } catch (error) {
         console.error('提交答案失败:', error);
@@ -324,12 +342,35 @@ export default {
       router.push('/login');
     };
 
+    const checkLoginStatus = () => {
+      const token = localStorage.getItem('token');
+      isLoggedIn.value = !!token;
+      return isLoggedIn.value;
+    };
+
+    const initializeData = async () => {
+      if (checkLoginStatus()) {
+        loading.value = true;
+        try {
+          await loadProgress();
+          await loadQuestions(1, 20);
+          loadCurrentQuestion();
+          loadLeaderboard();
+        } catch (error) {
+          console.error('初始化数据失败:', error);
+        } finally {
+          loading.value = false;
+        }
+      }
+    };
+
     onMounted(async () => {
-      if (isLoggedIn.value) {
-        await loadProgress();
-        await loadQuestions(1, 20);
-        loadCurrentQuestion();
-        loadLeaderboard();
+      await initializeData();
+    });
+
+    watch(() => route.path, async (newPath) => {
+      if (newPath === '/challenge') {
+        await initializeData();
       }
     });
 
@@ -424,6 +465,18 @@ export default {
   border-color: rgba(205, 133, 63, 0.5);
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(139, 69, 19, 0.25);
+}
+
+.review-btn {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.2), rgba(233, 30, 99, 0.15));
+  border-color: rgba(255, 152, 0, 0.4);
+  color: #ff5722;
+  font-weight: bold;
+}
+
+.review-btn:hover {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.3), rgba(233, 30, 99, 0.25));
+  border-color: rgba(255, 152, 0, 0.6);
 }
 
 .login-prompt {

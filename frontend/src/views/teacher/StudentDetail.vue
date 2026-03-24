@@ -496,15 +496,31 @@ const loadStudentRecords = async () => {
   try {
     const response = await fetch(`http://localhost:3000/api/teacher/student/${studentId.value}/detail`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       }
     })
 
+    if (response.status === 401) {
+      // 认证失败，清除token并跳转到登录页
+      localStorage.removeItem('teacherToken')
+      localStorage.removeItem('teacher')
+      localStorage.removeItem('teacherInfo')
+      router.push('/teacher/login')
+      return
+    }
+
     if (!response.ok) {
-      throw new Error('获取数据失败')
+      throw new Error(`获取数据失败: ${response.status}`)
     }
 
     const data = await response.json()
+    
+    // 检查返回的数据结构
+    if (data.error) {
+      throw new Error(data.error)
+    }
+    
     learningRecords.value = data
     
     // 从记录中获取学生姓名（假设第一条记录包含学生信息）
@@ -514,7 +530,7 @@ const loadStudentRecords = async () => {
     }
   } catch (error) {
     console.error('加载数据失败:', error)
-    alert('加载数据失败，请稍后重试')
+    error.value = '加载数据失败，请稍后重试'
   }
 }
 
@@ -527,15 +543,30 @@ const loadStudentAnalysis = async () => {
   try {
     const response = await fetch(`http://localhost:3000/api/teacher/student/${studentId.value}/analysis`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       }
     })
 
+    if (response.status === 401) {
+      // 认证失败，清除token并跳转到登录页
+      localStorage.removeItem('teacherToken')
+      localStorage.removeItem('teacher')
+      localStorage.removeItem('teacherInfo')
+      router.push('/teacher/login')
+      return
+    }
+
     if (!response.ok) {
-      throw new Error('获取分析数据失败')
+      throw new Error(`获取分析数据失败: ${response.status}`)
     }
 
     const data = await response.json()
+    
+    // 检查返回的数据结构
+    if (data.error) {
+      throw new Error(data.error)
+    }
     
     // 更新数据
     studentAvatar.value = data.avatar || `https://api.siliconflow.cn/v1/avatar/generate?name=${studentName.value}`

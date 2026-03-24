@@ -4,10 +4,7 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { db } = require('../utils/db');
-
-// JWT密钥
-const JWT_SECRET = 'your-secret-key';
-const JWT_EXPIRES_IN = '24h';
+const config = require('../config/config');
 
 // 注册接口
 router.post('/register', (req, res) => {
@@ -100,9 +97,9 @@ router.post('/register', (req, res) => {
                 
                 // 生成JWT令牌
                 const token = jwt.sign(
-                  { userId: this.lastID, username },
-                  JWT_SECRET,
-                  { expiresIn: JWT_EXPIRES_IN }
+                  { userId: this.lastID, username, role: 'student' },
+                  config.jwt.secret,
+                  { expiresIn: config.jwt.expiresIn }
                 );
                 
                 res.json({
@@ -163,9 +160,9 @@ router.post('/login', (req, res) => {
         
         // 生成JWT令牌
         const token = jwt.sign(
-          { userId: user.id, username: user.username },
-          JWT_SECRET,
-          { expiresIn: JWT_EXPIRES_IN }
+          { userId: user.id, username: user.username, role: 'student' },
+          config.jwt.secret,
+          { expiresIn: config.jwt.expiresIn }
         );
         
         res.json({

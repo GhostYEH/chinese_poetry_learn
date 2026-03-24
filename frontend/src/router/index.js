@@ -13,9 +13,15 @@ const Register = () => import('../views/Register.vue')
 // 导入教师端视图组件
 const TeacherLogin = () => import('../views/teacher/TeacherLogin.vue')
 const TeacherRegister = () => import('../views/teacher/TeacherRegister.vue')
+const TeacherLayout = () => import('../views/teacher/TeacherLayout.vue')
 const TeacherDashboard = () => import('../views/teacher/Dashboard.vue')
 const StudentDetail = () => import('../views/teacher/StudentDetail.vue')
 const ClassDetail = () => import('../views/teacher/ClassDetail.vue')
+const ClassManagement = () => import('../views/teacher/ClassManagement.vue')
+const StudentManagement = () => import('../views/teacher/StudentManagement.vue')
+const PoemManagement = () => import('../views/teacher/PoemManagement.vue')
+const GameData = () => import('../views/teacher/GameData.vue')
+const Settings = () => import('../views/teacher/Settings.vue')
 
 // 路由配置
 const routes = [
@@ -112,76 +118,87 @@ const routes = [
     }
   },
   {
-    path: '/teacher/dashboard',
-    name: 'TeacherDashboard',
-    component: TeacherDashboard,
-    meta: {
-      title: '教师看板 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/student/:id/detail',
-    name: 'StudentDetail',
-    component: StudentDetail,
-    meta: {
-      title: '学生详情 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/class/:classId',
-    name: 'ClassDetail',
-    component: ClassDetail,
-    meta: {
-      title: '班级详情 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/classes',
-    name: 'TeacherClasses',
-    component: TeacherDashboard,
-    meta: {
-      title: '班级管理 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/students',
-    name: 'TeacherStudents',
-    component: TeacherDashboard,
-    meta: {
-      title: '学生管理 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/poems',
-    name: 'TeacherPoems',
-    component: TeacherDashboard,
-    meta: {
-      title: '诗词库管理 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/game-data',
-    name: 'TeacherGameData',
-    component: TeacherDashboard,
-    meta: {
-      title: '对战数据 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
-  },
-  {
-    path: '/teacher/settings',
-    name: 'TeacherSettings',
-    component: TeacherDashboard,
-    meta: {
-      title: '系统设置 - 古诗词学习系统',
-      requiresTeacherAuth: true
-    }
+    path: '/teacher',
+    component: TeacherLayout,
+    meta: { requiresTeacherAuth: true },
+    children: [
+      {
+        path: '',
+        redirect: '/teacher/dashboard'
+      },
+      {
+        path: 'dashboard',
+        name: 'TeacherDashboard',
+        component: TeacherDashboard,
+        meta: {
+          title: '教师看板 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'student/:id/detail',
+        name: 'StudentDetail',
+        component: StudentDetail,
+        meta: {
+          title: '学生详情 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'class/:classId',
+        name: 'ClassDetail',
+        component: ClassDetail,
+        meta: {
+          title: '班级详情 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'classes',
+        name: 'TeacherClasses',
+        component: ClassManagement,
+        meta: {
+          title: '班级管理 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'students',
+        name: 'TeacherStudents',
+        component: StudentManagement,
+        meta: {
+          title: '学生管理 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'poems',
+        name: 'TeacherPoems',
+        component: PoemManagement,
+        meta: {
+          title: '诗词库管理 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'game-data',
+        name: 'TeacherGameData',
+        component: GameData,
+        meta: {
+          title: '对战数据 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      },
+      {
+        path: 'settings',
+        name: 'TeacherSettings',
+        component: Settings,
+        meta: {
+          title: '系统设置 - 古诗词学习系统',
+          requiresTeacherAuth: true
+        }
+      }
+    ]
   },
   // 404 路由
   {
@@ -232,6 +249,15 @@ const routes = [
       title: '错题本 - 古诗词学习系统',
       requiresAuth: true
     }
+  },
+  {
+    path: '/challenge/review',
+    name: 'WrongQuestionReview',
+    component: () => import('../views/WrongQuestionReview.vue'),
+    meta: {
+      title: '错题复习 - 古诗词学习系统',
+      requiresAuth: true
+    }
   }
 ]
 
@@ -263,10 +289,14 @@ router.beforeEach((to, from, next) => {
   if (token && teacherToken) {
     // 检查当前路由类型，保留对应token
     if (to.path.startsWith('/teacher/')) {
+      // 访问教师端，清理学生token
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('userInfo')
+      localStorage.removeItem('studentId')
+      localStorage.removeItem('userRole')
     } else {
+      // 访问学生端，清理教师token
       localStorage.removeItem('teacherToken')
       localStorage.removeItem('teacher')
       localStorage.removeItem('teacherInfo')

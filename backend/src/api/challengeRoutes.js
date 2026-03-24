@@ -35,7 +35,11 @@ router.post('/questions/generate', authenticateToken, async (req, res) => {
     res.json(questions);
   } catch (error) {
     console.error('生成题目失败:', error);
-    res.status(500).json({ message: '生成题目失败' });
+    if (error.message === '服务不可用，请稍后再试') {
+      res.status(503).json({ message: error.message });
+    } else {
+      res.status(500).json({ message: '生成题目失败' });
+    }
   }
 });
 

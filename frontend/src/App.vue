@@ -130,7 +130,22 @@ export default {
   },
   computed: {
     isTeacher() {
-      return !!localStorage.getItem('teacherToken');
+      // 检查是否是教师登录状态
+      const teacherToken = localStorage.getItem('teacherToken');
+      const currentLoginType = localStorage.getItem('currentLoginType');
+      
+      // 如果有教师token，肯定是教师
+      if (teacherToken) {
+        return true;
+      }
+      
+      // 如果当前登录类型是教师（即使没有token，比如退出登录后），也保持教师界面
+      if (currentLoginType === 'teacher') {
+        return true;
+      }
+      
+      // 其他情况显示学生界面
+      return false;
     }
   },
 
@@ -364,13 +379,15 @@ export default {
     },
     // 教师退出登录
     handleLogout() {
-      // 彻底清理所有身份相关数据
-      this.clearAllAuthData()
+      // 保存当前登录类型
+      const currentLoginType = localStorage.getItem('currentLoginType') || 'teacher';
+      // 清除身份数据但保留登录类型
+      this.clearAuthData()
       // 跳转到教师登录页
       this.$router.push('/teacher/login')
     },
-    // 清除所有身份相关数据
-    clearAllAuthData() {
+    // 清除身份数据但保留登录类型
+    clearAuthData() {
       // 学生端相关数据
       localStorage.removeItem('token')
       localStorage.removeItem('user')
@@ -386,6 +403,12 @@ export default {
       // 其他可能的身份相关数据
       localStorage.removeItem('redirectPath')
       localStorage.removeItem('authToken')
+      // 注意：不清除 currentLoginType，以保持当前登录类型
+    },
+    // 完全清除所有数据（用于切换登录类型时）
+    clearAllData() {
+      // 清除所有数据，包括登录类型
+      localStorage.clear()
     }
   }
 }
