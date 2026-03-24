@@ -1,0 +1,49 @@
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Python
+.pyenv
+__pycache__
+.pytest_cache
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Node.js
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Build
+frontend/dist
+backend/dist
+
+# Logs
+*.log
+log.log
+
+# Cache
+*.cache
+.cache/

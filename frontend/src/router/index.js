@@ -1,0 +1,303 @@
+import { createRouter, createWebHashHistory } from 'vue-router'
+
+// 导入视图组件 - 使用动态导入实现懒加载
+const Home = () => import('../views/Home.vue')
+const PoemDetail = () => import('../views/PoemDetail.vue')
+const Search = () => import('../views/Search.vue')
+const Profile = () => import('../views/Profile.vue')
+const LearningDashboard = () => import('../views/LearningDashboard.vue')
+const Collection = () => import('../views/Collection.vue')
+const FeiHuaLingSingle = () => import('../views/FeiHuaLingSingle.vue')
+const Login = () => import('../views/Login.vue')
+const Register = () => import('../views/Register.vue')
+// 导入教师端视图组件
+const TeacherLogin = () => import('../views/teacher/TeacherLogin.vue')
+const TeacherRegister = () => import('../views/teacher/TeacherRegister.vue')
+const TeacherDashboard = () => import('../views/teacher/Dashboard.vue')
+const StudentDetail = () => import('../views/teacher/StudentDetail.vue')
+const ClassDetail = () => import('../views/teacher/ClassDetail.vue')
+
+// 路由配置
+const routes = [
+  {
+    path: '/',
+    name: 'Home',
+    component: Home,
+    meta: {
+      title: '首页 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/poem/:id',
+    name: 'PoemDetail',
+    component: PoemDetail,
+    meta: {
+      title: '诗词详情 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/search',
+    name: 'Search',
+    component: Search,
+    meta: {
+      title: '搜索 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/profile',
+    name: 'Profile',
+    component: Profile,
+    meta: {
+      title: '个人中心 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/dashboard',
+    name: 'LearningDashboard',
+    component: LearningDashboard,
+    meta: {
+      title: '学习仪表盘 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/feihualing/single',
+    name: 'FeiHuaLingSingle',
+    component: FeiHuaLingSingle,
+    meta: {
+      title: '飞花令 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/collection',
+    name: 'Collection',
+    component: Collection,
+    meta: {
+      title: '我的收藏 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: Login,
+    meta: {
+      title: '登录 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: Register,
+    meta: {
+      title: '注册 - 古诗词学习系统'
+    }
+  },
+  // 教师端路由
+  {
+    path: '/teacher/login',
+    name: 'TeacherLogin',
+    component: TeacherLogin,
+    meta: {
+      title: '教师登录 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/teacher/register',
+    name: 'TeacherRegister',
+    component: TeacherRegister,
+    meta: {
+      title: '教师注册 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/teacher/dashboard',
+    name: 'TeacherDashboard',
+    component: TeacherDashboard,
+    meta: {
+      title: '教师看板 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/student/:id/detail',
+    name: 'StudentDetail',
+    component: StudentDetail,
+    meta: {
+      title: '学生详情 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/class/:classId',
+    name: 'ClassDetail',
+    component: ClassDetail,
+    meta: {
+      title: '班级详情 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/classes',
+    name: 'TeacherClasses',
+    component: TeacherDashboard,
+    meta: {
+      title: '班级管理 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/students',
+    name: 'TeacherStudents',
+    component: TeacherDashboard,
+    meta: {
+      title: '学生管理 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/poems',
+    name: 'TeacherPoems',
+    component: TeacherDashboard,
+    meta: {
+      title: '诗词库管理 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/game-data',
+    name: 'TeacherGameData',
+    component: TeacherDashboard,
+    meta: {
+      title: '对战数据 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  {
+    path: '/teacher/settings',
+    name: 'TeacherSettings',
+    component: TeacherDashboard,
+    meta: {
+      title: '系统设置 - 古诗词学习系统',
+      requiresTeacherAuth: true
+    }
+  },
+  // 404 路由
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/'
+  },
+  // 创作模块路由
+  {
+    path: '/creation',
+    name: 'CreationHome',
+    component: () => import('../views/creation/CreationHome.vue'),
+    meta: {
+      title: '诗词创作 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/creation/records',
+    name: 'CreationRecords',
+    component: () => import('../views/creation/CreationRecords.vue'),
+    meta: {
+      title: '我的创作记录 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  // 闯关模块路由
+  {
+    path: '/challenge',
+    name: 'PoemChallenge',
+    component: () => import('../views/PoemChallenge.vue'),
+    meta: {
+      title: '诗词闯关 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/challenge/rank',
+    name: 'ChallengeRank',
+    component: () => import('../views/ChallengeRank.vue'),
+    meta: {
+      title: '闯关排名 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/challenge/error-book',
+    name: 'ErrorBook',
+    component: () => import('../views/ErrorBook.vue'),
+    meta: {
+      title: '错题本 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  }
+]
+
+// 创建路由实例
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    } else {
+      return { top: 0 }
+    }
+  }
+})
+
+// 路由守卫，设置页面标题和认证
+router.beforeEach((to, from, next) => {
+  // 设置页面标题
+  if (to.meta.title) {
+    document.title = to.meta.title
+  }
+  
+  // 清除无效的身份缓存
+  const token = localStorage.getItem('token')
+  const teacherToken = localStorage.getItem('teacherToken')
+  
+  // 如果同时存在两种token，清理其中一个
+  if (token && teacherToken) {
+    // 检查当前路由类型，保留对应token
+    if (to.path.startsWith('/teacher/')) {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('userInfo')
+    } else {
+      localStorage.removeItem('teacherToken')
+      localStorage.removeItem('teacher')
+      localStorage.removeItem('teacherInfo')
+    }
+  }
+  
+  // 检查是否需要教师认证
+  if (to.meta.requiresTeacherAuth) {
+    const teacherToken = localStorage.getItem('teacherToken')
+    if (!teacherToken) {
+      // 未登录，跳转到教师登录页
+      next('/teacher/login')
+    } else {
+      // 已登录，继续
+      next()
+    }
+  } 
+  // 检查是否需要学生认证
+  else if (to.meta.requiresAuth) {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      // 未登录，跳转到登录页，并存储当前路由信息
+      localStorage.setItem('redirectPath', to.fullPath)
+      next('/login')
+    } else {
+      // 已登录，继续
+      next()
+    }
+  } else {
+    next()
+  }
+})
+
+export default router
