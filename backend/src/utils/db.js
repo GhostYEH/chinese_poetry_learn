@@ -65,8 +65,13 @@ function initDatabase() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             poem_id INTEGER NOT NULL,
+            view_count INTEGER DEFAULT 0,
+            ai_explain_count INTEGER DEFAULT 0,
+            recite_attempts INTEGER DEFAULT 0,
+            best_score INTEGER DEFAULT 0,
+            total_score INTEGER DEFAULT 0,
             study_time INTEGER DEFAULT 0,
-            last_view_time TEXT NOT NULL,
+            last_view_time TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (poem_id) REFERENCES poems(id)
           )
@@ -490,6 +495,8 @@ function initCreationTables() {
                   db.run(`CREATE INDEX IF NOT EXISTS idx_feihua_high_records_user ON feihua_high_records(user_id)`);
                   console.log('✓ 在线飞花令表创建成功');
 
+                  // 初始化能力评估表
+                  initAbilityTables();
                   resolve();
                 });
               });
@@ -498,6 +505,237 @@ function initCreationTables() {
         });
       });
     });
+  });
+}
+
+// 初始化能力评估和高级功能表
+function initAbilityTables() {
+  // 能力评估表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ability_assessments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER UNIQUE NOT NULL,
+      memory_score INTEGER DEFAULT 0,
+      understanding_score INTEGER DEFAULT 0,
+      application_score INTEGER DEFAULT 0,
+      creativity_score INTEGER DEFAULT 0,
+      last_updated TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('能力评估表创建失败:', err); return; }
+    console.log('✓ 能力评估表创建成功');
+  });
+
+  // 学习路径表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS learning_paths (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      level TEXT DEFAULT '初级',
+      recommendations TEXT,
+      current_focus TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id)
+    )
+  `, (err) => {
+    if (err) { console.error('学习路径表创建失败:', err); return; }
+    console.log('✓ 学习路径表创建成功');
+  });
+
+  // 每日打卡表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS daily_checkin (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      poem_id INTEGER,
+      checked_in_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, date)
+    )
+  `, (err) => {
+    if (err) { console.error('每日打卡表创建失败:', err); return; }
+    console.log('✓ 每日打卡表创建成功');
+  });
+
+  // 每日推荐诗词表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS daily_poems (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      poem_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      theme TEXT,
+      FOREIGN KEY (poem_id) REFERENCES poems(id),
+      UNIQUE(date)
+    )
+  `, (err) => {
+    if (err) { console.error('每日推荐诗词表创建失败:', err); return; }
+    console.log('✓ 每日推荐诗词表创建成功');
+  });
+
+  // 复习计划表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS review_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      poem_id INTEGER NOT NULL,
+      scheduled_date TEXT NOT NULL,
+      review_count INTEGER DEFAULT 0,
+      next_review TEXT,
+      interval_days INTEGER DEFAULT 1,
+      mastered INTEGER DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (poem_id) REFERENCES poems(id)
+    )
+  `, (err) => {
+    if (err) { console.error('复习计划表创建失败:', err); return; }
+    console.log('✓ 复习计划表创建成功');
+  });
+
+  // 教师布置任务表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS teacher_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      teacher_id INTEGER NOT NULL,
+      class_id INTEGER,
+      target_user_id INTEGER,
+      title TEXT NOT NULL,
+      content TEXT,
+      task_type TEXT,
+      level_start INTEGER,
+      level_end INTEGER,
+      deadline TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (teacher_id) REFERENCES teachers(id),
+      FOREIGN KEY (class_id) REFERENCES classes(id),
+      FOREIGN KEY (target_user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('教师任务表创建失败:', err); return; }
+    console.log('✓ 教师任务表创建成功');
+  });
+
+  // 飞花令排位表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS feihua_rankings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER UNIQUE NOT NULL,
+      rank_level TEXT DEFAULT '青铜',
+      rating INTEGER DEFAULT 1000,
+      wins INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      total_battles INTEGER DEFAULT 0,
+      current_streak INTEGER DEFAULT 0,
+      best_streak INTEGER DEFAULT 0,
+      last_battle_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('飞花令排位表创建失败:', err); return; }
+    console.log('✓ 飞花令排位表创建成功');
+  });
+
+  // 诗词闯关对战表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS challenge_battles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player1_id INTEGER NOT NULL,
+      player2_id INTEGER NOT NULL,
+      winner_id INTEGER,
+      loser_id INTEGER,
+      total_questions INTEGER DEFAULT 0,
+      player1_correct INTEGER DEFAULT 0,
+      player2_correct INTEGER DEFAULT 0,
+      total_rounds INTEGER DEFAULT 0,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      FOREIGN KEY (player1_id) REFERENCES users(id),
+      FOREIGN KEY (player2_id) REFERENCES users(id),
+      FOREIGN KEY (winner_id) REFERENCES users(id),
+      FOREIGN KEY (loser_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('诗词闯关对战表创建失败:', err); return; }
+    console.log('✓ 诗词闯关对战表创建成功');
+    db.run(`CREATE INDEX IF NOT EXISTS idx_challenge_battles_p1 ON challenge_battles(player1_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_challenge_battles_p2 ON challenge_battles(player2_id)`);
+  });
+
+  // 闯关对战：用户已出现过的诗词标题（避免跨局重复出题）
+  db.run(`
+    CREATE TABLE IF NOT EXISTS challenge_duel_seen_titles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      poem_title TEXT NOT NULL,
+      first_seen_at TEXT NOT NULL,
+      UNIQUE(user_id, poem_title),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('闯关对战已见诗词表创建失败:', err); return; }
+    console.log('✓ 闯关对战已见诗词表创建成功');
+    db.run(`CREATE INDEX IF NOT EXISTS idx_duel_seen_user ON challenge_duel_seen_titles(user_id)`);
+  });
+
+  // 诗词创作挑战表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS poetry_challenges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      theme TEXT NOT NULL,
+      keyword TEXT,
+      generated_poem TEXT,
+      user_score INTEGER DEFAULT 0,
+      ai_score INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'generated',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('诗词创作挑战表创建失败:', err); return; }
+    console.log('✓ 诗词创作挑战表创建成功');
+  });
+
+  // 错题分类表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS wrong_question_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      question_id INTEGER NOT NULL,
+      category TEXT DEFAULT '记忆错误',
+      note TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (question_id) REFERENCES wrong_questions(id)
+    )
+  `, (err) => {
+    if (err) { console.error('错题分类表创建失败:', err); return; }
+    console.log('✓ 错题分类表创建成功');
+  });
+
+  // 学习活动日志表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      activity_type TEXT NOT NULL,
+      activity_data TEXT,
+      duration_seconds INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `, (err) => {
+    if (err) { console.error('活动日志表创建失败:', err); return; }
+    console.log('✓ 活动日志表创建成功');
+
+    // 创建活动日志索引
+    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_logs(user_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_logs(activity_type)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_logs(created_at)`);
   });
 }
 
@@ -517,5 +755,6 @@ module.exports = {
   db,
   initDatabase,
   initCreationTables,
+  initAbilityTables,
   closeDatabase
 };

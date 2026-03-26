@@ -85,8 +85,10 @@ const handleLogin = async () => {
       // 设置当前登录类型为教师
       localStorage.setItem('currentLoginType', 'teacher')
       
-      // 跳转到教师看板
-      router.push('/teacher/dashboard')
+      // 跳转到教师看板，然后刷新页面
+      router.push('/teacher/dashboard').then(() => {
+        window.location.reload()
+      })
     } else {
       error.value = data.error || '登录失败'
     }

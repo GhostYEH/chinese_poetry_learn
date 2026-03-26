@@ -6,12 +6,20 @@ class FeihualingService {
     this.onlineUsers = new Map();
     this.rooms = new Map();
     this.pendingInvitations = new Map();
-    this.roomLocks = new Map();
     this.disconnectedPlayers = new Map();
     this.RECONNECT_TIMEOUT = 30000;
+
+    // 难度配置
+    this.DIFFICULTY_CONFIG = {
+      easy: { timeLimit: 60, throwCount: 5, name: '入门' },
+      medium: { timeLimit: 45, throwCount: 3, name: '进阶' },
+      hard: { timeLimit: 30, throwCount: 2, name: '专业' }
+    };
+
+    // 可选的令字列表
+    this.RECOMMENDED_KEYWORDS = ['春', '花', '月', '风', '雨', '山', '水', '云', '雪', '夜', '酒', '鸟', '秋', '江', '人', '天'];
   }
 
-  // 修改：添加用户时获取班级和最高记录信息
   addUser(userId, username, socketId) {
     const existingUser = this.onlineUsers.get(userId);
     if (existingUser) {
@@ -28,16 +36,15 @@ class FeihualingService {
           if (player) {
             player.socketId = socketId;
             player.disconnected = false;
+            player.disconnectTime = null;
           }
         }
       }
 
       this.disconnectedPlayers.delete(userId);
-
       return this.getOnlineUsers();
     }
 
-    // 先添加用户到在线列表（使用默认值）
     this.onlineUsers.set(userId, {
       userId: userId.toString(),
       username,
@@ -47,9 +54,8 @@ class FeihualingService {
       inGame: false
     });
 
-    // 异步从数据库获取用户信息并更新
     db.get(
-      'SELECT class_id, (SELECT MAX(total_rounds) FROM feihua_battles WHERE player1_id = ? OR player2_id = ?) as max_rounds FROM users WHERE id = ?',
+      'SELECT class_id, (SELECT COALESCE(MAX(total_rounds), 0) FROM feihua_battles WHERE player1_id = ? OR player2_id = ?) as max_rounds FROM users WHERE id = ?',
       [userId, userId, userId],
       (err, row) => {
         if (!err && row) {
@@ -101,12 +107,12 @@ class FeihualingService {
 
   handleReconnectTimeout(userId) {
     const disconnectedInfo = this.disconnectedPlayers.get(userId);
-    if (!disconnectedInfo) return;
+    if (!disconnectedInfo) return null;
 
     const room = this.rooms.get(disconnectedInfo.roomId);
     if (!room || room.status !== 'playing') {
       this.disconnectedPlayers.delete(userId);
-      return;
+      return null;
     }
 
     const player = room.players.find(p => p.id === userId);
@@ -115,6 +121,7 @@ class FeihualingService {
       const winner = room.players.find(p => p.id !== userId);
       room.status = 'finished';
       room.winner = winner;
+      room.loser = player;
       room.endReason = 'disconnect_timeout';
 
       this.saveFightHistory(room);
@@ -128,10 +135,10 @@ class FeihualingService {
 
       if (winner && winner.socketId) {
         return {
-          event: 'opponent-disconnected',
           winnerSocketId: winner.socketId,
           winner,
-          reason: '对手断线超时，你获胜！'
+          loser: player,
+          reason: 'disconnect_timeout'
         };
       }
     }
@@ -140,7 +147,6 @@ class FeihualingService {
     return null;
   }
 
-  // 修改：返回符合前端期望的用户数据结构
   getOnlineUsers() {
     return Array.from(this.onlineUsers.values()).map(u => ({
       userId: u.userId,
@@ -155,7 +161,11 @@ class FeihualingService {
     return this.onlineUsers.get(userId);
   }
 
-  sendInvitation(fromUserId, toUserId) {
+  getRoom(roomId) {
+    return this.rooms.get(roomId);
+  }
+
+  sendInvitation(fromUserId, toUserId, keyword, difficulty) {
     const fromUser = this.onlineUsers.get(fromUserId);
     const toUser = this.onlineUsers.get(toUserId);
 
@@ -176,12 +186,16 @@ class FeihualingService {
       id: invitationId,
       from: {
         userId: fromUserId,
-        username: fromUser.username
+        username: fromUser.username,
+        classId: fromUser.classId,
+        maxRounds: fromUser.maxRounds
       },
       to: {
         userId: toUserId,
         username: toUser.username
       },
+      keyword: keyword || '花',
+      difficulty: difficulty || 'medium',
       timestamp: Date.now()
     });
 
@@ -189,12 +203,18 @@ class FeihualingService {
       success: true,
       invitationId,
       toSocketId: toUser.socketId,
-      from: { userId: fromUserId, username: fromUser.username }
+      from: {
+        userId: fromUserId,
+        username: fromUser.username,
+        classId: fromUser.classId,
+        maxRounds: fromUser.maxRounds
+      },
+      keyword: keyword || '花',
+      difficulty: difficulty || 'medium'
     };
   }
 
-  // 修改：acceptInvitation接受邀请者和邀请者ID
-  acceptInvitation(userId, inviteId, inviterId) {
+  acceptInvitation(userId, inviteId, inviterId, keyword, difficulty) {
     const invitation = this.pendingInvitations.get(userId);
     if (!invitation) {
       return { success: false, error: '邀请不存在或已过期' };
@@ -216,47 +236,58 @@ class FeihualingService {
       return { success: false, error: '对方已在游戏中' };
     }
 
-    // 创建游戏房间
+    const finalKeyword = keyword || invitation.keyword || '花';
+    const finalDifficulty = difficulty || invitation.difficulty || 'medium';
+    const diffConfig = this.DIFFICULTY_CONFIG[finalDifficulty] || this.DIFFICULTY_CONFIG.medium;
+
     const roomId = uuidv4();
     const room = {
       id: roomId,
       status: 'playing',
-      keyword: '花', // 默认令字，应该从邀请中获取
+      keyword: finalKeyword,
+      difficulty: finalDifficulty,
+      difficultyName: diffConfig.name,
       players: [
         {
           id: fromUser.userId,
           username: fromUser.username,
           socketId: fromUser.socketId,
           score: 0,
-          throwCount: 0,
-          disconnected: false
+          throwCount: diffConfig.throwCount,
+          remainingThrows: diffConfig.throwCount,
+          disconnected: false,
+          roundWins: 0,
+          throwHistory: []
         },
         {
           id: toUser.userId,
           username: toUser.username,
           socketId: toUser.socketId,
           score: 0,
-          throwCount: 0,
-          disconnected: false
+          throwCount: diffConfig.throwCount,
+          remainingThrows: diffConfig.throwCount,
+          disconnected: false,
+          roundWins: 0,
+          throwHistory: []
         }
       ],
       currentTurn: Math.floor(Math.random() * 2),
       currentRound: 1,
       usedPoems: [],
-      turnTimeLimit: 60,
+      turnTimeLimit: diffConfig.timeLimit,
       turnStartTime: Date.now(),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      roundHistory: [],
+      winner: null,
+      loser: null,
+      endReason: null
     };
 
     this.rooms.set(roomId, room);
 
-    // 更新用户状态
-    fromUser.inGame = true;
-    toUser.inGame = true;
     fromUser.inGame = roomId;
     toUser.inGame = roomId;
 
-    // 清除邀请
     this.pendingInvitations.delete(userId);
 
     return {
@@ -267,7 +298,6 @@ class FeihualingService {
     };
   }
 
-  // 修改：rejectInvitation接受邀请者和邀请者ID
   rejectInvitation(userId, inviteId, inviterId) {
     const invitation = this.pendingInvitations.get(userId);
     if (!invitation) {
@@ -280,13 +310,28 @@ class FeihualingService {
     }
 
     const fromUser = this.onlineUsers.get(inviterId);
-
     this.pendingInvitations.delete(userId);
+
+    // 重置邀请方的 inGame 状态（如果房间未创建则不会有 inGame，否则需要清理）
+    if (fromUser) {
+      fromUser.inGame = false;
+    }
 
     return {
       success: true,
       fromSocketId: fromUser ? fromUser.socketId : null
     };
+  }
+
+  // 取消自己发出的邀请
+  cancelInvitation(userId) {
+    for (const [toUserId, invitation] of this.pendingInvitations) {
+      if (invitation.from.userId === userId) {
+        this.pendingInvitations.delete(toUserId);
+        return { success: true };
+      }
+    }
+    return { success: false, error: '没有待处理的邀请' };
   }
 
   submitAnswer(roomId, userId, poem) {
@@ -313,9 +358,12 @@ class FeihualingService {
       return { success: false, error: '你已断线' };
     }
 
-    // 检查诗句是否重复
+    // 规范化原始诗句后再比对，防止「春眠不觉晓」和「春眠不觉晓，」被当成不同诗句
     const normalizedPoem = poem.replace(/[，。！？、；：""''（）【】《》\s]/g, '');
-    if (room.usedPoems.includes(normalizedPoem)) {
+    if (room.usedPoems.some(p => {
+      const usedNormalized = p.normalized || (p.original || '').replace(/[，。！？、；：""''（）【】《》\s]/g, '');
+      return usedNormalized === normalizedPoem;
+    })) {
       return { success: false, error: '该诗句已被使用', isDuplicate: true };
     }
 
@@ -323,57 +371,113 @@ class FeihualingService {
       success: true,
       room,
       currentPlayer: player,
+      opponent: room.players[1 - playerIndex],
       normalizedPoem
     };
   }
 
-  verifyAnswer(roomId, userId, poem, isValid, normalizedPoem) {
+  verifyAnswer(roomId, userId, poem, aiResult, normalizedPoem) {
     const room = this.rooms.get(roomId);
     if (!room) {
       return null;
     }
 
-    if (!isValid) {
-      // 诗句无效，游戏结束
-      const loserIndex = room.currentTurn;
-      const winnerIndex = (loserIndex + 1) % 2;
+    const playerIndex = room.players.findIndex(p => p.id === userId);
+    const player = room.players[playerIndex];
+    const opponent = room.players[1 - playerIndex];
 
-      room.status = 'finished';
-      room.winner = room.players[winnerIndex];
-      room.loser = room.players[loserIndex];
-      room.endReason = 'invalid_poem';
-
-      this.saveFightHistory(room);
-
-      // 更新用户状态
-      room.players.forEach(p => {
-        const user = this.onlineUsers.get(p.id);
-        if (user) user.inGame = false;
-      });
-
-      this.rooms.delete(roomId);
-
-      return {
-        isCorrect: false,
-        winner: room.winner,
-        loser: room.loser,
-        reason: '诗句无效'
-      };
+    // 记录诗句（先检查是否已在 usedPoems 中，防止并发重复提交）
+    const alreadyUsed = room.usedPoems.some(p => {
+      const usedNorm = p.normalized || (p.original || '').replace(/[，。！？、；：""''（）【】《》\s]/g, '');
+      return usedNorm === normalizedPoem;
+    });
+    if (alreadyUsed) {
+      return this._endRoundWithResult(room, opponent, player, 'answer_invalid', '该诗句已被使用');
     }
 
-    // 诗句有效，继续游戏
-    room.usedPoems.push(normalizedPoem);
-    room.players[room.currentTurn].score += 1;
+    room.usedPoems.push({
+      normalized: normalizedPoem,
+      original: poem,
+      submittedBy: userId,
+      submittedByName: player.username,
+      score: aiResult ? aiResult.score : 0,
+      round: room.currentRound
+    });
+
+    if (!aiResult || !aiResult.isValid) {
+      // AI评判无效：对手获胜
+      return this._endRoundWithResult(room, opponent, player, 'answer_invalid', aiResult ? aiResult.reason : '诗句无效');
+    }
+
+    // AI评判有效：给提交者加分，轮到对手
+    player.score += 1;
+
+    // 先切换回合与计时，再组包给前端（避免 currentTurn / currentRound 与真实状态不一致）
     room.currentTurn = (room.currentTurn + 1) % 2;
     room.currentRound += 1;
     room.turnStartTime = Date.now();
 
     return {
       isCorrect: true,
-      nextPlayer: room.players[room.currentTurn],
+      aiResult,
+      poem,
       currentRound: room.currentRound,
       usedPoems: room.usedPoems,
-      players: room.players
+      players: room.players.map(p => ({
+        id: p.id,
+        userId: p.id,
+        username: p.username,
+        score: p.score,
+        throwCount: p.throwCount,
+        remainingThrows: p.remainingThrows
+      })),
+      currentTurn: room.currentTurn,
+      nextPlayer: room.players[room.currentTurn],
+      nextTurn: room.currentTurn
+    };
+  }
+
+  _endRoundWithResult(room, winner, loser, reason, reasonDetail) {
+    room.status = 'finished';
+    room.winner = winner;
+    room.loser = loser;
+    room.endReason = reason;
+    room.endReasonDetail = reasonDetail;
+
+    // 记录本轮结果
+    room.roundHistory.push({
+      round: room.currentRound,
+      winner: winner.id,
+      loser: loser.id,
+      reason,
+      reasonDetail
+    });
+
+    this.saveFightHistory(room);
+
+    // 更新用户状态
+    room.players.forEach(p => {
+      const user = this.onlineUsers.get(p.id);
+      if (user) user.inGame = false;
+    });
+
+    this.rooms.delete(room.id);
+
+    return {
+      isCorrect: false,
+      winner: { userId: winner.id, username: winner.username, score: winner.score },
+      loser: { userId: loser.id, username: loser.username, score: loser.score },
+      reason: reasonDetail || reason,
+      totalRounds: room.currentRound,
+      players: room.players.map(p => ({
+        id: p.id,
+        userId: p.id,
+        username: p.username,
+        score: p.score,
+        throwCount: p.throwCount,
+        remainingThrows: p.remainingThrows
+      })),
+      usedPoems: room.usedPoems
     };
   }
 
@@ -393,14 +497,14 @@ class FeihualingService {
     }
 
     const player = room.players[playerIndex];
-    if (player.throwCount >= 3) {
+    if (player.remainingThrows <= 0) {
       return { success: false, error: '扔题次数已用完' };
     }
 
-    player.throwCount += 1;
-    const remainingThrows = 3 - player.throwCount;
+    player.remainingThrows -= 1;
+    player.throwHistory.push({ round: room.currentRound, used: true });
 
-    // 切换到下一个玩家
+    // 切换到对手
     room.currentTurn = (room.currentTurn + 1) % 2;
     room.turnStartTime = Date.now();
 
@@ -408,7 +512,17 @@ class FeihualingService {
       success: true,
       room,
       throwCount: player.throwCount,
-      remainingThrows
+      remainingThrows: player.remainingThrows,
+      currentTurn: room.currentTurn,
+      players: room.players.map(p => ({
+        id: p.id,
+        userId: p.id,
+        username: p.username,
+        score: p.score,
+        throwCount: p.throwCount,
+        remainingThrows: p.remainingThrows
+      })),
+      nextPlayer: room.players[room.currentTurn]
     };
   }
 
@@ -420,27 +534,10 @@ class FeihualingService {
 
     const loserIndex = room.currentTurn;
     const winnerIndex = (loserIndex + 1) % 2;
+    const loser = room.players[loserIndex];
+    const winner = room.players[winnerIndex];
 
-    room.status = 'finished';
-    room.winner = room.players[winnerIndex];
-    room.loser = room.players[loserIndex];
-    room.endReason = 'timeout';
-
-    this.saveFightHistory(room);
-
-    // 更新用户状态
-    room.players.forEach(p => {
-      const user = this.onlineUsers.get(p.id);
-      if (user) user.inGame = false;
-    });
-
-    this.rooms.delete(roomId);
-
-    return {
-      winner: room.winner,
-      loser: room.loser,
-      reason: '超时'
-    };
+    return this._endRoundWithResult(room, winner, loser, 'timeout', '超时');
   }
 
   handleDisconnect(roomId, userId) {
@@ -455,27 +552,10 @@ class FeihualingService {
     }
 
     const winnerIndex = (playerIndex + 1) % 2;
+    const loser = room.players[playerIndex];
+    const winner = room.players[winnerIndex];
 
-    room.status = 'finished';
-    room.winner = room.players[winnerIndex];
-    room.loser = room.players[playerIndex];
-    room.endReason = 'disconnected';
-
-    this.saveFightHistory(room);
-
-    // 更新用户状态
-    room.players.forEach(p => {
-      const user = this.onlineUsers.get(p.id);
-      if (user) user.inGame = false;
-    });
-
-    this.rooms.delete(roomId);
-
-    return {
-      winner: room.winner,
-      loser: room.loser,
-      reason: '对手断线'
-    };
+    return this._endRoundWithResult(room, winner, loser, 'disconnected', '对手断线');
   }
 
   endGame(roomId, winnerId, loserId, reason) {
@@ -484,69 +564,19 @@ class FeihualingService {
       return { success: false, error: '房间不存在' };
     }
 
-    room.status = 'finished';
-    room.winner = room.players.find(p => p.id === winnerId);
-    room.loser = room.players.find(p => p.id === loserId);
-    room.endReason = reason;
+    const winner = room.players.find(p => p.id === winnerId);
+    const loser = room.players.find(p => p.id === loserId);
 
-    this.saveFightHistory(room);
-
-    // 更新用户状态
-    room.players.forEach(p => {
-      const user = this.onlineUsers.get(p.id);
-      if (user) user.inGame = false;
-    });
-
-    this.rooms.delete(roomId);
-
-    return {
-      success: true,
-      winner: room.winner,
-      loser: room.loser
-    };
-  }
-
-  getRoom(roomId) {
-    return this.rooms.get(roomId);
-  }
-
-  leaveRoom(roomId, userId) {
-    const room = this.rooms.get(roomId);
-    if (!room) {
-      return null;
+    if (!winner || !loser) {
+      return { success: false, error: '玩家不存在' };
     }
 
-    const playerIndex = room.players.findIndex(p => p.id === userId);
-    if (playerIndex === -1) {
-      return { success: false, error: '你不在该房间中' };
-    }
-
-    const otherPlayerIndex = (playerIndex + 1) % 2;
-    const otherPlayer = room.players[otherPlayerIndex];
-
-    room.status = 'finished';
-    room.winner = otherPlayer;
-    room.loser = room.players[playerIndex];
-    room.endReason = 'leave';
-
-    this.saveFightHistory(room);
-
-    // 更新用户状态
-    room.players.forEach(p => {
-      const user = this.onlineUsers.get(p.id);
-      if (user) user.inGame = false;
-    });
-
-    this.rooms.delete(roomId);
-
-    return {
-      success: true,
-      winner: room.winner,
-      otherPlayer
-    };
+    return this._endRoundWithResult(room, winner, loser, 'manual', reason || '主动结束');
   }
 
   saveFightHistory(room) {
+    if (!room.winner || !room.loser) return;
+
     const stmt = db.prepare(
       'INSERT INTO feihua_battles (player1_id, player2_id, keyword, winner_id, loser_id, total_rounds, player1_throw_count, player2_throw_count, battle_history, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
@@ -568,18 +598,17 @@ class FeihualingService {
     stmt.finalize();
   }
 
-  // 获取对战历史
   getFightHistory(username) {
     return new Promise((resolve, reject) => {
       db.all(
-        `SELECT 
-          f.id, 
-          p1.username as player1, 
-          p2.username as player2, 
-          f.keyword, 
-          f.winner_id, 
-          f.loser_id, 
-          f.total_rounds, 
+        `SELECT
+          f.id,
+          p1.username as player1,
+          p2.username as player2,
+          f.keyword,
+          f.winner_id,
+          f.loser_id,
+          f.total_rounds,
           f.ended_at as date
         FROM feihua_battles f
         JOIN users p1 ON f.player1_id = p1.id
@@ -609,6 +638,14 @@ class FeihualingService {
         }
       );
     });
+  }
+
+  getRecommendedKeywords() {
+    return this.RECOMMENDED_KEYWORDS;
+  }
+
+  getDifficultyConfig(difficulty) {
+    return this.DIFFICULTY_CONFIG[difficulty] || this.DIFFICULTY_CONFIG.medium;
   }
 }
 

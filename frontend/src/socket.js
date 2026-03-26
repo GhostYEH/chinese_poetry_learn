@@ -1,23 +1,48 @@
 // Socket.io 客户端连接管理
 import { io } from 'socket.io-client';
 
+// 动态获取 Socket URL
+const getSocketUrl = async () => {
+  if (window.electronAPI) {
+    const port = await window.electronAPI.getBackendPort();
+    return `http://localhost:${port}`;
+  }
+  return 'http://localhost:3000';
+};
+
 // 确保 socket 实例只被创建一次
 let socket;
-if (window.socketInstance) {
-  console.log('Using existing socket instance');
-  socket = window.socketInstance;
-} else {
+let socketUrl = 'http://localhost:3000';
+
+// 初始化 socket
+const initSocket = async () => {
+  if (window.socketInstance) {
+    console.log('Using existing socket instance');
+    socket = window.socketInstance;
+    return socket;
+  }
+
+  // 获取动态 URL
+  socketUrl = await getSocketUrl();
+  console.log('Socket URL:', socketUrl);
+
   // 创建 socket 实例
-  socket = io('http://localhost:3000', {
+  socket = io(socketUrl, {
     autoConnect: false,
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 1000,
     transports: ['websocket', 'polling']
   });
-  
+
   // 存储 socket 实例到全局对象
   window.socketInstance = socket;
+  return socket;
+};
+
+// 立即初始化（用于非 Electron 环境）
+if (!window.electronAPI) {
+  initSocket();
 }
 
 // 存储 socket 事件监听器
@@ -89,6 +114,7 @@ function off(event, callback) {
 // 导出 socket 实例和方法
 export default {
   socket,
+  initSocket,
   connect,
   disconnect,
   on,

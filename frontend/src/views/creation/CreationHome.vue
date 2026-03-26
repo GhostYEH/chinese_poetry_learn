@@ -6,6 +6,18 @@
       <h1 class="creation-title">诗词创作</h1>
       <div class="title-decoration right"></div>
     </div>
+
+    <!-- 新工作台入口 -->
+    <div class="workbench-banner" @click="goToNewWorkbench">
+      <div class="banner-content">
+        <span class="banner-icon">✨</span>
+        <div class="banner-text">
+          <h3>全新AI诗词创作工作台</h3>
+          <p>更智能的创作体验，支持引导创作、飞花令创作、接龙创作</p>
+        </div>
+        <span class="banner-arrow">→</span>
+      </div>
+    </div>
     
     <!-- 创作模式切换 -->
     <div class="mode-tabs">
@@ -509,7 +521,7 @@ export default {
         });
         
         const data = await response.json();
-        if (data.id) {
+        if (data.success && data.data && data.data.id) {
           alert('作品保存成功');
           // 重置表单
           this.resetForm(mode);
@@ -540,6 +552,11 @@ export default {
           this.feihuaForm.content = '';
           break;
       }
+    },
+
+    // 跳转到新的工作台
+    goToNewWorkbench() {
+      this.$router.push('/creation/poetry-workbench');
     }
   }
 }
@@ -552,6 +569,81 @@ export default {
   margin: 0 auto;
   padding: 40px 20px;
   position: relative;
+}
+
+/* 新工作台入口横幅 */
+.workbench-banner {
+  background: linear-gradient(135deg, rgba(139, 115, 85, 0.08), rgba(212, 165, 116, 0.15));
+  border: 2px solid rgba(212, 165, 116, 0.3);
+  border-radius: 20px;
+  padding: 20px 28px;
+  margin-bottom: 32px;
+  cursor: pointer;
+  transition: all 0.4s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.workbench-banner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.1) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.workbench-banner:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(139, 115, 85, 0.2);
+  border-color: #d4a574;
+}
+
+.workbench-banner:hover::before {
+  opacity: 1;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.banner-icon {
+  font-size: 36px;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.banner-text h3 {
+  font-size: 18px;
+  color: #5d4e37;
+  margin: 0 0 6px 0;
+  font-family: 'SimSun', 'STSong', serif;
+}
+
+.banner-text p {
+  font-size: 14px;
+  color: #8b7355;
+  margin: 0;
+}
+
+.banner-arrow {
+  font-size: 24px;
+  color: #d4a574;
+  transition: transform 0.3s ease;
+}
+
+.workbench-banner:hover .banner-arrow {
+  transform: translateX(6px);
 }
 
 /* 页面标题 */

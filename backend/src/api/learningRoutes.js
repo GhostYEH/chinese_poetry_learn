@@ -97,6 +97,35 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
+// AI 学习建议（硅基流动 Qwen/Qwen3-8B，密钥由服务端 SILICONFLOW_API_KEY 配置）
+router.post('/ai-suggestions', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const content = await learningService.generateAiLearningAdvice(userId);
+    res.json({
+      success: true,
+      data: { content }
+    });
+  } catch (error) {
+    if (error.code === 'NO_API_KEY') {
+      return res.status(503).json({
+        success: false,
+        code: 'NO_API_KEY',
+        message: '服务器未配置 SILICONFLOW_API_KEY，无法生成 AI 学习建议'
+      });
+    }
+    const remoteMsg =
+      error.response?.data?.message ||
+      error.response?.data?.error?.message ||
+      error.message;
+    console.error('AI 学习建议失败:', remoteMsg, error.response?.data);
+    res.status(500).json({
+      success: false,
+      message: typeof remoteMsg === 'string' ? remoteMsg : '生成学习建议失败，请稍后重试'
+    });
+  }
+});
+
 // 导出router
 module.exports = {
   router,

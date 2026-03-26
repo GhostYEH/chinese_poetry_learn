@@ -18,7 +18,7 @@ const port = 3000;
 const CACHE_DIR = path.join(__dirname, 'cache');
 
 // 导入数据库模块
-const { initDatabase, initCreationTables, db } = require('./src/utils/db');
+const { initDatabase, initCreationTables, initAbilityTables, db } = require('./src/utils/db');
 
 // 导入模块化路由
 const poemRoutesModule = require('./src/api/poemRoutes');
@@ -32,6 +32,8 @@ const feihuaRoutes = require('./src/api/feihuaRoutes');
 const teacherRoutes = require('./src/api/teacherRoutes');
 const challengeRoutes = require('./src/api/challengeRoutes');
 const wrongQuestionRoutes = require('./src/api/wrongQuestionRoutes');
+const cardGameRoutes = require('./src/api/cardGameRoutes');
+const homeRoutesModule = require('./src/api/homeRoutes');
 
 // 提取router对象
 const poemRoutes = poemRoutesModule.router;
@@ -130,6 +132,14 @@ initData().then(async () => {
   } catch (error) {
     console.error('创作模块数据表初始化失败:', error);
   }*/
+
+  // 初始化能力评估和高级功能表
+  try {
+    initAbilityTables();
+    console.log('能力评估和高级功能表初始化完成');
+  } catch (error) {
+    console.error('能力评估和高级功能表初始化失败:', error);
+  }
   
   console.log('所有模块初始化完成');
   console.log(`诗词数据数量: ${poems.length}`);
@@ -178,11 +188,38 @@ app.use('/api/teacher', teacherRoutes);
 const creationRoutes = require('./src/api/creationRoutes');
 app.use('/api/creation', creationRoutes);
 
+// 创作工作台新路由（AI辅助创作系统）
+const creationWorkbenchRoutes = require('./src/api/creationWorkbenchRoutes');
+app.use('/api/creation', creationWorkbenchRoutes);
+
 // 闯关模块路由
 app.use('/api/challenge', challengeRoutes);
 
 // 错题复习模块路由
 app.use('/api/wrong-questions', wrongQuestionRoutes);
+
+// 诗词卡片接取游戏路由
+app.use('/api/card-game', cardGameRoutes);
+
+// 新增高级功能路由
+const learningPathRoutes = require('./src/api/learningPathRoutes');
+const dailyRoutes = require('./src/api/dailyRoutes');
+const reviewRoutes = require('./src/api/reviewRoutes');
+const feihuaRankingRoutes = require('./src/api/feihuaRankingRoutes');
+const poetryChallengeRoutes = require('./src/api/poetryChallengeRoutes');
+const teacherAnalyticsRoutes = require('./src/api/teacherAnalyticsRoutes');
+
+app.use('/api/learning', learningPathRoutes);
+app.use('/api/daily', dailyRoutes);
+app.use('/api/review', reviewRoutes);
+app.use('/api/feihua-ranking', feihuaRankingRoutes);
+app.use('/api/poetry-challenge', poetryChallengeRoutes);
+app.use('/api/analytics', teacherAnalyticsRoutes);
+const homeRoutes = homeRoutesModule.router;
+app.use('/api/home', homeRoutes);
+
+const personalizedRoutes = require('./src/routes/personalizedRoutes');
+app.use('/api/personalized', personalizedRoutes);
 
 // 导出poems变量，供其他模块使用
 module.exports = { poems };

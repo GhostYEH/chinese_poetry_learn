@@ -19,14 +19,14 @@
         <div v-else class="users-list">
           <div 
             v-for="user in onlineUsers" 
-            :key="user.id"
+            :key="user.userId"
             class="user-item"
-            :class="{ 'in-game': user.inRoom }"
+            :class="{ 'in-game': user.inGame }"
             @click="inviteUser(user)"
           >
             <span class="user-avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
             <span class="user-name">{{ user.username }}</span>
-            <span v-if="user.inRoom" class="in-game-badge">游戏中</span>
+            <span v-if="user.inGame" class="in-game-badge">游戏中</span>
           </div>
         </div>
       </div>
@@ -55,7 +55,7 @@
       <div class="room-header">
         <div class="room-info">
           <span class="keyword-badge">{{ currentRoom.keyword }}</span>
-          <span class="room-rounds">第 {{ currentRoom.rounds + 1 }} 回合</span>
+          <span class="room-rounds">第 {{ displayRound }} 回合</span>
         </div>
         <div class="timer-display" :class="{ 'warning': remainingTime <= 10, 'danger': remainingTime <= 5 }">
           <span class="timer-icon">⏱️</span>
@@ -67,11 +67,11 @@
       <div class="players-display">
         <div 
           v-for="(player, index) in currentRoom.players" 
-          :key="player.id"
+          :key="playerId(player) || index"
           class="player-card"
           :class="{ 
             'current-turn': index === currentRoom.currentTurn,
-            'is-me': player.id === currentUserId,
+            'is-me': playerId(player) === currentUserId,
             'disconnected': player.disconnected
           }"
         >
@@ -96,7 +96,7 @@
             :key="index"
             class="used-poem"
           >
-            {{ poem }}
+            {{ formatUsedPoem(poem) }}
           </span>
           <span v-if="currentRoom.usedPoems.length === 0" class="no-poems">暂无诗句</span>
         </div>
@@ -156,9 +156,9 @@
           <h3>游戏结束</h3>
         </div>
         <div class="modal-body">
-          <div class="game-result" :class="{ 'win': gameWinner?.id === currentUserId }">
-            <div class="result-icon">{{ gameWinner?.id === currentUserId ? '🎉' : '😢' }}</div>
-            <p class="result-text">{{ gameWinner?.id === currentUserId ? '恭喜你赢了！' : '对方获胜' }}</p>
+          <div class="game-result" :class="{ 'win': isWinnerMe }">
+            <div class="result-icon">{{ isWinnerMe ? '🎉' : '😢' }}</div>
+            <p class="result-text">{{ isWinnerMe ? '恭喜你赢了！' : '对方获胜' }}</p>
             <p v-if="gameEndReason" class="result-reason">{{ gameEndReason }}</p>
           </div>
           <div class="used-poems-summary">
@@ -229,9 +229,38 @@ export default {
     const currentUserId = ref(currentUser.value?.id?.toString());
     const currentUsername = ref(currentUser.value?.username);
 
+    /** 兼容服务端下发的 id / userId */
+    const playerId = (p) => (p && (p.id ?? p.userId) != null ? String(p.id ?? p.userId) : '');
+
+    const displayRound = computed(() => {
+      const r = currentRoom.value;
+      if (!r) return 1;
+      // usedPoems.length 就是当前已完成的回合数
+      // game-start 时: usedPoems=[], 显示 1
+      // 第1句诗后: usedPoems=[{...}], 显示 1
+      // 第2句诗后: usedPoems=[{...},{...}], 显示 2
+      const used = r.usedPoems?.length ?? 0;
+      return Math.max(1, used + 1);
+    });
+
+    const formatUsedPoem = (poem) => {
+      if (typeof poem === 'string') return poem;
+      if (poem && typeof poem === 'object') {
+        return poem.original || poem.normalized || '';
+      }
+      return '';
+    };
+
+    const isWinnerMe = computed(() => {
+      const w = gameWinner.value;
+      if (!w) return false;
+      const wid = (w.id ?? w.userId)?.toString();
+      return wid === currentUserId.value;
+    });
+
     const isMyTurn = computed(() => {
       if (!currentRoom.value) return false;
-      const myIndex = currentRoom.value.players.findIndex(p => p.id === currentUserId.value);
+      const myIndex = currentRoom.value.players.findIndex(p => playerId(p) === currentUserId.value);
       return myIndex === currentRoom.value.currentTurn;
     });
 
@@ -256,6 +285,10 @@ export default {
       socket.value.on('connect', () => {
         console.log('Socket连接成功');
         socket.value.emit('authenticate', { token });
+      });
+
+      socket.value.on('authenticated', () => {
+        socket.value.emit('feihualing:get-online-users');
       });
 
       socket.value.on('online-users', (users) => {
@@ -290,34 +323,89 @@ export default {
 
       socket.value.on('poem-submitted', (data) => {
         isValidating.value = false;
+        isSubmitting.value = false;
+        answerInput.value = '';
+        if (!currentRoom.value) return;
         if (data.players) {
           currentRoom.value.players = data.players;
         }
-        remainingTime.value = 30; // 重置计时器
+        if (typeof data.currentTurn === 'number') {
+          currentRoom.value.currentTurn = data.currentTurn;
+        }
+        if (typeof data.currentRound === 'number') {
+          currentRoom.value.currentRound = data.currentRound;
+        }
+        if (Array.isArray(data.usedPoems)) {
+          currentRoom.value.usedPoems = data.usedPoems;
+        }
+        remainingTime.value = currentRoom.value.turnTimeLimit || 30;
       });
 
       socket.value.on('timer-tick', (data) => {
         remainingTime.value = data.remaining;
+        if (currentRoom.value) {
+          // data.currentTurn 是数字索引，直接使用
+          if (typeof data.currentTurn === 'number') {
+            currentRoom.value.currentTurn = data.currentTurn;
+          }
+          if (Array.isArray(data.players)) {
+            currentRoom.value.players = data.players;
+          }
+        }
+      });
+
+      socket.value.on('question-thrown', (data) => {
+        if (!currentRoom.value) return;
+        if (Array.isArray(data.players)) {
+          currentRoom.value.players = data.players;
+        }
+        if (typeof data.currentTurn === 'number') {
+          currentRoom.value.currentTurn = data.currentTurn;
+        }
+        if (data.remainingThrows != null && currentRoom.value.players) {
+          const me = currentRoom.value.players.find(p => playerId(p) === currentUserId.value);
+          if (me) me.remainingThrows = data.remainingThrows;
+        }
+        remainingTime.value = currentRoom.value.turnTimeLimit || 30;
+      });
+
+      socket.value.on('invitation-cancelled', () => {
+        showWaitingModal.value = false;
       });
 
       socket.value.on('game-result', (data) => {
         gameWinner.value = data.winner;
         gameEndReason.value = data.reason || '';
         showGameEndModal.value = true;
-        currentRoom.value = null;
+        // 同步完整 room 状态，避免 game-start 缓存残留
+        if (currentRoom.value) {
+          currentRoom.value.currentRound = data.currentRound ?? currentRoom.value.currentRound;
+          currentRoom.value.currentTurn = -1;
+          currentRoom.value.usedPoems = data.usedPoems ?? currentRoom.value.usedPoems;
+        }
+        // 等模态框动画结束后再清理
+        setTimeout(() => {
+          currentRoom.value = null;
+        }, 100);
       });
 
       socket.value.on('opponent-disconnected', (data) => {
         gameWinner.value = data.winner;
         gameEndReason.value = data.message || '对手离开了游戏';
         showGameEndModal.value = true;
-        currentRoom.value = null;
+        if (currentRoom.value) {
+          currentRoom.value.currentRound = data.currentRound ?? currentRoom.value.currentRound;
+          currentRoom.value.currentTurn = -1;
+        }
+        setTimeout(() => {
+          currentRoom.value = null;
+        }, 100);
       });
 
       socket.value.on('error', (data) => {
         isValidating.value = false;
         isSubmitting.value = false;
-        const errorMsg = data.isDuplicate ? '这句诗已经用过了，请换一句！' : data.error;
+        const errorMsg = data.isDuplicate ? '这句诗已经用过了，请换一句！' : (data.error || '提交失败');
         alert(errorMsg);
       });
 
@@ -358,35 +446,37 @@ export default {
     };
 
     const cancelInvitation = () => {
+      if (socket.value) {
+        socket.value.emit('cancel-invitation');
+      }
       showWaitingModal.value = false;
     };
 
     const submitAnswer = () => {
       if (!answerInput.value.trim() || isSubmitting.value || !socket.value) return;
-      
       isSubmitting.value = true;
       socket.value.emit('submit-poem', {
         roomId: currentRoom.value.id,
         poem: answerInput.value.trim()
       });
-      
-      setTimeout(() => {
-        isSubmitting.value = false;
-        answerInput.value = '';
-      }, 1000);
+      // 等后端 poem-submitted / error 到达后再清空
     };
 
     const leaveGame = () => {
       if (confirm('确定要离开游戏吗？离开将判负！')) {
         if (socket.value && currentRoom.value) {
-          // 这里可以发送game-over事件或者直接断开连接
+          const opponent = currentRoom.value.players.find(p => playerId(p) !== currentUserId.value);
+          if (!opponent) {
+            currentRoom.value = null;
+            return;
+          }
+          const opponentId = playerId(opponent);
           socket.value.emit('game-over', {
             roomId: currentRoom.value.id,
-            winnerId: currentRoom.value.players.find(p => p.id !== currentUserId.value).id,
+            winnerId: opponentId,
             loserId: currentUserId.value,
             reason: '主动离开'
           });
-          currentRoom.value = null;
         }
       }
     };
@@ -469,6 +559,10 @@ export default {
       gameEndReason,
       currentUserId,
       currentUsername,
+      playerId,
+      displayRound,
+      formatUsedPoem,
+      isWinnerMe,
       isMyTurn,
       loading,
       historyLoading,

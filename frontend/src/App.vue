@@ -1,6 +1,12 @@
 <template>
   <div id="app" @mousemove="createMapleLeaf">
 
+    <!-- 自定义标题栏 (Electron环境) -->
+    <TitleBar v-if="isElectron" />
+
+    <!-- 演示模式组件 -->
+    <DemoMode ref="demoMode" />
+
     <!-- 动态元素容器 -->
     <div class="dynamic-elements" ref="dynamicElements"></div>
 
@@ -98,8 +104,8 @@
     <!-- 主内容区 -->
     <main class="container" style="padding: 20px 0;">
       <router-view v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <keep-alive>
+        <transition :name="transitionName" mode="out-in">
+          <keep-alive :include="keepAliveIncludes">
             <component :is="Component" />
           </keep-alive>
         </transition>
@@ -117,15 +123,26 @@
 </template>
 
 <script>
+import TitleBar from './components/TitleBar.vue'
+import DemoMode from './views/DemoMode.vue'
+
 export default {
   name: 'App',
+  components: {
+    TitleBar,
+    DemoMode
+  },
   data() {
     return {
       dynamicElements: [],
       lastMapleLeafTime: 0,
       poemWords: ['春', '夏', '秋', '冬', '风', '花', '雪', '月', '山', '水', '云', '霞', '诗', '词', '歌', '赋', '人', '生', '梦', '想', '情', '意', '心', '境', '远', '近', '高', '低', '东', '西', '南', '北', '天', '地', '日', '月', '星', '辰'],
       collectionCount: 0,
-      mobileMenuOpen: false
+      mobileMenuOpen: false,
+      isElectron: false,
+      transitionName: 'page-forward',
+      lastPath: '/',
+      keepAliveIncludes: ['PoemDetail']
     }
   },
   computed: {
@@ -133,50 +150,81 @@ export default {
       // 检查是否是教师登录状态
       const teacherToken = localStorage.getItem('teacherToken');
       const currentLoginType = localStorage.getItem('currentLoginType');
-      
+
       // 如果有教师token，肯定是教师
       if (teacherToken) {
         return true;
       }
-      
+
       // 如果当前登录类型是教师（即使没有token，比如退出登录后），也保持教师界面
       if (currentLoginType === 'teacher') {
         return true;
       }
-      
+
       // 其他情况显示学生界面
       return false;
     }
   },
 
   mounted() {
+    // 检测是否在Electron环境中
+    this.isElectron = typeof window !== 'undefined' && window.electronAPI;
+
+    // 检测URL参数，启动演示模式
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('demo') === 'true' && this.$refs.demoMode) {
+      this.$refs.demoMode.startDemo()
+    }
+
+    // 监听页面切换方向事件
+    window.addEventListener('page-transition', ((e) => {
+      this.transitionName = `page-${e.detail.direction}`
+    }))
+
     this.createDynamicElements()
     this.startCreatingDynamicElements()
-    
+
     // 初始化收藏数量
     this.updateCollectionCount()
-    
+
     // 添加点击和触摸事件监听器以创建涟漪效果
     this.clickHandler = this.createRipple.bind(this)
     document.addEventListener('click', this.clickHandler)
     document.addEventListener('touchstart', this.clickHandler)
-    
+
     // 监听本地存储变化，实时更新收藏数量
     window.addEventListener('storage', this.handleStorageChange)
+
+    // 监听Electron导航事件
+    if (this.isElectron) {
+      window.electronAPI.onNavigateTo((route) => {
+        this.$router.push(route);
+      });
+    }
   },
   beforeUnmount() {
     this.stopCreatingDynamicElements()
-    
+
     // 移除事件监听器
     if (this.clickHandler) {
       document.removeEventListener('click', this.clickHandler)
       document.removeEventListener('touchstart', this.clickHandler)
     }
-    
+
+    window.removeEventListener('page-transition', this.handlePageTransition)
+
     // 移除本地存储监听器
     window.removeEventListener('storage', this.handleStorageChange)
+
+    // 移除Electron导航监听器
+    if (this.isElectron) {
+      window.electronAPI.removeNavigateListener();
+    }
   },
   methods: {
+    handlePageTransition(e) {
+      this.transitionName = `page-${e.detail.direction}`
+    },
     // 更新收藏数量
     updateCollectionCount() {
       try {
@@ -415,12 +463,50 @@ export default {
 </script>
 
 <style>
-/* 页面过渡动画 */
+/* ===== 古风卷轴页面过渡 ===== */
+/* 前进：旧页向下滑出，新页从上方滑入 */
+.page-forward-enter-active,
+.page-forward-leave-active {
+  transition: all 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.page-forward-enter-from {
+  opacity: 0;
+  transform: translateY(-32px) scale(0.97);
+}
+.page-forward-leave-to {
+  opacity: 0;
+  transform: translateY(24px) scale(0.97);
+}
+.page-forward-enter-to,
+.page-forward-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* 后退：旧页向上滑出，新页从下方滑入 */
+.page-back-enter-active,
+.page-back-leave-active {
+  transition: all 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.page-back-enter-from {
+  opacity: 0;
+  transform: translateY(32px) scale(0.97);
+}
+.page-back-leave-to {
+  opacity: 0;
+  transform: translateY(-24px) scale(0.97);
+}
+.page-back-enter-to,
+.page-back-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* 旧 fade 保持兼容 */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
 }
-
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
@@ -639,10 +725,11 @@ export default {
 .teacher-navbar-menu {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 15px;
   margin: 0;
   padding: 0;
   list-style: none;
+  flex-wrap: nowrap;
 }
 
 .logout-btn {

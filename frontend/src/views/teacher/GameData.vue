@@ -69,10 +69,10 @@
         </div>
 
         <div class="chart-card">
-          <h2>热门对战词</h2>
+          <h2>热门对战诗词</h2>
           <div class="hot-words">
-            <div v-for="word in hotWords" :key="word.word" class="word-item">
-              <span class="word">{{ word.word }}</span>
+            <div v-for="(word, idx) in hotWords" :key="(word.word || word.keyword || '') + '-' + idx" class="word-item">
+              <span class="word" :title="word.word || word.keyword">{{ word.word || word.keyword || '—' }}</span>
               <div class="word-bar">
                 <div class="bar-fill" :style="{ width: word.percentage + '%' }"></div>
               </div>
@@ -167,6 +167,7 @@ const loadData = async () => {
     
     await nextTick()
     initTrendChart(result.trend || [])
+    requestAnimationFrame(() => trendChart?.resize())
   } catch (err) {
     console.error('加载数据失败:', err)
     loadMockData()
@@ -205,27 +206,53 @@ const loadMockData = () => {
     { id: 3, date: new Date(Date.now() - 7200000).toISOString(), player1: '诗情画意', player2: '李白粉丝', winner: '李白粉丝', rounds: 10 }
   ]
   
-  initTrendChart([
-    { date: '03-18', count: 15 },
-    { date: '03-19', count: 22 },
-    { date: '03-20', count: 18 },
-    { date: '03-21', count: 25 },
-    { date: '03-22', count: 30 },
-    { date: '03-23', count: 28 },
-    { date: '03-24', count: 20 }
-  ])
+  nextTick(() => {
+    initTrendChart([
+      { date: '03-18', count: 15 },
+      { date: '03-19', count: 22 },
+      { date: '03-20', count: 18 },
+      { date: '03-21', count: 25 },
+      { date: '03-22', count: 30 },
+      { date: '03-23', count: 28 },
+      { date: '03-24', count: 20 }
+    ])
+    requestAnimationFrame(() => trendChart?.resize())
+  })
+}
+
+const formatTrendLabel = (d) => {
+  if (!d || typeof d !== 'string') return ''
+  return d.length >= 10 ? d.slice(5) : d
 }
 
 const initTrendChart = (data) => {
   if (!trendChartRef.value) return
   if (trendChart) trendChart.dispose()
-  
+
+  const list = Array.isArray(data) ? data : []
+  const categories = list.map((d) => formatTrendLabel(d.date))
+  const counts = list.map((d) => Number(d.count) || 0)
+  const noData = list.length === 0
+
   trendChart = echarts.init(trendChartRef.value)
   trendChart.setOption({
     tooltip: { trigger: 'axis' },
+    graphic: noData
+      ? [{
+          type: 'text',
+          left: 'center',
+          top: 'middle',
+          style: {
+            text: '所选时段内暂无对战数据',
+            fill: '#999',
+            fontSize: 15,
+            fontFamily: 'SimSun, STSong, serif'
+          }
+        }]
+      : [],
     xAxis: {
       type: 'category',
-      data: data.map(d => d.date),
+      data: noData ? [] : categories,
       axisLine: { lineStyle: { color: 'rgba(139,69,19,0.3)' } },
       axisLabel: { color: '#8b4513' }
     },
@@ -235,29 +262,124 @@ const initTrendChart = (data) => {
       axisLine: { lineStyle: { color: 'rgba(139,69,19,0.3)' } },
       axisLabel: { color: '#8b4513' }
     },
-    series: [{
-      name: '对战数',
-      type: 'line',
-      smooth: true,
-      data: data.map(d => d.count),
-      itemStyle: { color: '#cd853f' },
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(205,133,63,0.3)' },
-          { offset: 1, color: 'rgba(205,133,63,0.05)' }
-        ])
+    series: noData
+      ? []
+      : [{
+          name: '对战数',
+          type: 'line',
+          smooth: true,
+          data: counts,
+          itemStyle: { color: '#cd853f' },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(205,133,63,0.3)' },
+              { offset: 1, color: 'rgba(205,133,63,0.05)' }
+            ])
+          }
+        }]
+  }, { notMerge: true })
+}
+
+const parseBattleDate = (raw) => {
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'number') {
+    const ms = raw < 1e12 ? raw * 1000 : raw
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const s = String(raw).trim()
+  if (/^\d{10,}$/.test(s)) {
+    const n = Number(s)
+    const ms = n < 1e12 ? n * 1000 : n
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+const formatDate = (dateVal) => {
+  const date = parseBattleDate(dateVal)
+  if (!date) return '—'
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+const exportData = async (e) => {
+  try {
+    const token = localStorage.getItem('teacherToken')
+    if (!token) {
+      router.push('/teacher/login')
+      return
+    }
+
+    // 显示加载状态
+    const btn = e?.currentTarget?.closest('.btn-primary')
+    const originalText = btn.innerHTML
+    btn.innerHTML = '<span class="loading-spinner small"></span> 导出中...'
+    btn.disabled = true
+
+    // 准备导出数据
+    const exportPayload = {
+      type: 'game',
+      gameData: {
+        stats: gameStats.value,
+        topPlayers: topPlayers.value,
+        recentGames: recentGames.value
       }
-    }]
-  })
-}
+    }
 
-const formatDate = (dateStr) => {
-  const date = new Date(dateStr)
-  return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
-}
+    const response = await fetch('http://localhost:3000/api/teacher/export', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(exportPayload)
+    })
 
-const exportData = () => {
-  alert('数据导出功能开发中...')
+    if (response.status === 401) {
+      localStorage.removeItem('teacherToken')
+      router.push('/teacher/login')
+      return
+    }
+
+    if (response.ok) {
+      // 获取文件名
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = `古诗词学习数据_${new Date().toISOString().split('T')[0]}.xlsx`
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+        if (match) {
+          filename = decodeURIComponent(match[1].replace(/['"]/g, ''))
+        }
+      }
+
+      // 下载文件
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      alert('数据导出成功！')
+    } else {
+      throw new Error('导出失败')
+    }
+  } catch (err) {
+    console.error('导出数据失败:', err)
+    alert('数据导出失败，请重试')
+  } finally {
+    // 恢复按钮状态
+    const btn = e?.currentTarget?.closest?.('.btn-primary')
+    if (btn) {
+      btn.innerHTML = '<span>📥</span> 导出数据'
+      btn.disabled = false
+    }
+  }
 }
 
 const handleResize = () => {
@@ -465,11 +587,16 @@ onUnmounted(() => {
 }
 
 .word {
-  width: 30px;
-  font-size: 18px;
+  flex: 0 1 42%;
+  min-width: 72px;
+  max-width: 55%;
+  font-size: 15px;
   color: #8b4513;
   font-family: 'SimSun', 'STSong', serif;
   font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .word-bar {
@@ -488,7 +615,8 @@ onUnmounted(() => {
 }
 
 .count {
-  width: 50px;
+  flex-shrink: 0;
+  width: 52px;
   text-align: right;
   color: #999;
   font-size: 13px;

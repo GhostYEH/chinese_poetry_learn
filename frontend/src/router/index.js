@@ -22,6 +22,8 @@ const StudentManagement = () => import('../views/teacher/StudentManagement.vue')
 const PoemManagement = () => import('../views/teacher/PoemManagement.vue')
 const GameData = () => import('../views/teacher/GameData.vue')
 const Settings = () => import('../views/teacher/Settings.vue')
+const PoetryParkour = () => import('../views/PoetryParkour.vue')
+const PoetryCardCatch = () => import('../views/PoetryCardCatch.vue')
 
 // 路由配置
 const routes = [
@@ -224,6 +226,22 @@ const routes = [
     }
   },
   {
+    path: '/creation/workbench',
+    name: 'CreationWorkbench',
+    component: () => import('../views/creation/CreationWorkbench.vue'),
+    meta: {
+      title: 'AI创作工作台 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/creation/poetry-workbench',
+    name: 'PoetryWorkbench',
+    component: () => import('../views/creation/PoetryWorkbench.vue'),
+    meta: {
+      title: 'AI诗词创作工作台 - 古诗词学习系统'
+    }
+  },
+  {
     path: '/creation/records',
     name: 'CreationRecords',
     component: () => import('../views/creation/CreationRecords.vue'),
@@ -239,6 +257,15 @@ const routes = [
     component: () => import('../views/PoemChallenge.vue'),
     meta: {
       title: '诗词闯关 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/challenge/battle',
+    name: 'ChallengeBattle',
+    component: () => import('../views/ChallengeBattle.vue'),
+    meta: {
+      title: '闯关对战 - 古诗词学习系统',
+      requiresAuth: true
     }
   },
   {
@@ -267,6 +294,76 @@ const routes = [
       title: '错题复习 - 古诗词学习系统',
       requiresAuth: true
     }
+  },
+  {
+    path: '/learning-path',
+    name: 'LearningPath',
+    component: () => import('../views/LearningPath.vue'),
+    meta: {
+      title: '学习路径 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/daily',
+    name: 'DailyPoem',
+    component: () => import('../views/DailyPoem.vue'),
+    meta: {
+      title: '每日一诗 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/poetry-challenge',
+    name: 'PoetryChallenge',
+    component: () => import('../views/PoetryChallenge.vue'),
+    meta: {
+      title: '诗词创作挑战 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/parkour',
+    name: 'PoetryParkour',
+    component: PoetryParkour,
+    meta: {
+      title: '诗词跑酷 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/card-catch',
+    name: 'PoetryCardCatch',
+    component: PoetryCardCatch,
+    meta: {
+      title: '诗词卡片接取 - 古诗词学习系统'
+    }
+  },
+  {
+    path: '/feihua-ranking',
+    name: 'FeiHuaRanking',
+    component: () => import('../views/FeiHuaRanking.vue'),
+    meta: {
+      title: '飞花令排位 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/knowledge-graph',
+    name: 'KnowledgeGraph',
+    component: () => import('../views/KnowledgeGraph.vue'),
+    meta: {
+      title: '知识图谱 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/voice-recitation',
+    name: 'VoiceRecitation',
+    component: () => import('../views/VoiceRecitation.vue'),
+    meta: {
+      title: '语音背诵 - 古诗词学习系统',
+      requiresAuth: true
+    }
   }
 ]
 
@@ -281,6 +378,16 @@ const router = createRouter({
       return { top: 0 }
     }
   }
+})
+
+// 导航守卫：自动判断页面切换方向并通知 App.vue
+router.beforeEach((to, from, next) => {
+  const toDepth = to.path.split('/').filter(Boolean).length
+  const fromDepth = from.path.split('/').filter(Boolean).length
+  const direction = toDepth >= fromDepth ? 'forward' : 'back'
+  // 通过自定义事件通知 App.vue 更新过渡名称
+  window.dispatchEvent(new CustomEvent('page-transition', { detail: { direction } }))
+  next()
 })
 
 function isTokenExpired(token) {

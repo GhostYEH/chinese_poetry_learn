@@ -1,5 +1,51 @@
 // 学习记录服务
+require('dotenv').config();
+const axios = require('axios');
 const { db } = require('../utils/db');
+
+/** 最近 7 天（含今天）按日历聚合的学习活跃度与得分趋势 */
+function buildLearningTrends(learnedPoems) {
+  const trends = [];
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const y = date.getFullYear();
+    const m = date.getMonth();
+    const d = date.getDate();
+    const dateStr = `${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    const onDay = learnedPoems.filter((r) => {
+      if (!r.last_view_time) return false;
+      const t = new Date(r.last_view_time);
+      return t.getFullYear() === y && t.getMonth() === m && t.getDate() === d;
+    });
+
+    let score = 0;
+    if (onDay.length > 0) {
+      const recited = onDay.filter((r) => r.recite_attempts > 0);
+      if (recited.length > 0) {
+        score = Math.round(
+          recited.reduce((s, r) => s + (r.best_score || 0), 0) / recited.length
+        );
+      } else {
+        const engagement = onDay.reduce(
+          (s, r) => s + (r.view_count || 0) + (r.ai_explain_count || 0) * 2,
+          0
+        );
+        score = Math.min(100, Math.round(30 + Math.min(engagement * 4, 70)));
+      }
+    } else {
+      score = 0;
+    }
+
+    trends.push({ date: dateStr, score, activePoems: onDay.length });
+  }
+
+  return trends;
+}
 
 // 学习记录数据存储（内存缓存）
 let learningRecords = {};
@@ -192,27 +238,6 @@ function getLearningDashboard(userId) {
           ? Math.round((masteredCount / recitedPoems.length) * 100)
           : 0;
         
-        // 生成最近7天的学习趋势数据
-        const generateLearningTrends = () => {
-          const trends = [];
-          const today = new Date();
-          
-          for (let i = 6; i >= 0; i--) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-            
-            // 基于平均得分生成随机但合理的趋势数据
-            const baseScore = averageScore || 70;
-            const randomVariation = Math.floor(Math.random() * 15) - 7; // -7 到 +7 的随机变化
-            const score = Math.max(50, Math.min(100, baseScore + randomVariation));
-            
-            trends.push({ date: dateStr, score });
-          }
-          
-          return trends;
-        };
-        
         resolve({
           totalLearned,
           averageScore,
@@ -220,11 +245,100 @@ function getLearningDashboard(userId) {
           recentLearnings,
           masteryRate,
           totalStudyTime,
-          learningTrends: generateLearningTrends()
+          learningTrends: buildLearningTrends(learnedPoems)
         });
       }
     );
   });
+}
+
+/**
+ * 基于个人学习记录调用硅基流动 Qwen3-8B 生成学习建议（需在环境变量配置 SILICONFLOW_API_KEY）
+ * @see https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions
+ */
+async function generateAiLearningAdvice(userId) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey || !String(apiKey).trim()) {
+    const err = new Error('AI 服务未配置');
+    err.code = 'NO_API_KEY';
+    throw err;
+  }
+
+  const rows = await getLearningStats(userId);
+  const sorted = [...rows].sort((a, b) => {
+    if (!a.last_view_time) return 1;
+    if (!b.last_view_time) return -1;
+    return new Date(b.last_view_time) - new Date(a.last_view_time);
+  });
+
+  const recited = sorted.filter((r) => r.recite_attempts > 0);
+  const totalScoreSum = recited.reduce((s, r) => s + (r.total_score || 0), 0);
+  const totalAttempts = recited.reduce((s, r) => s + r.recite_attempts, 0);
+  const averageRecite = totalAttempts > 0 ? Math.round(totalScoreSum / totalAttempts) : 0;
+  const mistakeCount = recited.filter((r) => r.best_score < 100).length;
+  const masteredCount = recited.filter((r) => r.best_score === 100).length;
+  const masteryRate = recited.length > 0 ? Math.round((masteredCount / recited.length) * 100) : 0;
+  const totalStudyTime = sorted.reduce((s, r) => s + (r.study_time || 0), 0);
+
+  const poemDetails = sorted.slice(0, 80).map((r) => ({
+    title: r.poem_title,
+    author: r.poem_author,
+    view_count: r.view_count,
+    ai_explain_count: r.ai_explain_count,
+    recite_attempts: r.recite_attempts,
+    best_score: r.best_score,
+    total_score: r.total_score,
+    study_time_minutes: r.study_time,
+    last_active: r.last_view_time
+  }));
+
+  const summary = {
+    total_learned_poems: sorted.length,
+    average_recite_score_percent: averageRecite,
+    imperfect_recite_poems: mistakeCount,
+    mastery_rate_percent: masteryRate,
+    total_study_time_minutes: totalStudyTime,
+    poem_records: poemDetails
+  };
+
+  const userPayload = JSON.stringify(summary);
+
+  const messages = [
+    {
+      role: 'system',
+      content:
+        '你是一位资深古诗词学习指导师，熟悉记忆规律与朗诵背诵训练。请根据用户提供的结构化学习数据，写出一份详细、可执行的学习建议。' +
+        '要求：使用 Markdown（## 小标题、列表）；结合数据中出现的具体诗词标题与数字（查看次数、AI讲解次数、背诵次数、最高分等）；指出薄弱环节与优势；给出可执行的近期计划（例如未来一周）；语气专业、鼓励。' +
+        '不要编造数据中不存在的诗词标题；若记录为空或很少，请说明如何从建立学习习惯与选篇开始。'
+    },
+    {
+      role: 'user',
+      content: `以下是我的古诗词学习数据（JSON）。请据此全面分析并给出学习建议：\n${userPayload}`
+    }
+  ];
+
+  const resp = await axios.post(
+    'https://api.siliconflow.cn/v1/chat/completions',
+    {
+      model: 'Qwen/Qwen3-8B',
+      messages,
+      temperature: 0.65,
+      max_tokens: 2048
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000
+    }
+  );
+
+  const content = resp.data?.choices?.[0]?.message?.content;
+  if (!content || typeof content !== 'string') {
+    throw new Error('模型返回空内容');
+  }
+  return content.trim();
 }
 
 module.exports = {
@@ -232,5 +346,6 @@ module.exports = {
   recordLearningAction,
   getLearningStats,
   getLearningRecord,
-  getLearningDashboard
+  getLearningDashboard,
+  generateAiLearningAdvice
 };

@@ -13,30 +13,8 @@ const generationTasks = new Map();
 const userRateLimits = new Map();
 const MAX_REQUESTS_PER_MINUTE = 5;
 
-// 服务端缓存（使用内存Map作为默认缓存，支持Redis降级）
-let charInfoCache = new Map();
-let redisClient = null;
-
-// 尝试连接Redis
-function initRedis() {
-  try {
-    const redis = require('redis');
-    redisClient = redis.createClient();
-    redisClient.on('error', (err) => {
-      console.error('Redis连接失败，降级为内存缓存:', err.message);
-      redisClient = null;
-    });
-    redisClient.connect().catch(err => {
-      console.error('Redis连接失败，降级为内存缓存:', err.message);
-      redisClient = null;
-    });
-  } catch (error) {
-    console.error('Redis模块加载失败，使用内存缓存:', error.message);
-  }
-}
-
-// 初始化Redis连接
-initRedis();
+// 服务端缓存（使用内存Map作为缓存）
+const charInfoCache = new Map();
 
 // 生成缓存key
 function generateCacheKey(prompt) {
@@ -44,32 +22,12 @@ function generateCacheKey(prompt) {
 }
 
 // 获取缓存
-async function getCache(key) {
-  if (redisClient) {
-    try {
-      const value = await redisClient.get(key);
-      if (value) {
-        return JSON.parse(value);
-      }
-    } catch (error) {
-      console.error('Redis获取缓存失败:', error.message);
-    }
-  }
+function getCache(key) {
   return charInfoCache.get(key);
 }
 
 // 设置缓存
-async function setCache(key, value) {
-  const data = JSON.stringify(value);
-  if (redisClient) {
-    try {
-      await redisClient.set(key, data, { EX: 7 * 24 * 60 * 60 }); // 7天过期
-      return;
-    } catch (error) {
-      console.error('Redis设置缓存失败:', error.message);
-    }
-  }
-  // 内存缓存
+function setCache(key, value) {
   charInfoCache.set(key, value);
   // 限制内存缓存大小
   if (charInfoCache.size > 1000) {
@@ -806,6 +764,38 @@ router.post('/image/carousel', async (req, res) => {
   } catch (error) {
     console.error('轮播图生成失败:', error);
     res.status(500).json({ message: '生成失败' });
+  }
+});
+
+/**
+ * 智谱AI文生图 - 为选中的诗句生成意境画面
+ * POST /api/ai/scene-image
+ * Body: { poemLine, poemTitle, poemAuthor }
+ */
+router.post('/scene-image', async (req, res) => {
+  try {
+    const { poemLine, poemTitle, poemAuthor, lineNumber, totalLines } = req.body;
+
+    if (!poemLine) {
+      return res.status(400).json({ message: '缺少诗句内容' });
+    }
+
+    const result = await aiService.generatePoemSceneImage(
+      poemLine,
+      poemTitle || '古诗',
+      poemAuthor || '佚名',
+      typeof lineNumber === 'number' ? lineNumber : null,
+      typeof totalLines === 'number' ? totalLines : null
+    );
+
+    if (result.success) {
+      res.json({ success: true, url: result.url, model: result.model });
+    } else {
+      res.json({ success: false, message: result.message || '生成失败' });
+    }
+  } catch (error) {
+    console.error('诗句意境图生成失败:', error);
+    res.status(500).json({ message: '生成失败，请稍后重试' });
   }
 });
 

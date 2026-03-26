@@ -5,100 +5,123 @@ const { getCacheFilePath, readCache, writeCache } = require('../utils/cache');
 const fetch = require('node-fetch');
 
 /**
- * 调用AI生成JSON格式的内容
+ * 从文本中提取JSON（处理AI返回的markdown代码块等）
+ */
+function extractJSON(text) {
+  if (!text) return null;
+  let s = text.trim();
+  // 去掉 markdown 代码块
+  const codeBlockMatch = s.match(/```(?:json)?\s*\n?([\s\S]+?)\n?```/);
+  if (codeBlockMatch) s = codeBlockMatch[1].trim();
+  // 直接解析
+  try { return JSON.parse(s); } catch (_) {}
+  // 找第一个 { ... } 或 [ ... ]
+  const objMatch = s.match(/\{[\s\S]+\}/);
+  if (objMatch) {
+    try { return JSON.parse(objMatch[0]); } catch (_) {}
+  }
+  const arrMatch = s.match(/\[[\s\S]+\]/);
+  if (arrMatch) {
+    try { return JSON.parse(arrMatch[0]); } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * 调用AI生成JSON格式的内容（带自动重试和JSON修复）
  * @param {string} prompt - 用户Prompt
  * @param {string} systemContent - 系统Prompt
  * @param {object} options - 可选配置
  * @returns {Promise<object|null>} 成功返回解析后的JSON对象，失败返回null
  */
 async function callAIGenerateJSON(prompt, systemContent, options = {}) {
-  try {
-    const apiKey = process.env.SILICONFLOW_API_KEY;
-    if (!apiKey) {
-      console.log('[aiService] 缺少SILICONFLOW_API_KEY环境变量，返回null');
-      return null;
-    }
+  const MAX_RETRIES = 2;
 
-    // 构建默认配置
-    const defaultConfig = {
-      temperature: config.ai.defaultTemperature || 0.7,
-      max_tokens: config.ai.defaultMaxTokens || 500,
-      top_p: config.ai.defaultTopP || 0.7,
-      stream: false,
-      timeout: 60000 // 60秒超时
-    };
-
-    // 合并配置
-    const finalConfig = { ...defaultConfig, ...options };
-
-    // 构建API请求数据
-    const requestData = {
-      model: config.ai.model,
-      messages: [
-        {
-          role: "system",
-          content: systemContent
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: finalConfig.temperature,
-      max_tokens: finalConfig.max_tokens,
-      top_p: finalConfig.top_p,
-      stream: finalConfig.stream,
-      response_format: { type: "json_object" }
-    };
-
-    // 创建AbortController用于超时控制
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
-
-    // 发送API请求
-    console.log('[aiService] 发送API请求:', {
-      model: config.ai.model,
-      apiUrl: config.ai.apiUrl,
-      promptLength: prompt.length,
-      timeout: 60000
-    });
-    
-    const response = await fetch(config.ai.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(requestData),
-      signal: controller.signal
-    });
-
-    // 清除超时
-    clearTimeout(timeoutId);
-
-    console.log('[aiService] API响应状态:', response.status, response.statusText);
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('[aiService] API请求失败:', response.status, response.statusText, errorData);
-      return null;
-    }
-
-    const responseData = await response.json();
-    const content = responseData.choices[0].message.content;
-
-    // 解析JSON
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const result = JSON.parse(content);
-      return result;
-    } catch (parseError) {
-      console.error('[aiService] JSON解析失败:', parseError, '内容:', content);
-      return null;
+      const apiKey = process.env.SILICONFLOW_API_KEY;
+      if (!apiKey) {
+        console.log('[aiService] 缺少SILICONFLOW_API_KEY环境变量，返回null');
+        return null;
+      }
+
+      // 第0次尝试用给定 temperature，第1次降低以减少随机，第2次再降
+      const temperatures = [0.7, 0.2, 0.05];
+      const defaultConfig = {
+        temperature: config.ai.defaultTemperature || 0.7,
+        max_tokens: config.ai.defaultMaxTokens || 500,
+        top_p: config.ai.defaultTopP || 0.7,
+        stream: false,
+        timeout: 60000
+      };
+      const finalConfig = { ...defaultConfig, ...options };
+      if (options.maxTokens != null) finalConfig.max_tokens = options.maxTokens;
+      // 重试时逐步降低随机性
+      if (attempt > 0) {
+        finalConfig.temperature = temperatures[Math.min(attempt, temperatures.length - 1)];
+        console.log(`[aiService] 重试第${attempt + 1}次，temperature=${finalConfig.temperature}`);
+      }
+
+      const requestData = {
+        model: config.ai.model,
+        messages: [
+          { role: "system", content: systemContent },
+          { role: "user", content: prompt }
+        ],
+        temperature: finalConfig.temperature,
+        max_tokens: finalConfig.max_tokens,
+        top_p: finalConfig.top_p,
+        stream: finalConfig.stream,
+        response_format: { type: "json_object" }
+      };
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      const response = await fetch(config.ai.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestData),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        console.error('[aiService] API请求失败:', response.status, errText);
+        return null;
+      }
+
+      const responseData = await response.json();
+      const msg = responseData.choices?.[0]?.message || {};
+      const rawContent = (msg.content || msg.reasoning_content || '').trim();
+
+      // 尝试提取并解析JSON
+      const result = extractJSON(rawContent);
+      if (result) {
+        console.log('[aiService] JSON解析成功');
+        return result;
+      }
+
+      // JSON 解析失败，且已达到最大重试次数
+      if (attempt === MAX_RETRIES) {
+        console.error('[aiService] JSON解析重试全部失败，原始内容:', rawContent.substring(0, 300));
+        return null;
+      }
+
+      // 重试前追加约束 prompt
+      console.warn(`[aiService] JSON解析失败，将重试（第${attempt + 1}次）`);
+
+    } catch (error) {
+      console.error(`[aiService] 调用AI失败（尝试${attempt + 1}）:`, error.message);
+      if (attempt === MAX_RETRIES) return null;
     }
-  } catch (error) {
-    console.error('[aiService] 调用AI失败:', error);
-    return null;
   }
+  return null;
 }
 
 // 导出新函数
@@ -1438,8 +1461,15 @@ async function getAIGeneratedQuestions(prompt) {
 
     if (result && Array.isArray(result)) {
       return result;
-    } else if (result && result.questions && Array.isArray(result.questions)) {
+    }
+    if (result && result.questions && Array.isArray(result.questions)) {
       return result.questions;
+    }
+    if (result && result.data && Array.isArray(result.data)) {
+      return result.data;
+    }
+    if (result && result.items && Array.isArray(result.items)) {
+      return result.items;
     }
 
     return null;
@@ -1447,6 +1477,567 @@ async function getAIGeneratedQuestions(prompt) {
     console.error('[aiService] 生成题目失败:', error);
     return null;
   }
+}
+
+/**
+ * 根据诗词内容生成意境图
+ * @param {string} poem - 诗词内容
+ * @param {string} title - 诗词标题
+ * @param {string} author - 作者
+ * @returns {Promise<object|null>} 返回图片URL或null
+ */
+async function generatePoemImage(poem, title, author) {
+  try {
+    const apiKey = process.env.SILICONFLOW_API_KEY;
+    if (!apiKey) {
+      console.log('[aiService] 缺少SILICONFLOW_API_KEY环境变量，无法生成图片');
+      return null;
+    }
+
+    // 构建图片生成的提示词 - 使用中文描述更准确
+    const imagePrompt = `中国传统水墨画风格，描绘诗词《${title}》的意境。${poem}。画面要体现诗中的意象和情感，淡雅古朴，意境深远，高清细腻，无文字，无水印。`;
+
+    console.log('[aiService] 生成诗词意境图:', { title, author, promptLength: imagePrompt.length });
+
+    // 使用硅基流动的文生图API
+    const response = await fetch('https://api.siliconflow.cn/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'stabilityai/stable-diffusion-2-1',
+        prompt: imagePrompt,
+        image_size: '512x512',
+        num_inference_steps: 20
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[aiService] 图片生成失败:', response.status, response.statusText, errorData);
+      return null;
+    }
+
+    const responseData = await response.json();
+    console.log('[aiService] 图片生成成功:', responseData);
+
+    if (responseData.images && responseData.images.length > 0) {
+      return {
+        success: true,
+        imageUrl: responseData.images[0].url,
+        prompt: imagePrompt
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[aiService] 生成诗词意境图失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 飞花令AI诗句评判
+ * 使用SiliconFlow Qwen3-8B模型评判诗句是否符合飞花令规则
+ * @param {string} poem - 用户提交的诗句
+ * @param {string} keyword - 令字
+ * @param {string} difficulty - 难度: easy(入门), medium(进阶), hard(专业)
+ * @param {string[]} usedPoems - 已使用的诗句列表
+ * @returns {Promise<object|null>} 评判结果
+ */
+async function evaluateFeihuaPoem(poem, keyword, difficulty = 'medium', usedPoems = []) {
+  try {
+    const apiKey = process.env.SILICONFLOW_API_KEY;
+    if (!apiKey) {
+      console.error('[aiService] 缺少SILICONFLOW_API_KEY环境变量');
+      return getMockFeihuaEvaluation(poem, keyword);
+    }
+
+    const usedPoemsText = usedPoems.length > 0
+      ? `以下诗句已经被对方使用过，请勿重复：\n${usedPoems.map((p, i) => `${i + 1}. ${p}`).join('\n')}`
+      : '暂无已用诗句';
+
+    const difficultyRules = {
+      easy: '入门难度：只要诗句中包含「' + keyword + '」字就算通过。',
+      medium: '进阶难度：诗句必须包含「' + keyword + '」字，且句子完整、符合诗词格律。',
+      hard: '专业难度：诗句必须包含「' + keyword + '」字，且必须是经典古诗词名句，符合平仄格律。'
+    };
+
+    const prompt = `你是一位飞花令裁判，请评判以下诗句是否符合飞花令规则：
+
+令字：${keyword}
+难度：${difficulty}
+规则说明：${difficultyRules[difficulty] || difficultyRules.medium}
+
+用户提交的诗句：${poem}
+
+${usedPoemsText}
+
+请严格按照以下JSON格式返回评判结果：
+{
+  "isValid": true或false，表示诗句是否有效
+  "score": 0-100的分值，评估诗句的质量和难度
+  "reason": 评判理由，说明为什么有效或无效
+  "poemInfo": {
+    "title": "如果能识别出诗句出处，填写诗词标题，否则填写null",
+    "author": "如果能识别出诗句出处，填写作者，否则填写null"
+  }
+}
+
+注意：
+1. 如果诗句不包含「${keyword}」字，必须返回isValid: false
+2. 如果诗句已经被使用过（在已用诗句列表中出现），必须返回isValid: false，reason中说明"诗句重复"
+3. 如果诗句质量过低（如胡乱编造、不符合格律），可以返回isValid: false
+4. 对于专业难度的评判，应更加严格
+5. 请直接返回JSON，不要包含任何其他文字`;
+
+    const requestData = {
+      model: 'Qwen/Qwen3-8B',
+      messages: [
+        {
+          role: "system",
+          content: "你是一位严格公正的飞花令裁判。你的职责是准确评判诗句是否符合飞花令规则。你的判断必须公正、准确、严格。请始终按照JSON格式返回结果。"
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 800,
+      top_p: 0.3,
+      stream: false,
+      response_format: { type: "json_object" }
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestData),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[aiService] 飞花令评判API失败:', response.status, errorData);
+        return getMockFeihuaEvaluation(poem, keyword);
+      }
+
+      const responseData = await response.json();
+      const content = responseData.choices[0].message.content;
+      console.log('[aiService] 飞花令AI评判原始输出:', content);
+
+      let aiResult;
+      try {
+        aiResult = JSON.parse(content);
+      } catch (parseError) {
+        console.error('[aiService] 飞花令评判JSON解析失败:', parseError);
+        return getMockFeihuaEvaluation(poem, keyword);
+      }
+
+      // 安全验证
+      if (typeof aiResult.isValid !== 'boolean') {
+        console.error('[aiService] AI评判结果格式错误:', aiResult);
+        return getMockFeihuaEvaluation(poem, keyword);
+      }
+
+      return {
+        isValid: aiResult.isValid,
+        score: typeof aiResult.score === 'number' ? Math.max(0, Math.min(100, aiResult.score)) : 70,
+        reason: aiResult.reason || '评判完成',
+        poemInfo: aiResult.poemInfo || { title: null, author: null }
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error('[aiService] 飞花令评判失败:', error);
+    return getMockFeihuaEvaluation(poem, keyword);
+  }
+}
+
+/**
+ * 获取模拟的飞花令评判结果（作为API不可用时的fallback）
+ */
+function getMockFeihuaEvaluation(poem, keyword) {
+  const normalizedPoem = poem.replace(/[，。！？、；：""''（）【】《》\s]/g, '');
+  const hasKeyword = normalizedPoem.includes(keyword);
+
+  if (!hasKeyword) {
+    return {
+      isValid: false,
+      score: 0,
+      reason: `诗句中未包含令字「${keyword}」`,
+      poemInfo: { title: null, author: null }
+    };
+  }
+
+  return {
+    isValid: true,
+    score: 75,
+    reason: '诗句有效，符合飞花令规则',
+    poemInfo: { title: null, author: null }
+  };
+}
+
+/**
+ * 半句归一化（用于匹配题干与偶句）
+ */
+function normalizeHalfRaw(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/\s/g, '')
+    .replace(/[。！？…；、""''（）《》\s]/g, '');
+}
+
+/**
+ * 将全文按句读切分后，提取所有「左半，右半」相邻偶句（同一小节内逗号衔接）。
+ */
+function extractCommaCouplets(fullPoem) {
+  const poem = String(fullPoem || '').replace(/\s/g, '');
+  const chunks = poem.split(/[。！？；]+/).filter(Boolean);
+  const pairs = [];
+  for (const chunk of chunks) {
+    const parts = chunk.split(/[，]/);
+    for (let i = 0; i < parts.length - 1; i++) {
+      const left = parts[i].trim();
+      const right = parts[i + 1].trim();
+      if (left && right) pairs.push({ left, right });
+    }
+  }
+  return pairs;
+}
+
+/**
+ * 从 full_poem 的偶句结构推导空缺处唯一正确答案。
+ * - 「____，乙」→ 在诗中找到「某，乙」偶句，答案为「某」；若无（如乙为某句首半）则无效。
+ * - 「甲，____」→ 找到「甲，某」，答案为「某」。
+ */
+function deriveAdjacentAnswerFromPoem(question, fullPoem) {
+  const pairs = extractCommaCouplets(fullPoem);
+  if (!pairs.length) return { ok: false, answer: null };
+
+  const qStr = String(question || '').replace(/\s/g, '');
+  const blankPat = '(?:_{3,}|＿{3,}|…{2,}|……)';
+
+  const mBlankFirst = qStr.match(new RegExp(blankPat + '\\s*，\\s*([^，_' + '…' + ']+?)(?:[。！？…；]|$)'));
+  if (mBlankFirst) {
+    const anchorRaw = mBlankFirst[1].replace(/[。！？…；]+$/g, '').trim();
+    if (!anchorRaw || /^_+$/.test(anchorRaw)) return { ok: false, answer: null };
+    const na = normalizeHalfRaw(anchorRaw);
+    const hit = pairs.find((p) => normalizeHalfRaw(p.right) === na);
+    if (hit) return { ok: true, answer: hit.left };
+    return { ok: false, answer: null };
+  }
+
+  const mBlankSecond = qStr.match(new RegExp('^(.+?)，\\s*' + blankPat + '(?:[。！？…；]|$)'));
+  if (mBlankSecond) {
+    const anchorRaw = mBlankSecond[1].replace(/^[。！？…，；]+/g, '').replace(/[。！？…；]+$/g, '').trim();
+    if (!anchorRaw || anchorRaw.includes('_') || /^…+$/.test(anchorRaw)) return { ok: false, answer: null };
+    const na = normalizeHalfRaw(anchorRaw);
+    const hit = pairs.find((p) => normalizeHalfRaw(p.left) === na);
+    if (hit) return { ok: true, answer: hit.right };
+    return { ok: false, answer: null };
+  }
+
+  return { ok: false, answer: null };
+}
+
+/**
+ * 根据 full_poem 的偶句表校验并覆盖 answer；无法对齐则返回 null（须丢弃该题并重试 AI）。
+ */
+function repairDuelQuestionFromFullPoem(item) {
+  if (!item || !item.question || !item.full_poem) return null;
+  const { ok, answer } = deriveAdjacentAnswerFromPoem(item.question, item.full_poem);
+  if (!ok || !answer) {
+    console.warn('[aiService] 接句题与全文偶句无法对齐，已丢弃:', {
+      title: item.title,
+      question: item.question,
+      aiAnswer: item.answer
+    });
+    return null;
+  }
+  const prev = normalizeHalfRaw(item.answer);
+  const next = normalizeHalfRaw(answer);
+  if (prev !== next) {
+    console.warn('[aiService] 接句题答案已按偶句表修正:', {
+      title: item.title,
+      question: item.question,
+      was: item.answer,
+      now: answer
+    });
+  }
+  return { ...item, answer };
+}
+
+/**
+ * 闯关对战AI出题
+ * 生成一道不重复的诗词接句题目（给出上句填下句，或给出下句填上句）
+ * @param {number} count - 题目数量
+ * @param {string[]} excludeTitles - 要排除的诗词标题列表（确保不重复）
+ * @returns {Promise<object|null>}
+ */
+async function generateDuelQuestions(count = 1, excludeTitles = [], attempt = 0) {
+  const MAX_API_ATTEMPTS = 4;
+  try {
+    const apiKey = process.env.SILICONFLOW_API_KEY;
+    if (!apiKey) {
+      return pickValidDuelQuestionsFromPool(count, excludeTitles);
+    }
+
+    const excludeText = excludeTitles.length > 0
+      ? `\n以下诗词的标题不要使用（已被使用过）：\n${excludeTitles.map(t => `- ${t}`).join('\n')}`
+      : '';
+
+    const batchSize = Math.min(14, Math.max(count + 8, 6));
+
+    const prompt = `你是一个古诗词教育专家，请生成高质量的诗词接句题目，供双人闯关对战使用。
+
+硬性规则（违反任意一条视为废题）：
+1. full_poem 必须是该诗词完整正文，句读齐全；从中按逗号拆成的相邻两半句必须真实相邻。
+2. 题型只能是二选一：
+   - 上句填下句：题干为「甲，____。」其中「甲」必须是 full_poem 里某半句，answer 必须是同一逗号偶句里紧接在「甲，」后面的那半句。
+   - 下句填上句：题干为「____，乙。」其中「乙」必须是 full_poem 里某半句，且「乙」前面在同一句读小节内必须有逗号前的那半句；answer 必须是「乙」前面紧邻的那半句。禁止「乙」为全诗第一个半句（否则没有上句可填）。
+3. question、answer、full_poem 三者必须自洽；answer 不得取自其它逗号偶句。
+4. 生成 ${batchSize} 道（多生成几道以便筛选），标题不重复，不使用：${excludeTitles.length > 0 ? excludeTitles.join('、') : '无'}${excludeText}
+
+请严格按照以下JSON格式返回（不要包含任何其他文字）：
+{
+  "questions": [
+    {
+      "question": "床前明月光，____。",
+      "answer": "疑是地上霜",
+      "full_poem": "床前明月光，疑是地上霜。举头望明月，低头思故乡。",
+      "title": "静夜思",
+      "author": "李白",
+      "type": "上句填下句",
+      "analysis": "此句出自李白《静夜思》，描写了诗人在寂静夜晚对故乡的思念"
+    }
+  ]
+}`;
+
+    const requestData = {
+      model: 'Qwen/Qwen3-8B',
+      messages: [
+        {
+          role: "system",
+          content: "你是一位严格专业的古诗词专家，只返回JSON格式的题目，不返回任何其他文字。"
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.82,
+      max_tokens: 2800,
+      top_p: 0.55,
+      stream: false,
+      response_format: { type: "json_object" }
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestData),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.error('[aiService] 闯关对战出题API失败:', response.status);
+        if (attempt + 1 < MAX_API_ATTEMPTS) {
+          return generateDuelQuestions(count, excludeTitles, attempt + 1);
+        }
+        return pickValidDuelQuestionsFromPool(count, excludeTitles);
+      }
+
+      const responseData = await response.json();
+      const content = responseData.choices[0].message.content;
+      console.log('[aiService] 闯关对战AI出题原始输出:', content);
+
+      let aiResult;
+      try {
+        aiResult = JSON.parse(content);
+      } catch (parseError) {
+        console.error('[aiService] 闯关对战出题JSON解析失败:', parseError);
+        if (attempt + 1 < MAX_API_ATTEMPTS) {
+          return generateDuelQuestions(count, excludeTitles, attempt + 1);
+        }
+        return pickValidDuelQuestionsFromPool(count, excludeTitles);
+      }
+
+      if (!aiResult.questions || !Array.isArray(aiResult.questions)) {
+        if (attempt + 1 < MAX_API_ATTEMPTS) {
+          return generateDuelQuestions(count, excludeTitles, attempt + 1);
+        }
+        return pickValidDuelQuestionsFromPool(count, excludeTitles);
+      }
+
+      const excludeSet = new Set(excludeTitles || []);
+      const repaired = aiResult.questions
+        .map(repairDuelQuestionFromFullPoem)
+        .filter(Boolean)
+        .filter((q) => q.title && !excludeSet.has(q.title));
+
+      if (repaired.length >= count) {
+        return { questions: repaired.slice(0, count) };
+      }
+      if (attempt + 1 < MAX_API_ATTEMPTS) {
+        console.warn('[aiService] 对战有效题不足，重试出题:', { need: count, got: repaired.length, attempt });
+        return generateDuelQuestions(count, excludeTitles, attempt + 1);
+      }
+      const merged = [...repaired, ...pickValidDuelQuestionsFromPool(count - repaired.length, [...excludeTitles, ...repaired.map((r) => r.title)]).questions];
+      return { questions: merged.slice(0, count) };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error('[aiService] 闯关对战出题失败:', error);
+    if (attempt + 1 < MAX_API_ATTEMPTS) {
+      return generateDuelQuestions(count, excludeTitles, attempt + 1);
+    }
+    return pickValidDuelQuestionsFromPool(count, excludeTitles);
+  }
+}
+
+/** 从内置池取够 count 道且通过偶句校验的题目（作兜底） */
+function pickValidDuelQuestionsFromPool(count, excludeTitles = []) {
+  const excludeSet = new Set(excludeTitles || []);
+  const out = [];
+  let round = 0;
+  while (out.length < count && round < 20) {
+    round++;
+    const batch = getMockDuelQuestions(Math.max(count * 2, 8), excludeTitles);
+    for (const q of batch.questions || []) {
+      const fixed = repairDuelQuestionFromFullPoem(q);
+      if (fixed && !excludeSet.has(fixed.title)) {
+        excludeSet.add(fixed.title);
+        out.push(fixed);
+        if (out.length >= count) break;
+      }
+    }
+  }
+  return { questions: out.slice(0, count) };
+}
+
+function getMockDuelQuestions(count, excludeTitles = []) {
+  const excludeSet = new Set(excludeTitles || []);
+  const pool = [
+    {
+      question: "床前明月光，____。",
+      answer: "疑是地上霜",
+      full_poem: "床前明月光，疑是地上霜。举头望明月，低头思故乡。",
+      title: "静夜思",
+      author: "李白",
+      type: "上句填下句",
+      analysis: "此句出自李白《静夜思》，描写诗人客居他乡、望月思亲的情景"
+    },
+    {
+      question: "____，疑是地上霜。",
+      answer: "床前明月光",
+      full_poem: "床前明月光，疑是地上霜。举头望明月，低头思故乡。",
+      title: "静夜思",
+      author: "李白",
+      type: "下句填上句",
+      analysis: "此句出自李白《静夜思》，以月光起兴，引发思乡之情"
+    },
+    {
+      question: "春眠不觉晓，____。",
+      answer: "处处闻啼鸟",
+      full_poem: "春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。",
+      title: "春晓",
+      author: "孟浩然",
+      type: "上句填下句",
+      analysis: "此句出自孟浩然《春晓》，描绘春日清晨的盎然生机"
+    },
+    {
+      question: "____，处处闻啼鸟。",
+      answer: "春眠不觉晓",
+      full_poem: "春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。",
+      title: "春晓",
+      author: "孟浩然",
+      type: "下句填上句",
+      analysis: "此句出自孟浩然《春晓》，以声写春，表达诗人对春天的喜爱"
+    },
+    {
+      question: "白日依山尽，____。",
+      answer: "黄河入海流",
+      full_poem: "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。",
+      title: "登鹳雀楼",
+      author: "王之涣",
+      type: "上句填下句",
+      analysis: "此句出自王之涣《登鹳雀楼》，写黄河奔腾入海的壮阔景象"
+    },
+    {
+      question: "____，黄河入海流。",
+      answer: "白日依山尽",
+      full_poem: "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。",
+      title: "登鹳雀楼",
+      author: "王之涣",
+      type: "下句填上句",
+      analysis: "此句出自王之涣《登鹳雀楼》，写景抒怀，意境开阔"
+    },
+    {
+      question: "千山鸟飞绝，____。",
+      answer: "万径人踪灭",
+      full_poem: "千山鸟飞绝，万径人踪灭。孤舟蓑笠翁，独钓寒江雪。",
+      title: "江雪",
+      author: "柳宗元",
+      type: "上句填下句",
+      analysis: "此句出自柳宗元《江雪》，以极端的寂静衬托渔翁的孤高"
+    },
+    {
+      question: "____，万径人踪灭。",
+      answer: "千山鸟飞绝",
+      full_poem: "千山鸟飞绝，万径人踪灭。孤舟蓑笠翁，独钓寒江雪。",
+      title: "江雪",
+      author: "柳宗元",
+      type: "下句填上句",
+      analysis: "此句出自柳宗元《江雪》，以鸟尽人灭写雪景之严寒"
+    },
+    {
+      question: "红豆生南国，____。",
+      answer: "春来发几枝",
+      full_poem: "红豆生南国，春来发几枝。愿君多采撷，此物最相思。",
+      title: "相思",
+      author: "王维",
+      type: "上句填下句",
+      analysis: "此句出自王维《相思》，以红豆寄托相思之情"
+    },
+    {
+      question: "____，春来发几枝。",
+      answer: "红豆生南国",
+      full_poem: "红豆生南国，春来发几枝。愿君多采撷，此物最相思。",
+      title: "相思",
+      author: "王维",
+      type: "下句填上句",
+      analysis: "此句出自王维《相思》，以红豆起兴，语浅情深"
+    }
+  ];
+
+  let available = pool.filter(q => !excludeSet.has(q.title));
+  if (available.length === 0) available = [...pool];
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  return { questions: shuffled.slice(0, count) };
 }
 
 module.exports = {
@@ -1466,5 +2057,157 @@ module.exports = {
   verifyChallengeAnswer,
   generateAIHelp,
   getAIGeneratedQuestions,
+  generatePoemImage,
+  evaluateFeihuaPoem,
+  generateDuelQuestions,
+  repairDuelQuestionFromFullPoem,
+  generatePoemSceneImage,
   spawn
 };
+
+/**
+ * 阿里云百炼文生图 - 为选中的诗句生成意境画面 (使用qwen-image-2.0模型)
+ * @param {string} poemLine - 选中的诗句
+ * @param {string} poemTitle - 诗题
+ * @param {string} poemAuthor - 作者
+ * @returns {Promise<object|null>} 包含图片URL的结果
+ */
+async function generatePoemSceneImage(poemLine, poemTitle, poemAuthor, lineNumber = null, totalLines = null) {
+  try {
+    const apiKey = process.env.ALIYUN_BAILIAN_API_KEY;
+    if (!apiKey) {
+      console.error('[aiService] 缺少ALIYUN_BAILIAN_API_KEY环境变量');
+      return getMockSceneImage(poemLine);
+    }
+
+    const lineHint =
+      lineNumber != null && totalLines != null && totalLines > 0
+        ? `全诗共${totalLines}句，当前要画的是其中第${lineNumber}句。`
+        : '';
+
+    const prompt = `你正在为古诗《${poemTitle}》（作者：${poemAuthor}）生成一幅「单句诗意图」配图。${lineHint}
+【必须表现的诗句】「${poemLine}」
+
+画面要求（请严格遵守）：
+1. 紧扣这一句诗里出现的具体意象（如烟霞、香炉峰、飞瀑、明月、孤舟、杨柳等），画出中国古典诗词应有的意境美与诗意氛围，避免空洞、无关或现代场景。
+2. 采用中国传统审美：水墨晕染、青绿山水、工笔意境或淡彩写意均可，整体典雅含蓄、留白有度、富有诗意。
+3. 不要出现现代建筑、轮船铁塔、公路汽车、西方油画照片写实风等与古诗意境不符的元素。
+4. 高清、构图疏朗、光影柔和，画面中不要出现任何文字、水印、logo、题款。`;
+
+    console.log('[aiService] 阿里云百炼文生图请求:', { title: poemTitle, promptLength: prompt.length });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    try {
+      const createResponse = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis', {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          "X-DashScope-Async": "enable"
+        },
+        body: JSON.stringify({
+          model: "wanx2.1-t2i-turbo",
+          input: {
+            prompt: prompt
+          },
+          parameters: {
+            style: "<chinese painting>",
+            size: "1024*1024",
+            n: 1
+          }
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!createResponse.ok) {
+        const errorData = await createResponse.json().catch(() => ({}));
+        console.error('[aiService] 阿里云百炼创建任务失败:', createResponse.status, errorData);
+        return getMockSceneImage(poemLine);
+      }
+
+      const createData = await createResponse.json();
+      const taskId = createData.output?.task_id;
+
+      if (!taskId) {
+        console.error('[aiService] 未获取到任务ID:', createData);
+        return getMockSceneImage(poemLine);
+      }
+
+      console.log('[aiService] 任务已创建，task_id:', taskId);
+
+      const maxRetries = 30;
+      const pollInterval = 2000;
+
+      for (let i = 0; i < maxRetries; i++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+        const pollController = new AbortController();
+        const pollTimeoutId = setTimeout(() => pollController.abort(), 10000);
+
+        try {
+          const pollResponse = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${apiKey}`
+            },
+            signal: pollController.signal
+          });
+
+          clearTimeout(pollTimeoutId);
+
+          if (!pollResponse.ok) {
+            console.error('[aiService] 轮询任务失败:', pollResponse.status);
+            continue;
+          }
+
+          const pollData = await pollResponse.json();
+          const taskStatus = pollData.output?.task_status;
+
+          console.log(`[aiService] 任务状态 (${i + 1}/${maxRetries}):`, taskStatus);
+
+          if (taskStatus === 'SUCCEEDED') {
+            const imageUrl = pollData.output?.results?.[0]?.url;
+            if (imageUrl) {
+              console.log('[aiService] 阿里云百炼文生图成功:', imageUrl);
+              return {
+                success: true,
+                url: imageUrl,
+                model: 'wanx2.1-t2i-turbo (阿里云百炼)'
+              };
+            }
+          } else if (taskStatus === 'FAILED') {
+            console.error('[aiService] 任务执行失败:', pollData);
+            return getMockSceneImage(poemLine);
+          } else if (taskStatus === 'CANCELED') {
+            console.error('[aiService] 任务被取消');
+            return getMockSceneImage(poemLine);
+          }
+        } catch (pollError) {
+          clearTimeout(pollTimeoutId);
+          console.error('[aiService] 轮询请求错误:', pollError.message);
+        }
+      }
+
+      console.error('[aiService] 任务超时');
+      return getMockSceneImage(poemLine);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error('[aiService] 阿里云百炼文生图失败:', error);
+    return getMockSceneImage(poemLine);
+  }
+}
+
+function getMockSceneImage(poemLine) {
+  const encoded = encodeURIComponent(poemLine);
+  return {
+    success: false,
+    url: null,
+    message: `暂时无法生成"${poemLine}"的意境图，请稍后再试`
+  };
+}

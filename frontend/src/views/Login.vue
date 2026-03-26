@@ -86,14 +86,17 @@ const handleLogin = async () => {
       
       // 检查是否有重定向路径
       const redirectPath = localStorage.getItem('redirectPath')
+      const targetPath = redirectPath || '/'
+      
+      // 清除重定向路径
       if (redirectPath) {
-        // 跳转到存储的路径
         localStorage.removeItem('redirectPath')
-        router.push(redirectPath)
-      } else {
-        // 跳转到首页
-        router.push('/')
       }
+      
+      // 先跳转到目标路径，然后刷新页面
+      router.push(targetPath).then(() => {
+        window.location.reload()
+      })
     } else {
       error.value = data.message || '登录失败'
     }

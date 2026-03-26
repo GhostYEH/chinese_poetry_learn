@@ -134,8 +134,13 @@ export default {
         });
         
         const data = await response.json();
-        this.works = data.works;
-        this.pagination.total = data.pagination.total;
+        if (data.success && data.data) {
+          this.works = data.data.works || [];
+          this.pagination.total = data.data.pagination?.total ?? 0;
+        } else {
+          this.works = [];
+          this.pagination.total = 0;
+        }
       } catch (error) {
         console.error('加载作品列表失败:', error);
         alert('加载作品列表失败，请重试');
@@ -158,7 +163,11 @@ export default {
         });
         
         const data = await response.json();
-        this.selectedWork = data;
+        if (data.success && data.data) {
+          this.selectedWork = data.data;
+        } else {
+          alert(data.message || '加载作品详情失败');
+        }
       } catch (error) {
         console.error('加载作品详情失败:', error);
         alert('加载作品详情失败，请重试');
@@ -180,7 +189,7 @@ export default {
           });
           
           const data = await response.json();
-          if (data.message === '作品删除成功') {
+          if (data.success && data.message === '作品删除成功') {
             alert('作品删除成功');
             this.loadWorks();
           } else {

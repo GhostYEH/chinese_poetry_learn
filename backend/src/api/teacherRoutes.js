@@ -88,6 +88,22 @@ const authenticateTeacher = (req, res, next) => {
   });
 };
 
+/** feihua_battles.ended_at：毫秒时间戳字符串（Date.now）或 ISO8601（socket 保存） */
+function feihuaEndedAtUnixExpr(columnRef) {
+  return `(CASE WHEN instr(${columnRef},'-')>0 OR instr(${columnRef},'T')>0 THEN CAST(strftime('%s', ${columnRef}) AS INTEGER) ELSE CAST(${columnRef} AS INTEGER) / 1000 END)`;
+}
+
+function normalizeFeihuaEndedAtForClient(raw) {
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim();
+  if (/^\d{10,}$/.test(s)) {
+    const n = Number(s);
+    const ms = n < 1e12 ? n * 1000 : n;
+    return new Date(ms).toISOString();
+  }
+  return s;
+}
+
 // 获取学生学习统计数据
 router.get('/dashboard', authenticateTeacher, (req, res) => {
   db.all('SELECT * FROM v_student_learning_stats ORDER BY poem_count DESC', (err, rows) => {
@@ -273,19 +289,102 @@ const XLSX = require('xlsx');
 
 router.post('/export', authenticateTeacher, async (req, res) => {
   try {
-    const { format, data } = req.body;
-    
+    const { format = 'xlsx', data } = req.body;
+
     if (format === 'xlsx') {
       // 准备Excel数据
       let excelData = [];
-      
-      // 根据当前排名标签选择数据
-      if (data.rankingTab === 'challenge') {
-        // 闯关排名数据
-        if (data.challengeStudents && data.challengeStudents.length > 0) {
+
+      // 根据数据类型选择不同的数据结构
+      if (data && data.type === 'game') {
+        // 对战数据导出
+        const gameData = data.gameData || {};
+        const sheetData = [];
+
+        // 添加对战统计概览
+        sheetData.push({ 类型: '对战统计数据' });
+        sheetData.push({ 统计项: '总对战数', 数值: gameData.stats?.totalGames || 0 });
+        sheetData.push({ 统计项: '参与人数', 数值: gameData.stats?.activePlayers || 0 });
+        sheetData.push({ 统计项: '平均时长(秒)', 数值: gameData.stats?.avgDuration || 0 });
+        sheetData.push({ 统计项: '最高胜场', 数值: gameData.stats?.mostWins || 0 });
+        sheetData.push({}); // 空行
+
+        // 添加胜率排行
+        sheetData.push({ 类型: '胜率排行' });
+        sheetData.push({ 排名: '', 用户名: '', 总场次: '', 胜场: '', 胜率: '' });
+        if (gameData.topPlayers && gameData.topPlayers.length > 0) {
+          gameData.topPlayers.forEach((player, index) => {
+            sheetData.push({
+              排名: index + 1,
+              用户名: player.player || player.username || '',
+              总场次: player.total_games || 0,
+              胜场: player.wins || 0,
+              胜率: `${player.winRate || 0}%`
+            });
+          });
+        }
+        sheetData.push({}); // 空行
+
+        // 添加最近对战记录
+        sheetData.push({ 类型: '最近对战记录' });
+        sheetData.push({ 时间: '', 玩家1: '', 玩家2: '', 胜者: '', 回合数: '' });
+        if (gameData.recentGames && gameData.recentGames.length > 0) {
+          gameData.recentGames.forEach(game => {
+            sheetData.push({
+              时间: game.date ? new Date(game.date).toLocaleString('zh-CN') : '',
+              玩家1: game.player1 || '',
+              玩家2: game.player2 || '',
+              胜者: game.winner || '平局',
+              回合数: game.rounds || 0
+            });
+          });
+        }
+
+        excelData = sheetData;
+      } else {
+        // 排名数据导出（原有功能）
+        if (data && data.rankingTab === 'challenge' && data.challengeStudents && data.challengeStudents.length > 0) {
+          // 闯关排名数据
           excelData = data.challengeStudents.map((student, index) => ({
             排名: index + 1,
-            用户名: student.username,
+            用户名: student.username || '',
+            班级: student.class_id || '-',
+            最高通关关卡: student.highest_level || 0,
+            AI帮助次数: student.ai_help_count || 0,
+            错题数: student.error_count || 0,
+            最后闯关时间: student.last_challenge_time ? new Date(student.last_challenge_time).toLocaleString('zh-CN') : '-'
+          }));
+        } else if (data && data.students && data.students.length > 0) {
+          // 学习排名数据
+          excelData = data.students.map((student, index) => ({
+            排名: index + 1,
+            用户名: student.username || '',
+            班级: student.class_id || '-',
+            学习诗词数量: student.poem_count || 0,
+            最近学习时间: student.last_study_time ? new Date(student.last_study_time).toLocaleString('zh-CN') : '-'
+          }));
+        } else {
+          // 如果没有传入数据，从数据库获取
+          const rankings = await new Promise((resolve, reject) => {
+            db.all(`
+              SELECT u.username, u.class_id, COALESCE(ucp.highest_level, 0) as highest_level,
+                     COALESCE(ucp.total_ai_help_used, 0) as ai_help_count,
+                     COALESCE(ucp.total_errors, 0) as error_count,
+                     ucp.last_challenge_time
+              FROM users u
+              LEFT JOIN user_challenge_progress ucp ON u.id = ucp.user_id
+              WHERE u.class_id IS NOT NULL
+              ORDER BY highest_level DESC
+              LIMIT 100
+            `, (err, rows) => {
+              if (err) reject(err);
+              else resolve(rows || []);
+            });
+          });
+
+          excelData = rankings.map((student, index) => ({
+            排名: index + 1,
+            用户名: student.username || '',
             班级: student.class_id || '-',
             最高通关关卡: student.highest_level || 0,
             AI帮助次数: student.ai_help_count || 0,
@@ -293,53 +392,38 @@ router.post('/export', authenticateTeacher, async (req, res) => {
             最后闯关时间: student.last_challenge_time ? new Date(student.last_challenge_time).toLocaleString('zh-CN') : '-'
           }));
         }
-      } else {
-        // 学习排名数据
-        if (data.students && data.students.length > 0) {
-          excelData = data.students.map((student, index) => ({
-            排名: index + 1,
-            用户名: student.username,
-            班级: student.class_id || '-',
-            学习诗词数量: student.poem_count || 0,
-            最近学习时间: student.last_study_time ? new Date(student.last_study_time).toLocaleString('zh-CN') : '-'
-          }));
-        }
       }
-      
+
       // 创建工作簿
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(excelData);
-      
+
       // 设置列宽
       ws['!cols'] = [
-        { wch: 8 },  // 排名
-        { wch: 15 }, // 用户名
-        { wch: 8 },  // 班级
-        { wch: 12 }, // 最高通关关卡/学习诗词数量
-        { wch: 12 }, // AI帮助次数
-        { wch: 8 },  // 错题数
-        { wch: 20 }  // 最后闯关时间/最近学习时间
+        { wch: 8 },   // 排名
+        { wch: 15 },  // 用户名
+        { wch: 10 },  // 班级
+        { wch: 15 },  // 最高通关关卡/学习诗词数量/总场次
+        { wch: 12 },  // AI帮助次数/胜场
+        { wch: 10 },  // 错题数/胜率
+        { wch: 20 }   // 时间
       ];
-      
+
       // 添加工作表
-      XLSX.utils.book_append_sheet(wb, ws, '排名数据');
-      
+      XLSX.utils.book_append_sheet(wb, ws, '导出数据');
+
       // 生成Excel文件
       const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
-      
+
       // 设置响应头
-      const fileName = `排名数据_${Date.now()}.xlsx`;
+      const fileName = `古诗词学习数据_${new Date().toISOString().split('T')[0]}.xlsx`;
       res.setHeader('Content-Disposition', `attachment; filename=${encodeURIComponent(fileName)}`);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      
+
       // 发送Excel文件
       res.send(excelBuffer);
     } else {
-      // 其他格式暂时返回模拟数据
-      res.json({
-        downloadUrl: 'https://example.com/download',
-        fileName: `teacher_export_${Date.now()}.${format}`
-      });
+      res.status(400).json({ error: '不支持的导出格式' });
     }
   } catch (error) {
     console.error('导出数据失败:', error);
@@ -1005,11 +1089,23 @@ router.get('/overview', authenticateTeacher, async (req, res) => {
                     if (err) return reject(err);
                     const totalErrors = errRow.total_errors || 0;
                     
-                    resolve({
-                      totalStudents,
-                      todayActive,
-                      avgLevel,
-                      totalErrors
+                    db.get('SELECT COUNT(*) as c FROM collections', (err, colRow) => {
+                      if (err) return reject(err);
+                      db.get('SELECT COUNT(*) as c FROM user_challenge_records', (err, ansRow) => {
+                        if (err) return reject(err);
+                        db.get('SELECT COUNT(*) as c FROM feihua_battles WHERE ended_at IS NOT NULL', (err, batRow) => {
+                          if (err) return reject(err);
+                          resolve({
+                            totalStudents,
+                            todayActive,
+                            avgLevel,
+                            totalErrors,
+                            totalCollections: colRow ? colRow.c : 0,
+                            totalChallengeAnswers: ansRow ? ansRow.c : 0,
+                            totalFeihuaBattles: batRow ? batRow.c : 0
+                          });
+                        });
+                      });
                     });
                   }
                 );
@@ -1202,6 +1298,253 @@ router.get('/correct-rate', authenticateTeacher, async (req, res) => {
   } catch (error) {
     console.error('获取正确率失败:', error);
     res.status(500).json({ error: '获取数据失败' });
+  }
+});
+
+// 对战数据API - 获取所有对战数据（用于趋势图表）
+router.get('/game-data', authenticateTeacher, async (req, res) => {
+  try {
+    const { period = 'week' } = req.query;
+
+    // 根据时间范围确定查询日期
+    let dateFilter = "date('now', '-7 days')";
+    if (period === 'month') {
+      dateFilter = "date('now', '-30 days')";
+    } else if (period === 'all') {
+      dateFilter = "date('1970-01-01')";
+    }
+
+    // 获取对战统计数据
+    const stats = await new Promise((resolve, reject) => {
+      db.serialize(() => {
+        const result = { totalGames: 0, activePlayers: 0, avgDuration: 0, mostWins: 0 };
+
+        // 总对战数
+        db.get(`SELECT COUNT(*) as count FROM feihua_battles WHERE ended_at IS NOT NULL`, (err, row) => {
+          if (err) { reject(err); return; }
+          result.totalGames = row ? row.count : 0;
+
+          // 参与人数
+          db.get(`
+            SELECT COUNT(DISTINCT player1_id) + COUNT(DISTINCT player2_id) as count
+            FROM feihua_battles WHERE ended_at IS NOT NULL
+          `, (err, row) => {
+            if (err) { reject(err); return; }
+            result.activePlayers = row ? Math.floor(row.count / 2) : 0;
+
+            // 平均时长
+            db.get(`SELECT AVG(total_rounds * 30) as avg FROM feihua_battles WHERE ended_at IS NOT NULL`, (err, row) => {
+              if (err) { reject(err); return; }
+              result.avgDuration = row && row.avg ? Math.round(row.avg) : 0;
+
+              // 最高胜场
+              db.get(`
+                SELECT MAX(wins) as max_wins FROM (
+                  SELECT COUNT(*) as wins FROM feihua_battles WHERE winner_id = player1_id GROUP BY player1_id
+                  UNION ALL
+                  SELECT COUNT(*) as wins FROM feihua_battles WHERE winner_id = player2_id GROUP BY player2_id
+                )
+              `, (err, row) => {
+                if (err) { reject(err); return; }
+                result.mostWins = row && row.max_wins ? row.max_wins : 0;
+                resolve(result);
+              });
+            });
+          });
+        });
+      });
+    });
+
+    const endedUnix = feihuaEndedAtUnixExpr('fb.ended_at');
+
+    // 获取对战趋势数据（ended_at 兼容毫秒时间戳与 ISO 字符串）
+    const trend = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT date(${endedUnix}, 'unixepoch') as date, COUNT(*) as count
+        FROM feihua_battles fb
+        WHERE fb.ended_at IS NOT NULL
+          AND ${endedUnix} >= strftime('%s', ${dateFilter})
+        GROUP BY date(${endedUnix}, 'unixepoch')
+        ORDER BY date
+      `, (err, rows) => {
+        if (err) { reject(err); return; }
+        resolve(rows || []);
+      });
+    });
+
+    // 获取胜率排行
+    const topPlayers = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT
+          u.username as player,
+          COUNT(*) as total_games,
+          SUM(CASE WHEN fb.winner_id = u.id THEN 1 ELSE 0 END) as wins,
+          ROUND(CAST(SUM(CASE WHEN fb.winner_id = u.id THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) * 100, 1) as winRate
+        FROM feihua_battles fb
+        JOIN users u ON (fb.player1_id = u.id OR fb.player2_id = u.id)
+        WHERE fb.ended_at IS NOT NULL
+        GROUP BY u.id, u.username
+        HAVING COUNT(*) >= 1
+        ORDER BY winRate DESC, total_games DESC
+        LIMIT 10
+      `, (err, rows) => {
+        if (err) { reject(err); return; }
+        resolve((rows || []).map((r) => ({
+          ...r,
+          winRate: r.winRate != null ? Number(r.winRate) : 0
+        })));
+      });
+    });
+
+    // 获取热门对战词
+    const hotWords = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT keyword, COUNT(*) as count
+        FROM feihua_battles
+        WHERE ended_at IS NOT NULL
+        GROUP BY keyword
+        ORDER BY count DESC
+        LIMIT 10
+      `, (err, rows) => {
+        if (err) { reject(err); return; }
+        const list = rows || [];
+        if (list.length > 0) {
+          const maxCount = Math.max(...list.map((r) => r.count));
+          resolve(list.map((r) => ({
+            word: r.keyword || '',
+            keyword: r.keyword,
+            count: r.count,
+            percentage: maxCount ? Math.round((r.count / maxCount) * 100) : 0
+          })));
+        } else {
+          resolve([]);
+        }
+      });
+    });
+
+    // 获取最近对战记录
+    const recentGames = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT
+          fb.id,
+          fb.ended_at as date,
+          u1.username as player1,
+          u2.username as player2,
+          CASE
+            WHEN fb.winner_id = fb.player1_id THEN u1.username
+            WHEN fb.winner_id = fb.player2_id THEN u2.username
+            ELSE NULL
+          END as winner,
+          fb.total_rounds as rounds
+        FROM feihua_battles fb
+        JOIN users u1 ON fb.player1_id = u1.id
+        JOIN users u2 ON fb.player2_id = u2.id
+        WHERE fb.ended_at IS NOT NULL
+        ORDER BY ${endedUnix} DESC
+        LIMIT 20
+      `, (err, rows) => {
+        if (err) { reject(err); return; }
+        resolve((rows || []).map((r) => ({
+          ...r,
+          date: normalizeFeihuaEndedAtForClient(r.date) || r.date
+        })));
+      });
+    });
+
+    res.json({
+      stats,
+      trend,
+      topPlayers,
+      hotWords,
+      recentGames
+    });
+  } catch (error) {
+    console.error('获取对战数据失败:', error);
+    res.status(500).json({ error: '获取对战数据失败' });
+  }
+});
+
+// 管理看板扩展：更多维度图表数据
+router.get('/dashboard-more', authenticateTeacher, async (req, res) => {
+  try {
+    const lastDays = [];
+    const today = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      lastDays.push(d.toISOString().split('T')[0]);
+    }
+
+    const [learningRows, classRows, hourRows, aiRow, creationRows] = await Promise.all([
+      new Promise((resolve, reject) => {
+        db.all(
+          `SELECT DATE(last_view_time) as date, COUNT(*) as count
+           FROM learning_records
+           WHERE DATE(last_view_time) >= DATE('now', '-13 days')
+           GROUP BY DATE(last_view_time)
+           ORDER BY date`,
+          (err, rows) => (err ? reject(err) : resolve(rows || []))
+        );
+      }),
+      new Promise((resolve, reject) => {
+        db.all(
+          `SELECT CASE WHEN u.class_id IS NULL THEN '未分班' ELSE '班级 ' || u.class_id END as label,
+                  COUNT(*) as count
+           FROM users u
+           GROUP BY u.class_id
+           ORDER BY count DESC`,
+          (err, rows) => (err ? reject(err) : resolve(rows || []))
+        );
+      }),
+      new Promise((resolve, reject) => {
+        db.all(
+          `SELECT CAST(strftime('%H', answered_at) AS INTEGER) as hour, COUNT(*) as count
+           FROM user_challenge_records
+           GROUP BY strftime('%H', answered_at)
+           ORDER BY hour`,
+          (err, rows) => (err ? reject(err) : resolve(rows || []))
+        );
+      }),
+      new Promise((resolve, reject) => {
+        db.get(
+          `SELECT 
+            SUM(CASE WHEN used_ai_help = 1 THEN 1 ELSE 0 END) as with_ai,
+            SUM(CASE WHEN COALESCE(used_ai_help, 0) = 0 THEN 1 ELSE 0 END) as without_ai
+           FROM user_challenge_records`,
+          (err, row) => (err ? reject(err) : resolve(row || { with_ai: 0, without_ai: 0 }))
+        );
+      }),
+      new Promise((resolve, reject) => {
+        db.all(
+          `SELECT COALESCE(type, '未分类') as type, COUNT(*) as count FROM creations GROUP BY type ORDER BY count DESC`,
+          (err, rows) => (err ? reject(err) : resolve(rows || []))
+        );
+      })
+    ]);
+
+    const poemStudyByDay = lastDays.map((day) => {
+      const found = learningRows.find((r) => r.date === day);
+      return { date: day, count: found ? found.count : 0 };
+    });
+
+    const challengeByHour = Array.from({ length: 24 }, (_, h) => {
+      const found = hourRows.find((r) => Number(r.hour) === h);
+      return { hour: h, count: found ? found.count : 0 };
+    });
+
+    res.json({
+      poemStudyByDay,
+      classStudentCounts: classRows,
+      challengeByHour,
+      aiHelpUsage: {
+        withAi: aiRow.with_ai || 0,
+        withoutAi: aiRow.without_ai || 0
+      },
+      creationsByType: creationRows
+    });
+  } catch (error) {
+    console.error('获取扩展仪表盘数据失败:', error);
+    res.status(500).json({ error: '获取扩展仪表盘数据失败' });
   }
 });
 

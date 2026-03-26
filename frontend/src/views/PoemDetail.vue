@@ -1,5 +1,56 @@
 <template>
-  <div class="poem-detail" :class="{ 'immersive-mode': isImmersiveMode }">
+  <div class="poem-detail" :class="{ 'immersive-mode': isImmersiveMode }" @click="closeCharInfo">
+    <!-- 划词选择弹窗 -->
+    <div
+      v-if="selectionPopup.show"
+      class="selection-popup"
+      :class="selectionPopup.placement === 'below' ? 'placement-below' : 'placement-above'"
+      :style="{ top: selectionPopup.y + 'px', left: selectionPopup.x + 'px' }"
+      @mousedown.stop
+    >
+      <button class="popup-btn translate" @click="handleTranslate">
+        翻译这句话
+      </button>
+      <button class="popup-btn appreciate" @click="handleAppreciate">
+        赏析这句话
+      </button>
+      <button class="popup-btn picture" @click="handleScenePicture" :disabled="sceneImageLoading">
+        <span v-if="sceneImageLoading" class="popup-spinner"></span>
+        {{ sceneImageLoading ? '生成中...' : '描绘画面' }}
+      </button>
+      <div class="selection-popup-placement" @mousedown.stop>
+        <span class="placement-label">位置</span>
+        <button
+          type="button"
+          class="placement-chip"
+          :class="{ active: selectionPopup.placementMode === 'above' }"
+          @click="setToolbarPlacement('above')"
+        >贴上</button>
+        <button
+          type="button"
+          class="placement-chip"
+          :class="{ active: selectionPopup.placementMode === 'below' }"
+          @click="setToolbarPlacement('below')"
+        >贴下</button>
+        <button
+          type="button"
+          class="placement-chip"
+          :class="{ active: selectionPopup.placementMode === 'auto' }"
+          @click="setToolbarPlacement('auto')"
+        >自动</button>
+      </div>
+    </div>
+
+    <!-- 意境图弹窗 -->
+    <div v-if="sceneImageResult.show" class="scene-image-overlay" @click.self="closeSceneImage">
+      <div class="scene-image-modal">
+        <button class="close-scene-btn" @click="closeSceneImage">×</button>
+        <h3 class="scene-image-title">{{ sceneImageTitle }}</h3>
+        <img v-if="sceneImageResult.url" :src="sceneImageResult.url" class="scene-image" alt="诗句意境图" />
+        <p v-else class="scene-image-error">{{ sceneImageResult.message }}</p>
+      </div>
+    </div>
+
     <button class="back-btn" @click="goBack">← 返回</button>
     
     <!-- 初始状态：只显示开始学习按钮 -->
@@ -16,16 +67,23 @@
     <!-- 沉浸式学习模式背景 -->
     <div v-if="isImmersiveMode" class="immersive-background">
       <div class="background-container">
-        <img v-if="backgroundImage" :src="backgroundImage" class="background-image" />
-        <div v-else-if="imageStatus === 'pending'" class="loading-overlay">
+        <!-- 默认古风背景（始终存在，垫底） -->
+        <div class="default-background">
+          <div class="ancient-style-bg"></div>
+        </div>
+        <!-- AI 意境图：双层结构实现交叉淡入淡出 -->
+        <img
+          v-if="backgroundImage || bgImageLoading"
+          :src="backgroundImage"
+          class="background-image"
+          :class="{ 'fade-in': bgImageFadingIn }"
+          @load="onBgImageLoaded"
+        />
+        <div v-if="imageStatus === 'pending' && !backgroundImage" class="loading-overlay">
           <div class="loading-content">
             <div class="loading-spinner"></div>
             <p>诗中有画，画境渐生...</p>
           </div>
-        </div>
-        <div v-else class="default-background">
-          <!-- 默认古风背景 -->
-          <div class="ancient-style-bg"></div>
         </div>
       </div>
       <button class="exit-immersive-btn" @click="exitImmersiveMode">
@@ -36,7 +94,7 @@
     <div v-if="loading" class="loading">加载中...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else-if="!poem" class="empty">诗词不存在</div>
-    <div v-else-if="isImmersiveMode" class="poem-layout" :class="{ 'immersive-content': isImmersiveMode }">
+    <div v-else-if="isImmersiveMode" class="poem-layout" :class="{ 'immersive-content': isImmersiveMode, 'content-entering': contentEntering }">
       <!-- 左侧栏 -->
       <div class="left-column">
         <!-- 诗词基本信息 -->
@@ -55,17 +113,17 @@
         </div>
         
         <!-- 诗词正文 -->
-        <div class="poem-text" :class="{ 'blurred': recitationMode }">
+        <div class="poem-text" :class="{ 'blurred': recitationMode }" id="poem-text-area">
           <p v-for="(line, index) in poemLines" :key="index" class="poem-line">
             <template v-for="(char, charIndex) in line" :key="charIndex">
-              <span 
-                v-if="char >= '\u4e00' && char <= '\u9fff'"
-                class="poem-char"
-                @click="showCharInfo(char, charIndex, index)"
-                :data-char="char"
-              >
+              <span
+            v-if="char >= '\u4e00' && char <= '\u9fff'"
+            class="poem-char"
+            @click.stop="showCharInfo(char, charIndex, index, $event)"
+            :data-char="char"
+          >
                 {{ char }}
-                <div v-if="selectedChar === char && selectedCharIndex === charIndex && selectedLineIndex === index" class="char-info">
+                <div v-if="selectedChar === char && selectedCharIndex === charIndex && selectedLineIndex === index" class="char-info" :class="{ below: charInfoBelow }" :style="charInfoStyle">
                   <div v-if="charLoading && selectedChar === char" class="char-loading">
                     <div class="loading-spinner"></div>
                     <span>解析中...</span>
@@ -380,6 +438,18 @@
   justify-content: center;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   z-index: 999;
+  animation: page-fade-in 0.5s ease-out both;
+}
+
+@keyframes page-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .start-learning-btn {
@@ -439,7 +509,12 @@
   height: 100%;
   object-fit: cover;
   animation: slowZoom 25s ease-in-out infinite;
-  transition: opacity 1s ease-in-out;
+  opacity: 0;
+  transition: opacity 1.2s ease-in-out;
+}
+
+.background-image.fade-in {
+  opacity: 1;
 }
 
 @keyframes slowZoom {
@@ -653,13 +728,44 @@ export default {
       // 图像生成相关
       imageStatus: 'idle', // idle, pending, success, fail
       backgroundImage: null,
+      bgImageFadingIn: false,   // 控制 AI 意境图淡入
+      bgImageLoading: false,    // 标记图片正在加载中
+      contentEntering: false,   // 内容区进入动画标记
       isImmersiveMode: false,
       isImageLoading: false,
-      carouselImages: [],
-      currentImageIndex: 0,
-      carouselInterval: null,
       // Socket.io相关
-      socket: null
+      socket: null,
+      // 划词选择弹窗
+      selectionPopup: {
+        show: false,
+        x: 0,
+        y: 0,
+        selectedText: '',
+        /** 实际贴靠：above | below（由 placementMode + 空间计算） */
+        placement: 'above',
+        /** 用户偏好：auto | above | below */
+        placementMode: 'auto',
+        /** 选区在视口内的矩形，用于 fixed 定位（勿混用 scrollY） */
+        anchorRect: null,
+        lineNumber: null,
+        totalLines: null
+      },
+      // 字符信息弹窗位置
+      charInfoStyle: {
+        position: 'fixed',
+        top: '0px',
+        left: '0px',
+        transform: 'translate(-50%, -100%)'
+      },
+      charInfoBelow: false,  // 注释框是否显示在字符下方
+      charElementRef: null,
+      // 意境图
+      sceneImageLoading: false,
+      sceneImageResult: {
+        show: false,
+        url: null,
+        message: ''
+      }
     }
   },
   // 路由离开前清理资源并记录学习时长
@@ -729,6 +835,16 @@ export default {
     poemLines() {
       if (!this.poem || !this.poem.content) return []
       return this.poem.content.split('\n').filter(line => line.trim())
+    },
+    sceneImageTitle() {
+      const t = this.selectionPopup.selectedText || ''
+      const n = this.selectionPopup.lineNumber
+      const total = this.selectionPopup.totalLines
+      const title = this.poem?.title || '古诗'
+      if (n != null && total != null && total > 0) {
+        return `《${title}》第${n}句 · 「${t}」 意境图`
+      }
+      return `「${t}」 意境图`
     }
   },
   mounted() {
@@ -737,6 +853,13 @@ export default {
     console.log('开始学习计时:', this.studyStartTime)
     
     this.fetchPoemDetail()
+
+    try {
+      const saved = localStorage.getItem('poemDetail.toolbarPlacement')
+      if (saved === 'above' || saved === 'below' || saved === 'auto') {
+        this.selectionPopup.placementMode = saved
+      }
+    } catch (e) { /* ignore */ }
     
     // 初始化Socket.io连接
     this.initSocket()
@@ -746,12 +869,29 @@ export default {
       this.$nextTick(() => {
         this.tutorMessages.push({
           role: 'bot',
-          content: `你好！我是你的AI语文助教，专门为你解析这首诗词。\n\n我可以帮你：\n1. 解释诗句含义和意境\n2. 分析艺术特色和写作手法\n3. 提供背诵技巧和学习建议\n4. 回答关于作者和背景的问题\n\n例如，你可以问：\n- "第一句是什么意思？"\n- "这首诗表达了什么情感？"\n- "如何更好地背诵这首诗？"\n\n请问你想了解关于这首诗的什么内容？`
+          content: `你好！我是你的AI语文助教，专门为你解析这首诗词。
+我们可以帮你：
+1. 解释诗句含义和意境
+2. 分析艺术特色和写作手法
+3. 提供背诵技巧和学习建议
+4. 回答关于作者和背景的问题
+5. 选中文句后右键或点击悬浮按钮，了解诗句的翻译、赏析或生成意境图
+
+你可以直接问我：
+- "第一句是什么意思？"
+- "这首诗表达了什么情感？"
+- "如何更好地背诵这首诗？"
+- 也可以选中诗句，点击悬浮按钮选择功能
+
+请问你想了解关于这首诗的什么内容？`
         });
         // 滚动到底部
         this.scrollToBottom();
       });
     }
+
+    // 监听文本选择，用于划词功能
+    document.addEventListener('mouseup', this.handleTextSelection);
   },
   beforeUnmount() {
     // 清理Socket连接
@@ -762,8 +902,15 @@ export default {
     if (this.carouselInterval) {
       clearInterval(this.carouselInterval)
     }
+    // 移除文本选择监听
+    document.removeEventListener('mouseup', this.handleTextSelection);
   },
   methods: {
+    // 背景图加载完成后触发淡入
+    onBgImageLoaded() {
+      this.bgImageFadingIn = true
+      this.bgImageLoading = false
+    },
     // 初始化Socket.io连接
     initSocket() {
       try {
@@ -788,23 +935,9 @@ export default {
         this.socket.on('image-generate-success', (data) => {
       console.log('图像生成成功:', data)
       this.imageStatus = 'success'
-      
-      // 预加载图片
-      const img = new Image()
-      img.src = data.url
-      img.onload = () => {
-        // 图片加载完成后，平滑过渡到新背景
-        this.backgroundImage = data.url
-        console.log('图片加载完成，已更新背景')
-      }
-      
-      // 如果是轮播图，添加到轮播列表并更新当前背景
-      if (data.isCarousel) {
-        this.carouselImages.push(data.url)
-        // 直接更新背景为新生成的轮播图
-        this.backgroundImage = data.url
-        console.log('轮播图已更新')
-      }
+      // 触发 AI 意境图淡入（先清空再设新图片，由 @load 触发 fade-in）
+      this.bgImageFadingIn = false
+      this.backgroundImage = data.url
     })
         
         this.socket.on('image-generate-fail', (data) => {
@@ -859,18 +992,17 @@ export default {
     },
     // 进入沉浸式学习模式
     enterImmersiveMode() {
-      if (this.imageStatus === 'success' && this.backgroundImage) {
-        // 图片已生成，直接进入
+      // 先触发进入动画，再显示内容（避免旧内容闪一下）
+      this.contentEntering = false
+      this.$nextTick(() => {
         this.isImmersiveMode = true
-        this.startCarousel()
-      } else if (this.imageStatus === 'pending') {
-        // 图片正在生成，显示加载态
-        this.isImmersiveMode = true
-        // 等待图片生成完成
-      } else {
-        // 图片生成失败，使用默认背景
-        this.isImmersiveMode = true
-      }
+        this.$nextTick(() => {
+          // DOM 更新后触发渐入动画
+          requestAnimationFrame(() => {
+            this.contentEntering = true
+          })
+        })
+      })
     },
     // 退出沉浸式学习模式
     exitImmersiveMode() {
@@ -880,37 +1012,7 @@ export default {
         this.carouselInterval = null
       }
     },
-    // 开始轮播
-    startCarousel() {
-      // 每60秒生成新图（避免超过后端速率限制）
-      this.carouselInterval = setInterval(() => {
-        this.generateCarouselImage()
-      }, 60000)
-    },
-    // 生成轮播图
-    generateCarouselImage() {
-      if (!this.poem) return
-      
-      fetch('/api/ai/image/carousel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          poemId: this.poem.id,
-          title: this.poem.title,
-          author: this.poem.author,
-          content: this.poem.content
-        })
-      })
-      .then(response => response.json())
-      .then(data => {
-        console.log('轮播图生成请求已发送:', data)
-      })
-      .catch(error => {
-        console.error('轮播图生成失败:', error)
-      })
-    },
+
     async fetchPoemDetail() {
       // 如果有之前的请求，先取消
       if (this.poemAbortController) {
@@ -989,6 +1091,10 @@ export default {
         this.loadAuthorAvatar(data.author)
         // 预加载字符信息
         this.preloadCharInfo()
+        // 重置旧诗的背景图状态，避免旧意境图残留
+        this.backgroundImage = null
+        this.bgImageFadingIn = false
+        this.imageStatus = 'idle'
         // 预生成背景图
         this.pregenerateBackground()
       } catch (err) {
@@ -1850,7 +1956,7 @@ export default {
     },
     
     // 显示字符信息
-    async showCharInfo(char, charIndex, lineIndex) {
+    async showCharInfo(char, charIndex, lineIndex, event) {
       // 取消之前的选中状态
       if (this.selectedChar === char && this.selectedCharIndex === charIndex && this.selectedLineIndex === lineIndex) {
         this.selectedChar = null;
@@ -1858,12 +1964,63 @@ export default {
         this.selectedLineIndex = -1;
         return;
       }
-      
+
       // 设置新的选中状态
       this.selectedChar = char;
       this.selectedCharIndex = charIndex;
       this.selectedLineIndex = lineIndex;
-      
+
+      // 获取点击元素的位置信息
+      this.$nextTick(() => {
+        const charSpan = event?.target?.closest('.poem-char');
+        if (charSpan) {
+          const rect = charSpan.getBoundingClientRect();
+          // 计算注释框位置（在字符上方，水平居中）
+          let top = rect.top + window.scrollY;
+          let left = rect.left + window.scrollX + rect.width / 2;
+
+          // 获取视口尺寸
+          const viewportWidth = window.innerWidth;
+          const viewportHeight = window.innerHeight;
+
+          // 预估注释框尺寸（160px宽度，120px高度）
+          const popupWidth = 180;
+          const popupHeight = 130;
+
+          // 水平边界检测（左右偏移）
+          if (left - popupWidth / 2 < 10) {
+            left = popupWidth / 2 + 10;
+          }
+          if (left + popupWidth / 2 > viewportWidth - 10) {
+            left = viewportWidth - popupWidth / 2 - 10;
+          }
+
+          // 垂直边界检测（上方空间不足时显示在下方）
+          let below = false;
+          if (rect.top < popupHeight + 20) {
+            // 空间不足，显示在下方
+            top = rect.bottom + window.scrollY + 10;
+            below = true;
+            this.charInfoStyle = {
+              position: 'fixed',
+              top: `${top}px`,
+              left: `${left}px`,
+              transform: 'translate(-50%, 0)'
+            };
+          } else {
+            // 正常显示在上方
+            top = rect.top + window.scrollY - 10;
+            this.charInfoStyle = {
+              position: 'fixed',
+              top: `${top}px`,
+              left: `${left}px`,
+              transform: 'translate(-50%, -100%)'
+            };
+          }
+          this.charInfoBelow = below;
+        }
+      });
+
       // 检查本地缓存
       const cachedInfo = this.getCharFromLocalCache(char);
       if (cachedInfo) {
@@ -1871,13 +2028,13 @@ export default {
         this.charCache[char] = cachedInfo;
         return;
       }
-      
+
       // 检查内存缓存
       if (this.charCache[char]) {
         this.charInfo = this.charCache[char];
         return;
       }
-      
+
       // 获取字符信息
       await this.fetchCharInfo(char);
     },
@@ -2028,6 +2185,267 @@ export default {
         this.charRequestLock[char] = false;
         this.charLoading = false;
       }
+    },
+    
+    // 关闭字符信息
+    closeCharInfo() {
+      this.selectedChar = null;
+      this.selectedCharIndex = -1;
+      this.selectedLineIndex = -1;
+    },
+
+    /** 从选区起点找到所在诗句行 DOM 与行号（1-based） */
+    findSelectionLineMeta(range, poemTextArea) {
+      let node = range.startContainer
+      let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+      while (el && el !== poemTextArea && !(el.classList && el.classList.contains('poem-line'))) {
+        el = el.parentElement
+      }
+      if (!el || !el.classList || !el.classList.contains('poem-line')) {
+        return { lineNumber: null }
+      }
+      const lines = poemTextArea.querySelectorAll('p.poem-line')
+      const idx = Array.prototype.indexOf.call(lines, el)
+      const total = this.poemLines.length
+      return {
+        lineNumber: idx >= 0 ? idx + 1 : null,
+        totalLines: total > 0 ? total : null
+      }
+    },
+
+    /** 根据 anchorRect 与 placementMode 计算工具栏 fixed 坐标（视口坐标，不用 scrollY） */
+    applySelectionPopupPosition() {
+      const r = this.selectionPopup.anchorRect
+      if (!r) return
+
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const popupWidth = 200
+      const popupHeight = 200
+      const gap = 10
+
+      let placement = this.selectionPopup.placementMode
+      if (placement === 'auto') {
+        placement = r.top < popupHeight + gap + 16 ? 'below' : 'above'
+      }
+
+      let x = r.left + r.width / 2
+      x = Math.max(popupWidth / 2 + 8, Math.min(x, vw - popupWidth / 2 - 8))
+
+      let y
+      if (placement === 'above') {
+        y = r.top - gap
+      } else {
+        y = r.bottom + gap
+      }
+
+      if (placement === 'below' && y + popupHeight > vh - 8) {
+        y = Math.max(gap, vh - popupHeight - 8)
+      }
+      if (placement === 'above' && y < popupHeight + 8) {
+        y = popupHeight + gap + 8
+      }
+
+      this.selectionPopup.x = x
+      this.selectionPopup.y = y
+      this.selectionPopup.placement = placement
+    },
+
+    setToolbarPlacement(mode) {
+      if (mode !== 'auto' && mode !== 'above' && mode !== 'below') return
+      this.selectionPopup.placementMode = mode
+      try {
+        localStorage.setItem('poemDetail.toolbarPlacement', mode)
+      } catch (e) { /* ignore */ }
+      if (this.selectionPopup.show && this.selectionPopup.anchorRect) {
+        this.applySelectionPopupPosition()
+      }
+    },
+
+    // 划词选择处理
+    handleTextSelection(e) {
+      if (e.type === 'mouseup' && e.button !== 0) return
+
+      setTimeout(() => {
+        const selection = window.getSelection()
+        const selectedText = selection.toString().trim()
+        const poemTextArea = document.querySelector('#poem-text-area')
+        if (!poemTextArea || !selectedText || selectedText.length < 2) {
+          this.selectionPopup.show = false
+          return
+        }
+
+        const anchorNode = selection.anchorNode
+        if (!anchorNode) {
+          this.selectionPopup.show = false
+          return
+        }
+
+        const container = anchorNode.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode
+        if (!container || !poemTextArea.contains(container)) {
+          this.selectionPopup.show = false
+          return
+        }
+
+        if (!/[\u4e00-\u9fa5]/.test(selectedText)) {
+          this.selectionPopup.show = false
+          return
+        }
+
+        const range = selection.getRangeAt(0)
+        const rect = range.getBoundingClientRect()
+        if (rect.width === 0 && rect.height === 0) {
+          this.selectionPopup.show = false
+          return
+        }
+
+        const { lineNumber, totalLines } = this.findSelectionLineMeta(range, poemTextArea)
+
+        this.selectionPopup.anchorRect = {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        }
+        this.selectionPopup.selectedText = selectedText
+        this.selectionPopup.lineNumber = lineNumber
+        this.selectionPopup.totalLines = totalLines
+        this.selectionPopup.show = true
+        this.applySelectionPopupPosition()
+      }, 10)
+    },
+
+    // 翻译选中的诗句
+    handleTranslate() {
+      if (!this.selectionPopup.selectedText) return;
+      const text = this.selectionPopup.selectedText;
+      this.selectionPopup.show = false;
+      window.getSelection().removeAllRanges();
+
+      // 将选中的诗句发送给AI助教
+      const question = `请翻译这句诗："${text}"，并简要说明其含义。`;
+      this.tutorQuestion = question;
+      this.sendTutorMessageWithText(question);
+    },
+
+    // 赏析选中的诗句
+    handleAppreciate() {
+      if (!this.selectionPopup.selectedText) return;
+      const text = this.selectionPopup.selectedText;
+      this.selectionPopup.show = false;
+      window.getSelection().removeAllRanges();
+
+      // 将选中的诗句发送给AI助教进行赏析
+      const question = `请赏析这句诗："${text}"，从意境、修辞手法、思想感情等角度进行分析。`;
+      this.tutorQuestion = question;
+      this.sendTutorMessageWithText(question);
+    },
+
+    // 描绘选中诗句的画面
+    async handleScenePicture() {
+      if (!this.selectionPopup.selectedText || this.sceneImageLoading) return;
+      const text = this.selectionPopup.selectedText;
+      // 不关闭划词工具栏；保留选区高亮，避免误触清空后工具栏消失
+
+      this.sceneImageLoading = true;
+      this.sceneImageResult = { show: false, url: null, message: '' };
+
+      try {
+        const response = await fetch('/api/ai/scene-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            poemLine: text,
+            poemTitle: this.poem?.title || '古诗',
+            poemAuthor: this.poem?.author || '佚名',
+            lineNumber: this.selectionPopup.lineNumber,
+            totalLines: this.selectionPopup.totalLines
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.url) {
+          this.sceneImageResult = { show: true, url: data.url, message: '' };
+        } else {
+          this.sceneImageResult = { show: true, url: null, message: data.message || '意境图生成失败' };
+        }
+      } catch (error) {
+        console.error('意境图生成失败:', error);
+        this.sceneImageResult = { show: true, url: null, message: '意境图生成失败，请稍后重试' };
+      } finally {
+        this.sceneImageLoading = false;
+      }
+    },
+
+    // 关闭意境图弹窗
+    closeSceneImage() {
+      this.sceneImageResult.show = false;
+      this.sceneImageResult.url = null;
+      this.sceneImageResult.message = '';
+    },
+
+    // 发送带有文本的助教消息
+    async sendTutorMessageWithText(question) {
+      if (!question.trim() || this.tutorLoading) return;
+
+      // 添加用户消息
+      this.tutorMessages.push({
+        role: 'user',
+        content: question
+      });
+      this.tutorLoading = true;
+
+      // 发送消息后滚动到底部
+      this.$nextTick(() => {
+        this.scrollToBottom();
+      });
+
+      try {
+        const history = this.tutorMessages.slice(-8).map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+
+        const response = await fetch('/api/ai/tutor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            poem: this.poem.content,
+            title: this.poem.title,
+            author: this.poem.author,
+            question: question,
+            history: history
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('获取AI回答失败');
+        }
+
+        const data = await response.json();
+        let answer = data.data.answer;
+        if (answer.length > 150) {
+          answer = answer.substring(0, 147) + '...';
+        }
+        this.tutorMessages.push({
+          role: 'bot',
+          content: answer
+        });
+      } catch (error) {
+        console.error('发送AI助教消息失败:', error);
+        this.tutorMessages.push({
+          role: 'bot',
+          content: '抱歉，我暂时无法回答你的问题，请稍后再试。'
+        });
+      } finally {
+        this.tutorLoading = false;
+        this.$nextTick(() => {
+          this.scrollToBottom();
+        });
+      }
     }
   }
 }
@@ -2056,10 +2474,20 @@ export default {
   border-radius: var(--border-radius);
   padding: 20px;
   box-shadow: var(--glass-shadow);
-  transition: var(--transition);
+  /* 进入动画初始状态（隐藏） */
+  opacity: 0;
+  filter: blur(6px) scale(0.96);
+  transition: opacity 0.7s ease, filter 0.7s ease, transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1),
+              backdrop-filter 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
-.poem-layout:hover {
+.poem-layout.content-entering {
+  opacity: 1;
+  filter: blur(0) scale(1);
+}
+
+/* 正常显示时的悬停效果（动画完成后生效） */
+.poem-layout.content-entering:hover {
   transform: translateY(-4px);
   backdrop-filter: blur(calc(var(--glass-blur) + 4px));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px));
@@ -2271,7 +2699,6 @@ export default {
   box-shadow: var(--glass-shadow);
   transition: var(--transition);
   position: relative;
-  overflow: hidden;
 }
 
 /* 朗读按钮样式 */
@@ -2365,17 +2792,14 @@ export default {
 }
 
 .char-info {
-  position: absolute;
-  top: -120px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* 移除固定定位样式，由JS动态计算 */
+  z-index: 9999;
   background: var(--glass-background);
   backdrop-filter: blur(calc(var(--glass-blur) + 8px));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 8px));
   color: #333;
   padding: 12px;
   border-radius: 12px;
-  z-index: 1000;
   min-width: 160px;
   text-align: left;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
@@ -2387,14 +2811,23 @@ export default {
 .char-info::after {
   content: '';
   position: absolute;
-  bottom: -10px;
   left: 50%;
   transform: translateX(-50%);
   width: 0;
   height: 0;
+  /* 上方显示时的箭头 */
+  bottom: -10px;
   border-left: 10px solid transparent;
   border-right: 10px solid transparent;
-  border-top: 10px solid rgba(255, 255, 255, 0.5);
+  border-top: 10px solid rgba(255, 255, 255, 0.9);
+}
+
+/* 下方显示时使用向上的箭头 */
+.char-info.below::after {
+  bottom: auto;
+  top: -10px;
+  border-top: none;
+  border-bottom: 10px solid rgba(255, 255, 255, 0.9);
 }
 
 .char-phonetic {
@@ -3766,5 +4199,248 @@ input:checked + .slider:before {
   .ai-btn {
     width: 100%;
   }
+}
+
+/* 划词选择弹窗样式（position:fixed 须用视口坐标，勿加 scrollY） */
+.selection-popup {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(255, 252, 240, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(205, 133, 63, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(139, 69, 19, 0.25);
+  min-width: 160px;
+}
+
+.selection-popup.placement-above {
+  transform: translateX(-50%) translateY(-100%);
+  animation: popup-appear-above 0.2s ease;
+}
+
+.selection-popup.placement-below {
+  transform: translateX(-50%);
+  animation: popup-appear-below 0.2s ease;
+}
+
+.selection-popup::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  margin-left: -8px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+}
+
+.selection-popup.placement-above::after {
+  bottom: -8px;
+  border-top: 10px solid rgba(255, 252, 240, 0.98);
+}
+
+.selection-popup.placement-below::after {
+  top: -8px;
+  border-bottom: 10px solid rgba(255, 252, 240, 0.98);
+}
+
+@keyframes popup-appear-above {
+  from { opacity: 0; transform: translateX(-50%) translateY(calc(-100% + 6px)); }
+  to { opacity: 1; transform: translateX(-50%) translateY(-100%); }
+}
+
+@keyframes popup-appear-below {
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.selection-popup-placement {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(205, 133, 63, 0.2);
+}
+
+.placement-label {
+  font-size: 11px;
+  color: #a0522d;
+  margin-right: 2px;
+}
+
+.placement-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(205, 133, 63, 0.35);
+  background: rgba(255, 248, 220, 0.6);
+  color: #8b4513;
+  cursor: pointer;
+  font-family: 'SimSun', 'STSong', serif;
+}
+
+.placement-chip.active {
+  background: linear-gradient(135deg, rgba(205, 133, 63, 0.35), rgba(139, 69, 19, 0.25));
+  border-color: rgba(139, 69, 19, 0.45);
+  font-weight: bold;
+}
+
+.placement-chip:hover:not(.active) {
+  background: rgba(255, 248, 220, 0.95);
+}
+
+.popup-btn {
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-family: 'SimSun', 'STSong', serif;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.popup-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.popup-btn.translate {
+  background: rgba(100, 149, 237, 0.15);
+  color: #4169e1;
+  border-color: rgba(100, 149, 237, 0.3);
+}
+
+.popup-btn.translate:hover:not(:disabled) {
+  background: rgba(100, 149, 237, 0.25);
+  border-color: rgba(100, 149, 237, 0.5);
+}
+
+.popup-btn.appreciate {
+  background: rgba(50, 205, 50, 0.15);
+  color: #228b22;
+  border-color: rgba(50, 205, 50, 0.3);
+}
+
+.popup-btn.appreciate:hover:not(:disabled) {
+  background: rgba(50, 205, 50, 0.25);
+  border-color: rgba(50, 205, 50, 0.5);
+}
+
+.popup-btn.picture {
+  background: rgba(205, 133, 63, 0.15);
+  color: #8b4513;
+  border-color: rgba(205, 133, 63, 0.3);
+}
+
+.popup-btn.picture:hover:not(:disabled) {
+  background: rgba(205, 133, 63, 0.25);
+  border-color: rgba(205, 133, 63, 0.5);
+}
+
+.popup-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(139, 69, 19, 0.3);
+  border-top-color: #8b4513;
+  border-radius: 50%;
+  animation: popup-spin 0.8s linear infinite;
+}
+
+@keyframes popup-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 意境图弹窗样式 */
+.scene-image-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  animation: overlay-fade 0.3s ease;
+}
+
+@keyframes overlay-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.scene-image-modal {
+  position: relative;
+  max-width: 700px;
+  width: 90%;
+  background: rgba(255, 252, 240, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(205, 133, 63, 0.3);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.3);
+  animation: modal-appear 0.3s ease;
+}
+
+@keyframes modal-appear {
+  0% { opacity: 0; transform: scale(0.9) translateY(20px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.close-scene-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(205, 133, 63, 0.15);
+  color: #8b4513;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.close-scene-btn:hover {
+  background: rgba(205, 133, 63, 0.3);
+}
+
+.scene-image-title {
+  font-family: 'SimSun', 'STSong', serif;
+  color: #8b4513;
+  font-size: 18px;
+  margin: 0 0 20px 0;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.scene-image {
+  width: 100%;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(205, 133, 63, 0.2);
+}
+
+.scene-image-error {
+  text-align: center;
+  color: #dc143c;
+  font-family: 'SimSun', 'STSong', serif;
+  padding: 40px;
 }
 </style>

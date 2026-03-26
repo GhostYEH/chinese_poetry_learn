@@ -13,7 +13,10 @@ class FeihualingSocket {
     }
 
     this.socket = io('http://localhost:3000', {
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
     });
 
     this.socket.on('connect', () => {
@@ -31,13 +34,13 @@ class FeihualingSocket {
     });
 
     // 初始化成功
-    this.socket.on('init', (data) => {
+    this.socket.on('authenticated', (data) => {
       console.log('用户认证成功:', data);
       this.trigger('authenticated', data);
     });
 
     // 在线用户列表更新
-    this.socket.on('online-list-update', (users) => {
+    this.socket.on('online-users', (users) => {
       this.trigger('online-users', users);
     });
 
@@ -108,10 +111,12 @@ class FeihualingSocket {
   }
 
   // 接受邀请
-  acceptInvitation(inviteId, inviterId) {
+  acceptInvitation(inviteId, inviterId, keyword, difficulty) {
     this.socket.emit('accept-invitation', {
       inviteId,
-      inviterId
+      inviterId,
+      keyword,
+      difficulty
     });
   }
 

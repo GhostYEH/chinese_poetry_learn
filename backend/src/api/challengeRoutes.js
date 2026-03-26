@@ -30,8 +30,9 @@ router.post('/progress/update', authenticateToken, async (req, res) => {
 
 router.post('/questions/generate', authenticateToken, async (req, res) => {
   try {
+    const userId = req.user.userId;
     const { startLevel, count = 20 } = req.body;
-    const questions = await challengeService.generateQuestions(startLevel, count);
+    const questions = await challengeService.generateQuestions(userId, startLevel, count);
     res.json(questions);
   } catch (error) {
     console.error('生成题目失败:', error);

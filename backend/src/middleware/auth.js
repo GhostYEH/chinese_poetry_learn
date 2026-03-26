@@ -32,3 +32,28 @@ function authenticateToken(req, res, next) {
 }
 
 module.exports = authenticateToken;
+
+// 可选认证中间件：如果请求带了 token 则解析，不带也不报错
+function optionalAuthenticateToken(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+    jwt.verify(token, config.jwt.secret, (err, decoded) => {
+      if (err) {
+        req.user = null;
+      } else {
+        req.user = { userId: decoded.userId, username: decoded.username };
+      }
+      next();
+    });
+  } catch (error) {
+    req.user = null;
+    next();
+  }
+}
+
+module.exports.optionalAuthenticateToken = optionalAuthenticateToken;

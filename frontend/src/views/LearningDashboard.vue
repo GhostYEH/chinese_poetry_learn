@@ -120,28 +120,41 @@
         <div class="trend-card">
           <div class="trend-content">
             <div class="trend-chart" v-if="dashboardData.learningTrends.length > 0">
-              <div class="chart-container">
-                <div class="chart-grid">
-                  <div class="chart-grid-line" v-for="i in 5" :key="i" :style="{ top: (i * 20) + '%' }"></div>
+              <div class="chart-shell">
+                <div class="chart-bg-grid" aria-hidden="true">
+                  <div
+                    v-for="i in 5"
+                    :key="'gl-' + i"
+                    class="chart-grid-line"
+                    :style="{ bottom: (i * 20) + '%' }"
+                  />
                 </div>
-                <div class="chart-data">
-                  <div 
-                    v-for="(trend, index) in dashboardData.learningTrends" 
-                    :key="index"
-                    class="chart-bar"
-                    :style="{
-                      left: (index / (dashboardData.learningTrends.length - 1) * 100) + '%',
-                      height: (trend.score / 100 * 100) + '%'
-                    }"
+                <div
+                  class="chart-columns"
+                  :style="{
+                    gridTemplateColumns: `repeat(${dashboardData.learningTrends.length}, minmax(0, 1fr))`
+                  }"
+                >
+                  <div
+                    v-for="(trend, index) in dashboardData.learningTrends"
+                    :key="'col-' + index"
+                    class="chart-column"
                   >
-                    <div class="chart-tooltip">{{ trend.date }}: {{ trend.score }}%</div>
+                    <div class="chart-bar-track">
+                      <div
+                        class="chart-bar"
+                        :class="{ 'chart-bar--empty': !trend.score }"
+                        :style="{ height: barHeightPercent(trend.score) }"
+                      >
+                        <div class="chart-tooltip">
+                          {{ trend.date }} · {{ trend.score }}%
+                          <template v-if="trend.activePoems != null"> · {{ trend.activePoems }} 首活跃</template>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="chart-label">{{ trend.date }}</div>
                   </div>
                 </div>
-              </div>
-              <div class="chart-labels">
-                <span v-for="(trend, index) in dashboardData.learningTrends" :key="index" class="chart-label">
-                  {{ trend.date }}
-                </span>
               </div>
             </div>
             <div v-else class="no-trend-data">
@@ -152,31 +165,54 @@
         </div>
       </div>
       
-      <!-- 学习建议 -->
+      <!-- 学习建议（AI） -->
       <div class="learning-suggestions">
         <h2 class="section-title">💡 学习建议</h2>
-        <div class="suggestion-card">
-          <div class="suggestion-list">
-            <div 
-              v-for="(suggestion, index) in dashboardData.suggestions" 
-              :key="index"
+        <div class="suggestion-card ai-suggestion-card">
+          <div class="ai-suggestion-toolbar">
+            <p class="ai-suggestion-hint">由 AI 根据您的个人学习记录生成，可多次刷新获取新角度。</p>
+            <button
+              type="button"
+              class="btn-ai-refresh"
+              :disabled="aiAdviceLoading"
+              @click="fetchAiAdvice"
+            >
+              {{ aiAdviceLoading ? '生成中…' : (aiAdviceFull ? '重新生成' : '生成学习建议') }}
+            </button>
+          </div>
+          <div v-if="aiAdviceLoading" class="ai-advice-loading">
+            <div class="loading-spinner small"></div>
+            <span>正在结合您的学习记录分析与写作…</span>
+          </div>
+          <div v-else-if="aiAdviceError && !aiAdviceFull" class="ai-advice-error">
+            <p>{{ aiAdviceError }}</p>
+            <p v-if="aiAdviceErrorCode === 'NO_API_KEY'" class="ai-advice-error-sub">
+              请在服务器环境变量中配置 <code>SILICONFLOW_API_KEY</code> 后重试。
+            </p>
+          </div>
+          <div
+            v-if="aiAdviceDisplayed"
+            class="ai-advice-typewriter ink-paper"
+          >{{ aiAdviceDisplayed }}<span v-if="!typewriterDone" class="type-cursor" aria-hidden="true">▍</span></div>
+          <div v-if="showFallbackSuggestions" class="suggestion-list fallback-suggestions">
+            <p class="fallback-title">以下为系统提示（AI 暂不可用时）：</p>
+            <div
+              v-for="(suggestion, index) in fallbackSuggestions"
+              :key="'fb-' + index"
               class="suggestion-item"
             >
               <div class="suggestion-icon">{{ suggestion.icon }}</div>
               <div class="suggestion-content">
                 <h4>{{ suggestion.title }}</h4>
                 <p>{{ suggestion.description }}</p>
-                <button 
-                  v-if="suggestion.action" 
+                <button
+                  v-if="suggestion.action"
                   class="suggestion-action"
                   @click="handleSuggestionAction(suggestion)"
                 >
                   {{ suggestion.actionText }}
                 </button>
               </div>
-            </div>
-            <div v-if="dashboardData.suggestions.length === 0" class="empty">
-              <p>暂无学习建议</p>
             </div>
           </div>
         </div>
@@ -261,43 +297,55 @@
       <div class="creation-growth">
         <h2 class="section-title">✍️ 创作成长</h2>
         <div class="creation-card">
-          <div class="creation-stats">
-            <div class="creation-stat-item">
+          <div class="creation-stats-grid">
+            <div class="creation-stat-tile">
               <div class="creation-stat-icon">📝</div>
-              <div class="creation-stat-content">
-                <h3>总创作数</h3>
-                <p class="creation-stat-number">{{ creationData.total_creations }}</p>
-                <p class="creation-stat-desc">篇</p>
+              <div class="creation-stat-body">
+                <span class="creation-stat-label">总创作数</span>
+                <div class="creation-stat-value-row">
+                  <span class="creation-stat-number">{{ creationData.total_creations }}</span>
+                  <span class="creation-stat-unit">篇</span>
+                </div>
               </div>
             </div>
-            <div class="creation-stat-item">
+            <div class="creation-stat-tile">
               <div class="creation-stat-icon">🏆</div>
-              <div class="creation-stat-content">
-                <h3>达标作品</h3>
-                <p class="creation-stat-number">{{ creationData.qualified_works }}</p>
-                <p class="creation-stat-desc">篇</p>
+              <div class="creation-stat-body">
+                <span class="creation-stat-label">达标作品</span>
+                <div class="creation-stat-value-row">
+                  <span class="creation-stat-number">{{ creationData.qualified_works }}</span>
+                  <span class="creation-stat-unit">篇</span>
+                </div>
+                <span class="creation-stat-hint">评分≥60分</span>
               </div>
             </div>
-            <div class="creation-stat-item">
+            <div class="creation-stat-tile">
               <div class="creation-stat-icon">📊</div>
-              <div class="creation-stat-content">
-                <h3>平均分</h3>
-                <p class="creation-stat-number">{{ creationData.average_score.toFixed(1) }}</p>
-                <p class="creation-stat-desc">分</p>
+              <div class="creation-stat-body">
+                <span class="creation-stat-label">平均分</span>
+                <div class="creation-stat-value-row">
+                  <span class="creation-stat-number">{{ formatCreationAverage(creationData.average_score) }}</span>
+                  <span class="creation-stat-unit">分</span>
+                </div>
               </div>
             </div>
-            <div class="creation-stat-item">
+            <div class="creation-stat-tile">
               <div class="creation-stat-icon">🌟</div>
-              <div class="creation-stat-content">
-                <h3>最高分</h3>
-                <p class="creation-stat-number">{{ creationData.highest_score }}</p>
-                <p class="creation-stat-desc">分</p>
+              <div class="creation-stat-body">
+                <span class="creation-stat-label">最高分</span>
+                <div class="creation-stat-value-row">
+                  <span class="creation-stat-number">{{ creationData.highest_score }}</span>
+                  <span class="creation-stat-unit">分</span>
+                </div>
               </div>
             </div>
           </div>
+          <p v-if="creationData.last_creation_time" class="creation-last">
+            最近创作：{{ formatDate(creationData.last_creation_time) }}
+          </p>
           <div class="creation-actions">
-            <router-link to="/creation" class="btn btn-primary">开始创作</router-link>
-            <router-link to="/creation/records" class="btn btn-secondary">查看作品</router-link>
+            <router-link to="/creation" class="btn btn-creation-primary">开始创作</router-link>
+            <router-link to="/creation/records" class="btn btn-creation-secondary">查看作品</router-link>
           </div>
         </div>
       </div>
@@ -306,7 +354,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 
@@ -322,7 +370,6 @@ const dashboardData = ref({
   streakDays: 0,
   totalStudyTime: 0,
   learningTrends: [],
-  suggestions: [],
   dailyGoalCompleted: false,
   dailyGoalProgress: 0,
   dailyPoemsLearned: 0,
@@ -330,6 +377,100 @@ const dashboardData = ref({
   weeklyGoalProgress: 0,
   weeklyPoemsLearned: 0
 })
+
+const aiAdviceLoading = ref(false)
+const aiAdviceError = ref('')
+const aiAdviceErrorCode = ref('')
+const aiAdviceFull = ref('')
+const aiAdviceDisplayed = ref('')
+const typewriterDone = ref(true)
+const fallbackSuggestions = ref([])
+let typeTimer = null
+
+const showFallbackSuggestions = computed(
+  () => fallbackSuggestions.value.length > 0 && !aiAdviceFull.value && !aiAdviceLoading.value
+)
+
+const barHeightPercent = (score) => {
+  const s = Math.max(0, Math.min(100, Number(score) || 0))
+  return `${s}%`
+}
+
+const buildFallbackSuggestions = (data) => [
+  {
+    icon: '📚',
+    title: '复习已学诗词',
+    description: '建议复习最近学习的诗词，巩固记忆。',
+    action: null,
+    actionText: ''
+  },
+  {
+    icon: '🎯',
+    title: '提高背诵准确率',
+    description: `您的平均背诵得分是${data.averageScore || 0}%，继续努力达到90%以上。`,
+    action: null,
+    actionText: ''
+  },
+  {
+    icon: '🔥',
+    title: '保持学习习惯',
+    description: '每天坚持学习一首或复习一首，形成稳定节奏。',
+    action: null,
+    actionText: ''
+  }
+]
+
+const runTypewriter = (text) => {
+  clearInterval(typeTimer)
+  typewriterDone.value = false
+  aiAdviceDisplayed.value = ''
+  if (!text) {
+    typewriterDone.value = true
+    return
+  }
+  let i = 0
+  const chunk = 2
+  const tick = 14
+  typeTimer = setInterval(() => {
+    if (i >= text.length) {
+      clearInterval(typeTimer)
+      typewriterDone.value = true
+      return
+    }
+    aiAdviceDisplayed.value += text.slice(i, i + chunk)
+    i += chunk
+  }, tick)
+}
+
+const fetchAiAdvice = async () => {
+  clearInterval(typeTimer)
+  typeTimer = null
+  aiAdviceLoading.value = true
+  aiAdviceError.value = ''
+  aiAdviceErrorCode.value = ''
+  fallbackSuggestions.value = []
+  aiAdviceFull.value = ''
+  aiAdviceDisplayed.value = ''
+  typewriterDone.value = true
+  try {
+    const res = await api.learn.aiSuggestions()
+    if (res.success && res.data?.content) {
+      aiAdviceFull.value = res.data.content
+      runTypewriter(res.data.content)
+    } else {
+      throw new Error(res.message || '未返回建议内容')
+    }
+  } catch (e) {
+    aiAdviceFull.value = ''
+    aiAdviceDisplayed.value = ''
+    typewriterDone.value = true
+    aiAdviceError.value = e.message || '生成学习建议失败'
+    aiAdviceErrorCode.value = e.code || ''
+    fallbackSuggestions.value = buildFallbackSuggestions(dashboardData.value)
+  } finally {
+    aiAdviceLoading.value = false
+  }
+}
 
 const creationData = ref({
   total_creations: 0,
@@ -341,6 +482,7 @@ const creationData = ref({
 
 const lastUpdatedTime = ref('')
 let refreshTimer = null
+const aiAdviceSeeded = ref(false)
 
 const fetchDashboardData = async () => {
   loading.value = true
@@ -351,56 +493,12 @@ const fetchDashboardData = async () => {
     const response = await api.learn.dashboard()
     const data = response.data
     
-    // 生成最近7天的学习趋势数据
-    const generateLearningTrends = () => {
-      const trends = []
-      const today = new Date()
-      
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(today)
-        date.setDate(date.getDate() - i)
-        const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-        
-        // 基于平均得分生成随机但合理的趋势数据
-        const baseScore = data.averageScore || 70
-        const randomVariation = Math.floor(Math.random() * 15) - 7 // -7 到 +7 的随机变化
-        const score = Math.max(50, Math.min(100, baseScore + randomVariation))
-        
-        trends.push({ date: dateStr, score })
-      }
-      
-      return trends
-    }
-    
-    // 填充数据
+    // 填充数据（学习趋势由后端按最近 7 天真实记录聚合）
     dashboardData.value = {
       ...data,
       streakDays: 0, // 这里可以根据实际数据计算
-      totalStudyTime: 0, // 这里可以根据实际数据计算
-      learningTrends: data.learningTrends || generateLearningTrends(),
-      suggestions: [
-        {
-          icon: '📚',
-          title: '复习已学诗词',
-          description: '建议复习最近学习的诗词，巩固记忆。',
-          action: null,
-          actionText: ''
-        },
-        {
-          icon: '🎯',
-          title: '提高背诵准确率',
-          description: `您的平均背诵得分是${data.averageScore || 0}%，继续努力达到90%以上。`,
-          action: null,
-          actionText: ''
-        },
-        {
-          icon: '🔥',
-          title: '保持学习 streak',
-          description: '继续保持学习习惯，每天学习一首新诗词。',
-          action: null,
-          actionText: ''
-        }
-      ],
+      totalStudyTime: data.totalStudyTime ?? 0,
+      learningTrends: Array.isArray(data.learningTrends) ? data.learningTrends : [],
       dailyGoalCompleted: data.totalLearned >= 3,
       dailyGoalProgress: Math.min((data.totalLearned / 3) * 100, 100),
       dailyPoemsLearned: data.totalLearned,
@@ -409,21 +507,20 @@ const fetchDashboardData = async () => {
       weeklyPoemsLearned: data.totalLearned
     }
     
-    // 获取创作成长数据
+    // 获取创作成长数据（与 user_creations 一致，走统一 API 与动态端口）
     try {
-      const creationResponse = await fetch('http://localhost:3000/api/creation/stats', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+      const creationResult = await api.creationWorkbench.getStats()
+      if (creationResult.success && creationResult.data) {
+        creationData.value = {
+          total_creations: creationResult.data.total_creations ?? 0,
+          qualified_works: creationResult.data.qualified_works ?? 0,
+          average_score: creationResult.data.average_score ?? 0,
+          highest_score: creationResult.data.highest_score ?? 0,
+          last_creation_time: creationResult.data.last_creation_time ?? null
         }
-      })
-      
-      if (creationResponse.ok) {
-        const creationResult = await creationResponse.json()
-        creationData.value = creationResult
       }
     } catch (creationError) {
       console.error('获取创作成长数据失败:', creationError)
-      // 使用默认数据
       creationData.value = {
         total_creations: 0,
         qualified_works: 0,
@@ -431,6 +528,11 @@ const fetchDashboardData = async () => {
         highest_score: 0,
         last_creation_time: null
       }
+    }
+
+    if (!aiAdviceSeeded.value) {
+      aiAdviceSeeded.value = true
+      fetchAiAdvice()
     }
   } catch (err) {
     console.error('获取仪表盘数据失败:', err)
@@ -486,35 +588,13 @@ const useMockData = () => {
     streakDays: 5,
     totalStudyTime: 45,
     learningTrends: [
-      { date: '03-01', score: 70 },
-      { date: '03-02', score: 75 },
-      { date: '03-03', score: 80 },
-      { date: '03-04', score: 85 },
-      { date: '03-05', score: 90 }
-    ],
-    suggestions: [
-      {
-        icon: '📚',
-        title: '复习已学诗词',
-        description: '建议复习最近学习的《静夜思》和《望庐山瀑布》，巩固记忆。',
-        action: 'navigateToDetail',
-        actionParams: 1,
-        actionText: '开始复习'
-      },
-      {
-        icon: '🎯',
-        title: '提高背诵准确率',
-        description: '您的平均背诵得分是85%，继续努力达到90%以上。',
-        action: null,
-        actionText: ''
-      },
-      {
-        icon: '🔥',
-        title: '保持学习 streak',
-        description: '您已连续学习5天，再坚持2天即可达成7天目标！',
-        action: null,
-        actionText: ''
-      }
+      { date: '03-19', score: 62, activePoems: 1 },
+      { date: '03-20', score: 0, activePoems: 0 },
+      { date: '03-21', score: 71, activePoems: 2 },
+      { date: '03-22', score: 0, activePoems: 0 },
+      { date: '03-23', score: 78, activePoems: 1 },
+      { date: '03-24', score: 0, activePoems: 0 },
+      { date: '03-25', score: 85, activePoems: 3 }
     ],
     dailyGoalCompleted: false,
     dailyGoalProgress: 66,
@@ -524,14 +604,18 @@ const useMockData = () => {
     weeklyPoemsLearned: 9
   }
   
-  // 模拟创作成长数据
   creationData.value = {
-    total_creations: 5,
-    qualified_works: 3,
-    average_score: 82.5,
-    highest_score: 95,
-    last_creation_time: new Date().toISOString()
+    total_creations: 0,
+    qualified_works: 0,
+    average_score: 0,
+    highest_score: 0,
+    last_creation_time: null
   }
+}
+
+const formatCreationAverage = (n) => {
+  if (n == null || Number.isNaN(Number(n))) return '0.0'
+  return Number(n).toFixed(1)
 }
 
 const formatDate = (dateString) => {
@@ -569,6 +653,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshTimer) {
     clearInterval(refreshTimer)
+  }
+  if (typeTimer) {
+    clearInterval(typeTimer)
   }
 })
 </script>
@@ -908,20 +995,22 @@ onUnmounted(() => {
   text-align: right;
 }
 
-.chart-container {
+.chart-shell {
   position: relative;
-  height: 300px;
   width: 100%;
-  margin-bottom: 20px;
+  height: 300px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-.chart-grid {
+.chart-bg-grid {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 8px;
+  right: 8px;
+  bottom: 36px;
+  top: 12px;
   z-index: 1;
+  pointer-events: none;
 }
 
 .chart-grid-line {
@@ -929,68 +1018,215 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 1px;
-  background: rgba(139, 69, 19, 0.1);
+  background: rgba(139, 69, 19, 0.12);
 }
 
-.chart-data {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-around;
-  padding: 0 20px;
+.chart-columns {
+  position: relative;
   z-index: 2;
+  display: grid;
+  height: 100%;
+  align-items: stretch;
+  gap: 4px;
+  padding: 12px 8px 4px;
+  box-sizing: border-box;
+}
+
+.chart-column {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  height: 100%;
+}
+
+.chart-bar-track {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  border-bottom: 1px solid rgba(139, 69, 19, 0.18);
+  padding: 0 2px 0;
 }
 
 .chart-bar {
-  position: relative;
-  flex: 1;
-  margin: 0 4px;
-  background: #8b4513;
-  border-radius: 4px 4px 0 0;
-  transition: height 0.3s ease;
+  width: min(52%, 32px);
+  border-radius: 6px 6px 2px 2px;
+  background: linear-gradient(180deg, #a0522d 0%, #8b4513 100%);
+  transition: height 0.35s ease;
   cursor: pointer;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(139, 69, 19, 0.15);
+}
+
+.chart-bar--empty {
+  min-height: 0;
+  height: 0 !important;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.chart-bar:not(.chart-bar--empty) {
+  min-height: 4px;
 }
 
 .chart-bar:hover {
-  background: #a0522d;
+  filter: brightness(1.06);
 }
 
 .chart-tooltip {
   position: absolute;
-  top: -30px;
+  bottom: 100%;
   left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  transform: translateX(-50%) translateY(-6px);
+  background: rgba(44, 36, 28, 0.92);
+  color: #fff8f0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.25s ease;
   z-index: 10;
+  pointer-events: none;
+  max-width: 200px;
 }
 
-.chart-bar:hover .chart-tooltip {
+.chart-bar:not(.chart-bar--empty):hover .chart-tooltip {
   opacity: 1;
 }
 
-.chart-labels {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 20px;
-  gap: 12px;
+.chart-label {
+  flex-shrink: 0;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #666;
+  text-align: center;
+  line-height: 1.2;
+  word-break: keep-all;
 }
 
-.chart-label {
-  font-size: 12px;
-  color: #666;
+.ai-suggestion-card {
+  text-align: left;
+}
+
+.ai-suggestion-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ai-suggestion-hint {
+  margin: 0;
+  font-size: 13px;
+  color: #777;
   flex: 1;
-  text-align: center;
+  min-width: 200px;
+}
+
+.btn-ai-refresh {
+  background: linear-gradient(135deg, #8b4513 0%, #6d3710 100%);
+  color: #fff;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition, transform 0.2s ease, box-shadow 0.2s ease);
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.2);
+}
+
+.btn-ai-refresh:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(139, 69, 19, 0.28);
+}
+
+.btn-ai-refresh:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ai-advice-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  color: #666;
+  font-size: 14px;
+}
+
+.loading-spinner.small {
+  width: 22px;
+  height: 22px;
+  border-width: 3px;
+}
+
+.ai-advice-error {
+  padding: 16px;
+  background: rgba(244, 67, 54, 0.06);
+  border: 1px solid rgba(244, 67, 54, 0.2);
+  border-radius: 10px;
+  color: #c62828;
+  font-size: 14px;
+}
+
+.ai-advice-error-sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.ai-advice-error-sub code {
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.ai-advice-typewriter.ink-paper {
+  margin-top: 8px;
+  padding: 20px 22px;
+  min-height: 120px;
+  background: linear-gradient(180deg, rgba(255, 252, 240, 0.95) 0%, rgba(250, 245, 235, 0.9) 100%);
+  border: 1px solid rgba(139, 69, 19, 0.15);
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #3e3428;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Georgia', 'Noto Serif SC', 'Songti SC', serif;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.type-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: #8b4513;
+  animation: ink-blink 1s step-end infinite;
+  font-weight: 300;
+}
+
+@keyframes ink-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.fallback-suggestions {
+  margin-top: 20px;
+}
+
+.fallback-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #888;
 }
 
 .learning-suggestions {
@@ -1143,6 +1379,156 @@ onUnmounted(() => {
   color: #666;
 }
 
+.creation-growth {
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  box-shadow: var(--glass-shadow);
+}
+
+.creation-card {
+  background: rgba(255, 252, 240, 0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 20px 20px 16px;
+}
+
+.creation-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.creation-stat-tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(139, 69, 19, 0.12);
+  border-radius: 12px;
+  min-height: 88px;
+  transition: var(--transition);
+}
+
+.creation-stat-tile:hover {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(139, 69, 19, 0.2);
+  transform: translateY(-2px);
+}
+
+.creation-stat-tile .creation-stat-icon {
+  font-size: 28px;
+  line-height: 1;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(139, 69, 19, 0.08);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.creation-stat-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.creation-stat-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.creation-stat-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.creation-stat-number {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: #8b4513;
+  line-height: 1.2;
+}
+
+.creation-stat-unit {
+  font-size: 14px;
+  color: #999;
+  font-weight: 500;
+}
+
+.creation-stat-hint {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 2px;
+}
+
+.creation-last {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: #888;
+  text-align: center;
+}
+
+.creation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
+.btn-creation-primary,
+.btn-creation-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+  border: 1px solid transparent;
+}
+
+.btn-creation-primary {
+  background: linear-gradient(135deg, #8b4513 0%, #a0522d 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.25);
+}
+
+.btn-creation-primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 69, 19, 0.3);
+}
+
+.btn-creation-secondary {
+  background: rgba(255, 255, 255, 0.6);
+  color: #8b4513;
+  border-color: rgba(139, 69, 19, 0.35);
+}
+
+.btn-creation-secondary:hover {
+  background: rgba(255, 252, 240, 0.9);
+  border-color: #8b4513;
+  transform: translateY(-2px);
+}
+
 @media (max-width: 768px) {
   .learning-dashboard {
     padding: 15px;
@@ -1154,6 +1540,19 @@ onUnmounted(() => {
   
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .creation-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .creation-actions {
+    flex-direction: column;
+  }
+
+  .btn-creation-primary,
+  .btn-creation-secondary {
+    width: 100%;
   }
   
   .stat-card {
@@ -1173,18 +1572,10 @@ onUnmounted(() => {
     gap: 8px;
   }
   
-  .chart-container {
-    height: 200px;
+  .chart-shell {
+    height: 220px;
   }
-  
-  .chart-data {
-    padding: 0 10px;
-  }
-  
-  .chart-labels {
-    padding: 0 10px;
-  }
-  
+
   .chart-label {
     font-size: 10px;
   }

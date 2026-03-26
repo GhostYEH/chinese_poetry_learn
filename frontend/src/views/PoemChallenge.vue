@@ -6,6 +6,7 @@
         <router-link to="/challenge/rank" class="glass-nav-button">排行榜</router-link>
         <router-link to="/challenge/error-book" class="glass-nav-button">错题本</router-link>
         <router-link to="/challenge/review" class="glass-nav-button review-btn">错题复习</router-link>
+        <router-link to="/challenge/battle" class="glass-nav-button battle-btn">闯关对战</router-link>
       </div>
     </div>
 
@@ -182,8 +183,9 @@ export default {
 
         questions.value = cached;
       } catch (error) {
-          questions.value = cached;
-        }
+        console.error('加载题目失败:', error);
+        questions.value = getLocalQuestions();
+      }
     };
 
     const getLocalQuestions = () => {
@@ -477,6 +479,18 @@ export default {
 .review-btn:hover {
   background: linear-gradient(135deg, rgba(255, 152, 0, 0.3), rgba(233, 30, 99, 0.25));
   border-color: rgba(255, 152, 0, 0.6);
+}
+
+.battle-btn {
+  background: linear-gradient(135deg, rgba(220, 20, 60, 0.15), rgba(255, 69, 0, 0.1));
+  border-color: rgba(220, 20, 60, 0.3);
+  color: #dc143c;
+  font-weight: bold;
+}
+
+.battle-btn:hover {
+  background: linear-gradient(135deg, rgba(220, 20, 60, 0.25), rgba(255, 69, 0, 0.2));
+  border-color: rgba(220, 20, 60, 0.5);
 }
 
 .login-prompt {

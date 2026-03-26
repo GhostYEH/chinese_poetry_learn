@@ -1,9 +1,6 @@
 const { db } = require('../utils/db');
 const aiService = require('./aiService');
 
-const questionCache = new Map();
-const generatedQuestions = new Set();
-
 function getDifficulty(level) {
   if (level <= 50) return 'easy';
   if (level <= 120) return 'medium';
@@ -132,90 +129,90 @@ async function updateUserProgress(userId, level) {
   });
 }
 
-async function generateQuestions(startLevel, count) {
-  const cacheKey = `questions_${startLevel}_${count}`;
-  
-  if (questionCache.has(cacheKey)) {
-    const cached = questionCache.get(cacheKey);
-    if (Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
-      return cached.questions;
-    }
-  }
+async function generateQuestions(userId, startLevel, count) {
+  // 获取用户已经回答过的题目（正确和错误都算）
+  const answeredQuestions = await new Promise((resolve, reject) => {
+    db.all(
+      'SELECT DISTINCT poem_title, poem_author FROM user_challenge_records WHERE user_id = ?',
+      [userId],
+      (err, rows) => {
+        if (err) {
+          console.error('获取已答题目失败:', err);
+          resolve([]);
+        } else {
+          resolve(rows || []);
+        }
+      }
+    );
+  });
+
+  const answeredPoems = new Set(
+    answeredQuestions
+      .filter(r => r.poem_title && r.poem_author)
+      .map(r => `${r.poem_title}_${r.poem_author}`)
+  );
 
   const difficulty = getDifficulty(startLevel);
-  
-  const prompt = `你是一个古诗词教育专家，请生成高质量、完全正确的古诗词填空题。
+  const batchAsk = count + 22;
 
-要求：
-1. 生成 ${count} 道题
-2. 难度必须严格符合 level 范围：
-   - 1-50：简单（名句填空）
-   - 51-120：中等（上下句）
-   - 121-180：困难（指定字填空）
-   - 181-200：挑战（多空）
-3. 题目类型要多样化，包括：
-   - 上句填下句（如：床前明月光，____。）
-   - 下句填上句（如：____，疑是地上霜。）
-4. 必须保证：
-   - 诗句完全正确（不能编造）
-   - 上下句关系正确
-   - 不重复
-   - 出自真实古诗词
-4. 输出 JSON 格式：
-[
-  {
-    "id": 1,
-    "level": ${startLevel},
-    "question": "床前明月光，____。",
-    "answer": "疑是地上霜",
-    "full_poem": "床前明月光，疑是地上霜。",
-    "author": "李白",
-    "title": "静夜思",
-    "difficulty": "${difficulty}",
-    "analysis": "描写思乡"
-  }
-]`;
+  const prompt = `你是古诗词教育专家。请生成诗词「逗号相邻半句」接句填空题（供闯关练习）。
 
-  try {
-    let questions = await aiService.getAIGeneratedQuestions(prompt);
-    
-    if (!questions || !Array.isArray(questions) || questions.length === 0) {
-      throw new Error('AI生成题目失败');
+硬性规则（服务器会据 full_poem 自动校验，不满足则整题丢弃）：
+1. full_poem 必须是该作品完整正文。题干只能是「甲，____。」或「____，乙。」之一，且甲/乙必须与正文中某一逗号偶句的左/右半句字面一致；answer 必须是该偶句的另一半。
+2. 禁止「____，乙」中乙为某句读小节开头第一半句（前面没有同小节可接的逗号前半句）。
+3. 本次请生成 ${batchAsk} 道题（宁多勿少）；难度标签填「${difficulty}」；每题 level 填 ${startLevel}。
+4. 诗词须真实可查，禁止编造。各题 title+author 尽量不重复。
+5. 严格返回一个 JSON 对象（仅此对象），格式为 {"questions":[ ... ]}，数组内每项含：id, level, question, answer, full_poem, author, title, difficulty, analysis
+
+示例（结构示意）：
+{"questions":[{"id":1,"level":${startLevel},"question":"床前明月光，____。","answer":"疑是地上霜","full_poem":"床前明月光，疑是地上霜。举头望明月，低头思故乡。","author":"李白","title":"静夜思","difficulty":"${difficulty}","analysis":"《静夜思》上句接下句。"}]}`;
+
+  const normalizePoemKey = (q) => `${q.title}_${q.author}`;
+
+  const pushValidFromRaw = (rawList, acc, seenKeys) => {
+    if (!rawList || !Array.isArray(rawList)) return;
+    for (let i = 0; i < rawList.length && acc.length < count; i++) {
+      const q = rawList[i];
+      if (!q || !q.question || !q.answer || !q.full_poem || !q.title || !q.author) continue;
+      const key = normalizePoemKey(q);
+      if (answeredPoems.has(key) || seenKeys.has(key)) continue;
+      const fixed = aiService.repairDuelQuestionFromFullPoem({
+        ...q,
+        level: q.level != null ? q.level : startLevel,
+        difficulty: q.difficulty || difficulty
+      });
+      if (!fixed) continue;
+      seenKeys.add(key);
+      acc.push(fixed);
     }
-    
-    // 过滤重复题目，确保每个题目都是唯一的
-    const uniqueQuestions = [];
-    for (const q of questions) {
-      const questionKey = `${q.question}_${q.answer}`;
-      if (!generatedQuestions.has(questionKey)) {
-        generatedQuestions.add(questionKey);
-        uniqueQuestions.push(q);
-      }
+  };
+
+  const valid = [];
+  const seenKeys = new Set();
+
+  for (let round = 0; round < 3 && valid.length < count; round++) {
+    try {
+      const raw = await aiService.getAIGeneratedQuestions(prompt);
+      pushValidFromRaw(raw, valid, seenKeys);
+    } catch (e) {
+      console.error('[challengeService] 拉取 AI 题目失败:', e.message);
     }
-    
-    if (uniqueQuestions.length < count) {
-      throw new Error('AI生成的题目不足');
-    }
-    
-    questionCache.set(cacheKey, {
-      questions: uniqueQuestions.slice(0, count),
-      timestamp: Date.now()
-    });
-    
-    return uniqueQuestions.slice(0, count);
-  } catch (error) {
-    console.error('AI生成题目失败，使用模拟数据:', error);
-    // 使用模拟数据作为备用
-    const mockQuestions = generateMockQuestions(startLevel, count, difficulty);
-    questionCache.set(cacheKey, {
-      questions: mockQuestions,
-      timestamp: Date.now()
-    });
-    return mockQuestions;
   }
+
+  if (valid.length < count) {
+    console.warn('[challengeService] AI 有效题不足，用模拟题库补足', { need: count, have: valid.length });
+    const mock = generateMockQuestions(startLevel, Math.max(count * 2, 24), difficulty, answeredPoems);
+    pushValidFromRaw(mock, valid, seenKeys);
+  }
+
+  if (valid.length < count) {
+    throw new Error('无法生成足够有效题目，请稍后重试');
+  }
+
+  return valid.slice(0, count);
 }
 
-function generateMockQuestions(startLevel, count, difficulty) {
+function generateMockQuestions(startLevel, count, difficulty, answeredPoems = new Set()) {
   const defaultPoems = [
     { title: "静夜思", author: "李白", content: "床前明月光，疑是地上霜。举头望明月，低头思故乡。" },
     { title: "春晓", author: "孟浩然", content: "春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。" },
@@ -234,23 +231,32 @@ function generateMockQuestions(startLevel, count, difficulty) {
     { title: "望洞庭", author: "刘禹锡", content: "湖光秋月两相和，潭面无风镜未磨。遥望洞庭山水翠，白银盘里一青螺。" }
   ];
 
+  // 过滤掉用户已答过的诗词
+  const availablePoems = defaultPoems.filter(poem => {
+    const key = `${poem.title}_${poem.author}`;
+    return !answeredPoems.has(key);
+  });
+
+  // 如果所有诗词都答过了，使用所有诗词
+  const poemsToUse = availablePoems.length > 0 ? availablePoems : defaultPoems;
+
   const questions = [];
   const usedPoemLines = new Set();
-  
+
   for (let i = 0; i < count; i++) {
     let poem, question, answer, analysis;
     let attempts = 0;
     const maxAttempts = 100;
-    
+
     // 确保找到未使用的诗句
     while (attempts < maxAttempts) {
-      const poemIndex = (i + attempts) % defaultPoems.length;
-      poem = defaultPoems[poemIndex];
+      const poemIndex = (i + attempts) % poemsToUse.length;
+      poem = poemsToUse[poemIndex];
       const lines = poem.content.split('。').filter(l => l.trim());
-      
+
       // 随机选择题目类型：0=上句填下句，1=下句填上句
       const questionType = Math.random() > 0.5 ? 0 : 1;
-      
+
       // 根据难度选择不同的行
       let lineIndex;
       switch (difficulty) {
@@ -267,19 +273,19 @@ function generateMockQuestions(startLevel, count, difficulty) {
         default:
           lineIndex = 0;
       }
-      
+
       const line = lines[lineIndex];
       if (!line || line.length < 8) {
         attempts++;
         continue;
       }
-      
+
       const parts = line.split('，');
       if (parts.length < 2) {
         attempts++;
         continue;
       }
-      
+
       if (questionType === 0) {
         // 上句填下句
         question = `${parts[0]}，____。`;
@@ -291,25 +297,25 @@ function generateMockQuestions(startLevel, count, difficulty) {
         answer = parts[0];
         analysis = `此句出自${poem.author}的《${poem.title}》，下句描述了${parts[1]}的场景，上句应该是`;
       }
-      
+
       const questionKey = `${question}_${answer}`;
-      
-      if (!generatedQuestions.has(questionKey) && !usedPoemLines.has(questionKey)) {
+
+      if (!usedPoemLines.has(questionKey)) {
         usedPoemLines.add(questionKey);
         break;
       }
-      
+
       attempts++;
     }
-    
+
     // 如果找不到合适的诗句，使用默认的
     if (!poem) {
-      poem = defaultPoems[0];
+      poem = poemsToUse.length > 0 ? poemsToUse[0] : defaultPoems[0];
       question = "床前明月光，____。";
       answer = "疑是地上霜";
       analysis = "经典古诗词";
     }
-    
+
     questions.push({
       id: i + 1,
       level: startLevel + i,
@@ -322,7 +328,7 @@ function generateMockQuestions(startLevel, count, difficulty) {
       analysis
     });
   }
-  
+
   return questions;
 }
 

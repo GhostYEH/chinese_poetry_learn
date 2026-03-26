@@ -332,7 +332,9 @@ const inviteUser = (user) => {
 const acceptInvitation = () => {
   feihualingSocket.acceptInvitation(
     invitation.value.inviteId,
-    invitation.value.inviterId
+    invitation.value.inviterId,
+    invitation.value.keyword,
+    invitation.value.difficulty
   )
   showInvitation.value = false
 }
