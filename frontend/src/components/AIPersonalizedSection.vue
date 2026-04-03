@@ -25,27 +25,11 @@
       </div>
     </div>
 
-    <div v-else-if="loading" class="loading-container">
-      <div class="skeleton-layout">
-        <div class="skeleton-card skeleton-left">
-          <div class="skeleton-header"></div>
-          <div class="skeleton-item" v-for="n in 3" :key="n"></div>
-        </div>
-        <div class="skeleton-card skeleton-right">
-          <div class="skeleton-header"></div>
-          <div class="skeleton-item" v-for="n in 3" :key="n"></div>
-        </div>
-      </div>
-      <div class="skeleton-analysis">
-        <div class="skeleton-header"></div>
-        <div class="skeleton-content"></div>
-      </div>
-    </div>
-
     <div v-else-if="error" class="error-container">
       <div class="error-icon">⚠️</div>
       <p>{{ error }}</p>
-      <button class="retry-btn" @click="fetchData">重新加载</button>
+      <p v-if="errorHint" class="error-hint">{{ errorHint }}</p>
+      <button class="retry-btn" @click="fetchDataParallel">重新加载</button>
     </div>
 
     <div v-else class="personalized-content">
@@ -58,7 +42,11 @@
               <p class="card-subtitle">巩固已学知识</p>
             </div>
           </div>
-          <div class="card-content">
+          <div v-if="reviewLoading" class="card-loading">
+            <div class="mini-spinner"></div>
+            <span>AI 正在分析复习需求...</span>
+          </div>
+          <div v-else class="card-content">
             <div v-if="reviewItems.length === 0" class="empty-tip">
               <span class="empty-icon">✨</span>
               <p>暂无复习内容，继续加油！</p>
@@ -89,7 +77,11 @@
               <p class="card-subtitle">探索新知识</p>
             </div>
           </div>
-          <div class="card-content">
+          <div v-if="learnLoading" class="card-loading">
+            <div class="mini-spinner"></div>
+            <span>AI 正在为您精选诗词...</span>
+          </div>
+          <div v-else class="card-content">
             <div v-if="learnItems.length === 0" class="empty-tip">
               <span class="empty-icon">🚀</span>
               <p>开始您的诗词之旅吧！</p>
@@ -115,61 +107,141 @@
 
       <div class="analysis-card" :style="{ animationDelay: '0.2s' }">
         <div class="analysis-header">
-          <div class="analysis-icon">🤖</div>
+          <div class="analysis-icon">
+            <span class="ai-avatar">🧙</span>
+          </div>
           <div class="analysis-title-group">
             <h3 class="analysis-title">AI 学习分析报告</h3>
-            <p class="analysis-subtitle">智能分析您的学习情况</p>
+            <p class="analysis-subtitle" v-if="!isNewUser">基于您的专属学习数据生成</p>
+            <p class="analysis-subtitle" v-else>新用户专属推荐分析</p>
+          </div>
+          <div class="analysis-refresh" v-if="analysis && !analysisLoading" @click="refreshAnalysis" title="重新生成报告">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6M1 20v-6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
         </div>
-        <div class="analysis-content" v-if="analysis">
-          <div class="analysis-summary">{{ analysis.summary }}</div>
+
+        <!-- 用户数据摘要卡片 -->
+        <div class="user-data-summary" v-if="analysisLoading">
+          <div class="summary-header">
+            <span class="summary-icon">📊</span>
+            <span>正在分析您的学习数据...</span>
+          </div>
+          <div class="summary-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: loadingProgress + '%' }"></div>
+            </div>
+            <div class="progress-steps">
+              <span :class="{ active: loadingStep >= 1, done: loadingStep > 1 }">📚 读取学习记录</span>
+              <span :class="{ active: loadingStep >= 2, done: loadingStep > 2 }">🔍 分析错题数据</span>
+              <span :class="{ active: loadingStep >= 3, done: loadingStep > 3 }">🤖 生成个性化报告</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="analysis-content" v-if="analysis && !analysisLoading">
+          <!-- 个性化摘要 -->
+          <div class="personal-summary-card">
+            <div class="personal-summary-header">
+              <span class="greeting-icon">{{ getGreetingIcon() }}</span>
+              <span class="greeting-text">{{ getGreetingText() }}</span>
+            </div>
+            <p class="personal-summary-text">{{ analysis.summary }}</p>
+          </div>
+
+          <!-- 数据概览 -->
+          <div class="data-overview" v-if="analysis.stats">
+            <div class="overview-item" v-for="(item, index) in getDataOverviewItems()" :key="index">
+              <span class="overview-icon">{{ item.icon }}</span>
+              <span class="overview-value">{{ item.value }}</span>
+              <span class="overview-label">{{ item.label }}</span>
+            </div>
+          </div>
+
+          <!-- 详细分析三栏 -->
           <div class="analysis-sections">
             <div class="analysis-section strength">
               <h4 class="section-label">
                 <span class="label-icon">💪</span>
                 学习优势
+                <span class="section-badge success">{{ (analysis.strength || []).length }}项</span>
               </h4>
               <ul class="section-list">
-                <li v-for="(item, index) in analysis.strength" :key="index">{{ item }}</li>
+                <li v-for="(item, index) in (analysis.strength || [])" :key="index">
+                  <span class="strength-highlight">{{ getHighlightText(item) }}</span>
+                  <span class="strength-detail">{{ getDetailText(item) }}</span>
+                </li>
               </ul>
             </div>
             <div class="analysis-section weakness">
               <h4 class="section-label">
                 <span class="label-icon">📈</span>
                 待提升
+                <span class="section-badge warning">{{ (analysis.weakness || []).length }}项</span>
               </h4>
               <ul class="section-list">
-                <li v-for="(item, index) in analysis.weakness" :key="index">{{ item }}</li>
+                <li v-for="(item, index) in (analysis.weakness || [])" :key="index">
+                  <span class="weakness-point">{{ getWeaknessPoint(item) }}</span>
+                  <span class="weakness-detail">{{ getWeaknessDetail(item) }}</span>
+                </li>
               </ul>
             </div>
             <div class="analysis-section suggestion">
               <h4 class="section-label">
                 <span class="label-icon">💡</span>
                 学习建议
+                <span class="section-badge primary">{{ (analysis.suggestion || []).length }}条</span>
               </h4>
               <ul class="section-list">
-                <li v-for="(item, index) in analysis.suggestion" :key="index">{{ item }}</li>
+                <li v-for="(item, index) in (analysis.suggestion || [])" :key="index">
+                  <span class="suggestion-action">{{ getSuggestionAction(item) }}</span>
+                  <span class="suggestion-reason">{{ getSuggestionReason(item) }}</span>
+                </li>
               </ul>
             </div>
           </div>
-          <div class="analysis-stats" v-if="analysis.stats">
-            <div class="stat-item">
-              <span class="stat-value">{{ analysis.stats.total_learned || 0 }}</span>
-              <span class="stat-label">已学习</span>
+
+          <!-- 学习小贴士 -->
+          <div class="learning-tip" v-if="getPersonalTip()">
+            <span class="tip-icon">🌟</span>
+            <span class="tip-text">{{ getPersonalTip() }}</span>
+          </div>
+        </div>
+
+        <!-- 增强版加载动画 -->
+        <div class="analysis-loading" v-else-if="analysisLoading">
+          <div class="loading-animation-container">
+            <div class="ai-brain">
+              <div class="brain-circle"></div>
+              <div class="brain-particles">
+                <span v-for="n in 8" :key="n" class="particle" :style="{ animationDelay: (n * 0.1) + 's' }"></span>
+              </div>
+              <div class="brain-core">
+                <span class="core-icon">🤖</span>
+              </div>
             </div>
-            <div class="stat-item">
-              <span class="stat-value">{{ analysis.stats.average_score || 0 }}</span>
-              <span class="stat-label">平均分</span>
+            <div class="loading-text-container">
+              <p class="loading-main-text">{{ loadingText }}</p>
+              <div class="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
             </div>
-            <div class="stat-item">
-              <span class="stat-value">{{ analysis.stats.mastery_rate || 0 }}%</span>
-              <span class="stat-label">掌握率</span>
+          </div>
+          <div class="loading-data-preview">
+            <div class="data-preview-item" v-for="(item, index) in loadingDataPreview" :key="index" :style="{ animationDelay: (index * 0.2) + 's' }">
+              <span class="preview-icon">{{ item.icon }}</span>
+              <span class="preview-label">{{ item.label }}</span>
+              <span class="preview-value" v-if="item.value">{{ item.value }}</span>
             </div>
           </div>
         </div>
-        <div class="analysis-loading" v-else>
-          <div class="loading-spinner"></div>
-          <p>AI 正在分析您的学习数据...</p>
+
+        <!-- 无数据提示 -->
+        <div class="no-data-tip" v-if="!analysis && !analysisLoading && isNewUser">
+          <div class="no-data-icon">🚀</div>
+          <p class="no-data-title">开启您的诗词学习之旅</p>
+          <p class="no-data-desc">开始学习诗词后，我们将为您生成专属的学习分析报告</p>
         </div>
       </div>
     </div>
@@ -177,7 +249,7 @@
 </template>
 
 <script>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import api from '@/services/api'
@@ -187,29 +259,285 @@ export default {
   setup() {
     const router = useRouter()
     const userStore = useUserStore()
-    
-    const loading = ref(false)
+
     const error = ref('')
+    const errorHint = ref('')
     const reviewItems = ref([])
     const learnItems = ref([])
     const analysis = ref(null)
 
-    const fetchData = async () => {
+    const reviewLoading = ref(false)
+    const learnLoading = ref(false)
+    const analysisLoading = ref(false)
+
+    // 新增：加载动画相关状态
+    const loadingProgress = ref(0)
+    const loadingStep = ref(0)
+    const loadingText = ref('正在连接智能分析引擎...')
+    const isNewUser = ref(false)
+    let loadingTimer = null
+    let loadingStepTimer = null
+
+    const loadingDataPreview = ref([
+      { icon: '📚', label: '已学习诗词', value: '' },
+      { icon: '✅', label: '背诵正确率', value: '' },
+      { icon: '📝', label: '错题数量', value: '' },
+      { icon: '⏱️', label: '学习时长', value: '' }
+    ])
+
+    const loadingTexts = [
+      '正在连接智能分析引擎...',
+      '正在读取您的学习记录...',
+      '正在分析您的错题数据...',
+      '正在评估诗词掌握程度...',
+      '正在生成个性化建议...',
+      '报告即将呈现...'
+    ]
+
+    // 启动加载动画
+    const startLoadingAnimation = () => {
+      loadingProgress.value = 0
+      loadingStep.value = 0
+      let textIndex = 0
+      loadingText.value = loadingTexts[0]
+
+      // 进度条动画
+      loadingTimer = setInterval(() => {
+        loadingProgress.value += Math.random() * 15
+        if (loadingProgress.value > 95) {
+          loadingProgress.value = 95
+        }
+      }, 400)
+
+      // 步骤切换
+      loadingStepTimer = setInterval(() => {
+        loadingStep.value++
+        textIndex = (textIndex + 1) % loadingTexts.length
+        loadingText.value = loadingTexts[textIndex]
+      }, 1800)
+    }
+
+    // 停止加载动画
+    const stopLoadingAnimation = () => {
+      if (loadingTimer) {
+        clearInterval(loadingTimer)
+        loadingTimer = null
+      }
+      if (loadingStepTimer) {
+        clearInterval(loadingStepTimer)
+        loadingStepTimer = null
+      }
+      loadingProgress.value = 100
+      loadingStep.value = 4
+    }
+
+    // 获取问候语图标
+    const getGreetingIcon = () => {
+      const hour = new Date().getHours()
+      if (hour < 6) return '🌙'
+      if (hour < 12) return '🌞'
+      if (hour < 18) return '☀️'
+      return '🌙'
+    }
+
+    // 获取问候语
+    const getGreetingText = () => {
+      const hour = new Date().getHours()
+      if (hour < 6) return '夜深了，诗人'
+      if (hour < 9) return '早起的诗友'
+      if (hour < 12) return '上午好，诗人'
+      if (hour < 14) return '午安，诗人'
+      if (hour < 18) return '下午好，诗人'
+      if (hour < 21) return '傍晚好，诗人'
+      return '夜晚安好，诗人'
+    }
+
+    // 获取数据概览项
+    const getDataOverviewItems = () => {
+      if (!analysis.value?.stats) return []
+      const stats = analysis.value.stats
+      const hour = new Date().getHours()
+      const period = hour < 12 ? '上午' : hour < 18 ? '下午' : '晚上'
+      return [
+        { icon: '📚', value: stats.total_learned || 0, label: '已学诗词' },
+        { icon: '📊', value: stats.average_score || 0, label: '平均得分' },
+        { icon: '🎯', value: (stats.mastery_rate || 0) + '%', label: '掌握率' },
+        { icon: '⚡', value: stats.total_recite_attempts || 0, label: '练习次数' }
+      ]
+    }
+
+    // 解析优势文本
+    const getHighlightText = (item) => {
+      if (!item) return ''
+      const match = item.match(/^([^，,。.]+)/)
+      return match ? match[1] : item.substring(0, 15)
+    }
+
+    const getDetailText = (item) => {
+      if (!item) return ''
+      const parts = item.split(/[，,]/).slice(1)
+      return parts.length > 0 ? parts.join('，') : ''
+    }
+
+    // 解析待提升文本
+    const getWeaknessPoint = (item) => {
+      if (!item) return ''
+      const match = item.match(/^(.{3,15})/)
+      return match ? match[1] : item.substring(0, 10)
+    }
+
+    const getWeaknessDetail = (item) => {
+      if (!item) return ''
+      const parts = item.split(/[，,]/).slice(1)
+      return parts.length > 0 ? '，' + parts.join('，') : ''
+    }
+
+    // 解析建议文本
+    const getSuggestionAction = (item) => {
+      if (!item) return ''
+      const match = item.match(/^(建议|推荐|可以|试着|尝试)/)
+      return match ? match[0] : '建议'
+    }
+
+    const getSuggestionReason = (item) => {
+      if (!item) return ''
+      const parts = item.split(/[，,]/).slice(1)
+      return parts.length > 0 ? parts.join('，') : ''
+    }
+
+    // 获取个性化学习小贴士
+    const getPersonalTip = () => {
+      if (!analysis.value?.stats) return ''
+      const stats = analysis.value.stats
+      const { total_learned, average_score, mastery_rate } = stats
+
+      if (total_learned === 0) {
+        return '今天开始学习一首新诗词吧，迈出您的诗词学习第一步！'
+      }
+      if (average_score < 60) {
+        return '坚持每天朗读背诵，您一定能够看到进步！'
+      }
+      if (mastery_rate < 50) {
+        return '温故而知新，建议复习之前学过的诗词加深记忆。'
+      }
+      if (mastery_rate > 80) {
+        return '太棒了！您对诗词的掌握程度非常高，可以尝试挑战更高难度的内容！'
+      }
+      return '保持学习热情，诗词之路虽然漫长，但每一步都是成长！'
+    }
+
+    // 刷新分析报告
+    const refreshAnalysis = async () => {
+      analysisLoading.value = true
+      startLoadingAnimation()
+      analysis.value = null
+      try {
+        const result = await api.personalized.getAIAnalysis()
+        if (result?.success) {
+          analysis.value = result.data || null
+        }
+      } catch (err) {
+        console.warn('AI分析刷新失败:', err)
+      } finally {
+        analysisLoading.value = false
+        stopLoadingAnimation()
+      }
+    }
+
+    // 内存中的缓存，避免同一次加载中重复请求
+    let cachedData = null
+
+    const getCachedData = () => {
+      // 直接使用内存缓存，每次刷新/重新打开页面都会重新请求
+      return cachedData
+    }
+
+    const setCachedData = (data) => {
+      // 仅缓存在内存中
+      cachedData = data
+    }
+
+    const clearCache = () => {
+      cachedData = null
+    }
+
+    // 并行加载所有推荐数据，每个模块独立加载状态，内容按序渐进显示
+    const fetchDataParallel = async () => {
       if (!userStore.isLoggedIn) return
       
-      loading.value = true
-      error.value = ''
+      const cachedData = getCachedData()
+      if (cachedData) {
+        reviewItems.value = cachedData.review || []
+        learnItems.value = cachedData.learn || []
+        analysis.value = cachedData.analysis || null
+        return
+      }
       
+      error.value = ''
+      errorHint.value = ''
+      
+      // 并行触发三个独立加载任务，互不等待
+      fetchReviewSection()
+      fetchLearnSection()
+      fetchAnalysisSection()
+    }
+    
+    // 独立加载复习推荐模块
+    const fetchReviewSection = async () => {
+      reviewLoading.value = true
+      reviewItems.value = []
       try {
-        const data = await api.personalized.getData()
-        reviewItems.value = data.review || []
-        learnItems.value = data.learn || []
-        analysis.value = data.analysis || null
+        const result = await api.personalized.getReviewRecommendations()
+        if (result?.success) {
+          reviewItems.value = result.data || []
+        }
       } catch (err) {
-        console.error('获取个性化推荐失败:', err)
-        error.value = err.message || '获取推荐数据失败，请稍后重试'
+        console.warn('复习推荐获取失败:', err)
       } finally {
-        loading.value = false
+        reviewLoading.value = false
+      }
+    }
+    
+    // 独立加载学习推荐模块
+    const fetchLearnSection = async () => {
+      learnLoading.value = true
+      learnItems.value = []
+      try {
+        const result = await api.personalized.getLearnRecommendations()
+        if (result?.success) {
+          learnItems.value = result.data || []
+        }
+      } catch (err) {
+        console.warn('学习推荐获取失败:', err)
+      } finally {
+        learnLoading.value = false
+      }
+    }
+    
+    // 独立加载AI分析报告模块
+    const fetchAnalysisSection = async () => {
+      analysisLoading.value = true
+      analysis.value = null
+      startLoadingAnimation()
+      try {
+        const result = await api.personalized.getAIAnalysis()
+        console.log('[AIPersonalizedSection] AI分析API返回:', result)
+        if (result?.success) {
+          analysis.value = result.data || null
+          // 检查是否是新用户（无数据）
+          isNewUser.value = !analysis.value || (analysis.value.stats?.total_learned === 0)
+          console.log('[AIPersonalizedSection] AI分析数据已设置:', analysis.value)
+        } else {
+          console.warn('[AIPersonalizedSection] AI分析返回失败:', result)
+          isNewUser.value = true
+        }
+      } catch (err) {
+        console.warn('AI分析获取失败:', err)
+        isNewUser.value = true
+      } finally {
+        analysisLoading.value = false
+        stopLoadingAnimation()
+        console.log('[AIPersonalizedSection] analysisLoading设置为false')
       }
     }
 
@@ -234,30 +562,63 @@ export default {
     onMounted(async () => {
       await userStore.initUser()
       if (userStore.isLoggedIn) {
-        fetchData()
+        // 使用并行请求方式
+        fetchDataParallel()
+      }
+    })
+
+    onUnmounted(() => {
+      if (loadingTimer) {
+        clearInterval(loadingTimer)
+        loadingTimer = null
+      }
+      if (loadingStepTimer) {
+        clearInterval(loadingStepTimer)
+        loadingStepTimer = null
       }
     })
 
     watch(() => userStore.isLoggedIn, (newVal) => {
       if (newVal) {
-        fetchData()
+        fetchDataParallel()
       } else {
         reviewItems.value = []
         learnItems.value = []
         analysis.value = null
+        clearCache()
       }
     })
 
     return {
       userStore,
-      loading,
       error,
+      errorHint,
       reviewItems,
       learnItems,
       analysis,
-      fetchData,
+      reviewLoading,
+      learnLoading,
+      analysisLoading,
+      fetchDataParallel,
       navigateToDetail,
-      getTagClass
+      getTagClass,
+      // 新增导出
+      loadingProgress,
+      loadingStep,
+      loadingText,
+      isNewUser,
+      loadingDataPreview,
+      getGreetingIcon,
+      getGreetingText,
+      getDataOverviewItems,
+      getHighlightText,
+      getDetailText,
+      getWeaknessPoint,
+      getWeaknessDetail,
+      getSuggestionAction,
+      getSuggestionReason,
+      getPersonalTip,
+      refreshAnalysis
     }
   }
 }
@@ -385,6 +746,12 @@ export default {
   font-family: 'Noto Sans SC', sans-serif;
 }
 
+.error-hint {
+  color: #999;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
 .error-icon {
   font-size: 48px;
   margin-bottom: 16px;
@@ -406,63 +773,12 @@ export default {
   background: rgba(205, 133, 63, 0.2);
 }
 
-.skeleton-layout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 24px;
-}
-
-.skeleton-card {
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 20px;
-  padding: 24px;
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
-}
-
-.skeleton-header {
-  height: 24px;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  width: 40%;
-}
-
-.skeleton-item {
-  height: 80px;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite;
-  border-radius: 12px;
-  margin-bottom: 12px;
-}
-
-.skeleton-analysis {
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 20px;
-  padding: 24px;
-  animation: skeleton-pulse 1.5s ease-in-out infinite;
-}
-
-.skeleton-analysis .skeleton-content {
-  height: 200px;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite;
-  border-radius: 12px;
-  margin-top: 20px;
-}
-
-@keyframes skeleton-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+.ai-loading-tip {
+  text-align: center;
+  color: #aaa;
+  font-size: 14px;
+  margin-top: 16px;
+  font-family: 'Noto Sans SC', sans-serif;
 }
 
 .personalized-content {
@@ -478,9 +794,10 @@ export default {
 }
 
 .recommend-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(205, 133, 63, 0.15);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(205, 133, 63, 0.1);
   border-radius: 24px;
   padding: 28px;
   animation: fadeInUp 0.6s ease-out both;
@@ -553,6 +870,27 @@ export default {
   padding: 32px 16px;
   color: #bbb;
   font-family: 'Noto Sans SC', sans-serif;
+}
+
+.card-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  gap: 12px;
+  color: #bbb;
+  font-size: 13px;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.mini-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(205, 133, 63, 0.15);
+  border-top-color: #cd853f;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
 }
 
 .empty-icon {
@@ -665,7 +1003,8 @@ export default {
 
 .analysis-card {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.05));
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   border: 1px solid rgba(102, 126, 234, 0.2);
   border-radius: 24px;
   padding: 32px;
@@ -714,14 +1053,7 @@ export default {
 }
 
 .analysis-summary {
-  font-size: 15px;
-  color: #555;
-  line-height: 1.8;
-  margin-bottom: 24px;
-  padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 12px;
-  font-family: 'Noto Sans SC', sans-serif;
+  display: none; /* 已由 personal-summary-card 替代 */
 }
 
 .analysis-sections {
@@ -817,6 +1149,487 @@ export default {
   padding: 40px;
   color: #888;
   font-family: 'Noto Sans SC', sans-serif;
+}
+
+/* 增强版加载动画样式 */
+.loading-animation-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 0;
+}
+
+.ai-brain {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.brain-circle {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(102, 126, 234, 0.2);
+  border-radius: 50%;
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.brain-particles {
+  position: absolute;
+  inset: 0;
+  animation: rotate-brain 3s linear infinite;
+}
+
+@keyframes rotate-brain {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.brain-particles .particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform-origin: 0 0;
+}
+
+.brain-particles .particle:nth-child(1) { transform: rotate(0deg) translateX(35px); }
+.brain-particles .particle:nth-child(2) { transform: rotate(45deg) translateX(35px); }
+.brain-particles .particle:nth-child(3) { transform: rotate(90deg) translateX(35px); }
+.brain-particles .particle:nth-child(4) { transform: rotate(135deg) translateX(35px); }
+.brain-particles .particle:nth-child(5) { transform: rotate(180deg) translateX(35px); }
+.brain-particles .particle:nth-child(6) { transform: rotate(225deg) translateX(35px); }
+.brain-particles .particle:nth-child(7) { transform: rotate(270deg) translateX(35px); }
+.brain-particles .particle:nth-child(8) { transform: rotate(315deg) translateX(35px); }
+
+.brain-core {
+  position: absolute;
+  inset: 15px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+}
+
+.core-icon {
+  font-size: 28px;
+  animation: brain-bounce 1s ease-in-out infinite;
+}
+
+@keyframes brain-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.loading-text-container {
+  text-align: center;
+}
+
+.loading-main-text {
+  font-size: 15px;
+  color: #667eea;
+  margin: 0 0 12px;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.typing-indicator {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.typing-indicator span {
+  width: 6px;
+  height: 6px;
+  background: #667eea;
+  border-radius: 50%;
+  animation: typing-bounce 1.4s ease-in-out infinite;
+}
+
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* 用户数据摘要 */
+.user-data-summary {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.05));
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #667eea;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.summary-icon {
+  font-size: 18px;
+}
+
+.summary-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progress-bar {
+  height: 6px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #999;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.progress-steps span {
+  transition: all 0.3s ease;
+}
+
+.progress-steps span.active {
+  color: #667eea;
+  font-weight: 500;
+}
+
+.progress-steps span.done {
+  color: #4caf50;
+}
+
+/* 个性化摘要卡片 */
+.personal-summary-card {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.08), rgba(255, 183, 77, 0.05));
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.personal-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.greeting-icon {
+  font-size: 24px;
+}
+
+.greeting-text {
+  font-size: 14px;
+  color: #8b4513;
+  font-weight: 600;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.personal-summary-text {
+  font-size: 15px;
+  color: #555;
+  line-height: 1.8;
+  margin: 0;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+/* 数据概览 */
+.data-overview {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+  animation: fadeInUp 0.5s ease-out 0.1s both;
+}
+
+.overview-item {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.overview-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(139, 69, 19, 0.1);
+}
+
+.overview-icon {
+  display: block;
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.overview-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #8b4513;
+  font-family: 'Noto Serif SC', serif;
+  margin-bottom: 4px;
+}
+
+.overview-label {
+  display: block;
+  font-size: 11px;
+  color: #999;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+/* 分析模块增强 */
+.analysis-sections {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.analysis-section {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+  padding: 20px;
+  transition: all 0.3s ease;
+  animation: fadeInUp 0.5s ease-out both;
+}
+
+.analysis-section:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(139, 69, 19, 0.1);
+}
+
+.analysis-section.strength { animation-delay: 0.1s; }
+.analysis-section.weakness { animation-delay: 0.2s; }
+.analysis-section.suggestion { animation-delay: 0.3s; }
+
+.section-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.section-badge.success {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+
+.section-badge.warning {
+  background: rgba(255, 152, 0, 0.15);
+  color: #ff9800;
+}
+
+.section-badge.primary {
+  background: rgba(102, 126, 234, 0.15);
+  color: #667eea;
+}
+
+.section-list li {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 10px;
+  padding-left: 16px;
+  position: relative;
+  font-family: 'Noto Sans SC', sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.section-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #cd853f;
+}
+
+.strength-highlight {
+  font-weight: 600;
+  color: #4caf50;
+}
+
+.strength-detail {
+  color: #888;
+  font-size: 12px;
+}
+
+.weakness-point {
+  font-weight: 600;
+  color: #ff9800;
+}
+
+.weakness-detail {
+  color: #888;
+  font-size: 12px;
+}
+
+.suggestion-action {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.suggestion-reason {
+  color: #888;
+  font-size: 12px;
+}
+
+/* 学习小贴士 */
+.learning-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 183, 77, 0.05));
+  border: 1px dashed rgba(255, 215, 0, 0.3);
+  border-radius: 12px;
+  padding: 14px 18px;
+  animation: fadeInUp 0.5s ease-out 0.4s both;
+}
+
+.tip-icon {
+  font-size: 20px;
+}
+
+.tip-text {
+  font-size: 13px;
+  color: #8b4513;
+  line-height: 1.5;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+/* 无数据提示 */
+.no-data-tip {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.no-data-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.no-data-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #8b4513;
+  margin: 0 0 8px;
+  font-family: 'Noto Serif SC', serif;
+}
+
+.no-data-desc {
+  font-size: 13px;
+  color: #888;
+  margin: 0;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+/* 刷新按钮 */
+.analysis-refresh {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 50%;
+  color: #667eea;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.analysis-refresh:hover {
+  background: rgba(102, 126, 234, 0.2);
+  transform: rotate(180deg);
+}
+
+/* 加载数据预览 */
+.loading-data-preview {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 20px 0;
+}
+
+.data-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #666;
+  font-family: 'Noto Sans SC', sans-serif;
+  animation: slideIn 0.5s ease-out both;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.data-preview-item .preview-icon {
+  font-size: 16px;
+}
+
+.data-preview-item .preview-label {
+  color: #999;
+}
+
+.data-preview-item .preview-value {
+  font-weight: 600;
+  color: #8b4513;
 }
 
 @media (max-width: 900px) {

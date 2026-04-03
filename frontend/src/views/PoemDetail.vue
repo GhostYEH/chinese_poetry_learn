@@ -16,7 +16,7 @@
       </button>
       <button class="popup-btn picture" @click="handleScenePicture" :disabled="sceneImageLoading">
         <span v-if="sceneImageLoading" class="popup-spinner"></span>
-        {{ sceneImageLoading ? '生成中...' : '描绘画面' }}
+        {{ sceneImageLoading ? '意境渐生...' : '描绘画面' }}
       </button>
       <div class="selection-popup-placement" @mousedown.stop>
         <span class="placement-label">位置</span>
@@ -41,20 +41,26 @@
       </div>
     </div>
 
-    <!-- 意境图弹窗 -->
-    <div v-if="sceneImageResult.show" class="scene-image-overlay" @click.self="closeSceneImage">
-      <div class="scene-image-modal">
-        <button class="close-scene-btn" @click="closeSceneImage">×</button>
-        <h3 class="scene-image-title">{{ sceneImageTitle }}</h3>
-        <img v-if="sceneImageResult.url" :src="sceneImageResult.url" class="scene-image" alt="诗句意境图" />
-        <p v-else class="scene-image-error">{{ sceneImageResult.message }}</p>
+    <!-- 诗句意境图（渐变应用为背景，无弹窗） -->
+
+    <!-- 意境图提示 toast -->
+    <transition name="toast-fade">
+      <div v-if="sceneImageToast.show" class="scene-toast" :class="'scene-toast-' + sceneImageToast.type">
+        <span v-if="sceneImageToast.type === 'success'" class="toast-icon">&#10003;</span>
+        <span v-else-if="sceneImageToast.type === 'error'" class="toast-icon">&#10007;</span>
+        <span v-else class="toast-icon">&#9432;</span>
+        {{ sceneImageToast.message }}
       </div>
-    </div>
+    </transition>
 
     <button class="back-btn" @click="goBack">← 返回</button>
     
+    <div v-if="loading" class="loading">加载中...</div>
+    <div v-else-if="error" class="error">{{ error }}</div>
+    <div v-else-if="!poem" class="empty">诗词不存在</div>
+    
     <!-- 初始状态：只显示开始学习按钮 -->
-    <div v-if="!loading && poem && !isImmersiveMode" class="initial-state">
+    <div v-else-if="!isImmersiveMode" class="initial-state">
       <button class="start-learning-btn" @click="enterImmersiveMode">
         开始学习
       </button>
@@ -91,10 +97,7 @@
       </button>
     </div>
     
-    <div v-if="loading" class="loading">加载中...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="!poem" class="empty">诗词不存在</div>
-    <div v-else-if="isImmersiveMode" class="poem-layout" :class="{ 'immersive-content': isImmersiveMode, 'content-entering': contentEntering }">
+    <div v-if="isImmersiveMode" class="poem-layout" :class="{ 'content-entering': contentEntering }">
       <!-- 左侧栏 -->
       <div class="left-column">
         <!-- 诗词基本信息 -->
@@ -175,7 +178,11 @@
                     placeholder="请输入诗句"
                     class="recitation-input"
                   >
-                  <div v-if="showResult[hiddenLineIndices.indexOf(index)]" :class="isCorrect[hiddenLineIndices.indexOf(index)] ? 'correct' : 'incorrect'" class="recitation-result">
+                  <div
+                    v-if="showResult[hiddenLineIndices.indexOf(index)]"
+                    class="recitation-result"
+                    :class="isCorrect[hiddenLineIndices.indexOf(index)] ? 'correct' : 'incorrect'"
+                  >
                     {{ isCorrect[hiddenLineIndices.indexOf(index)] ? '✓ 正确' : '✗ 错误，正确答案：' + sentence }}
                   </div>
                 </div>
@@ -273,11 +280,107 @@
                   </div>
                 </div>
               </div>
+
+              <!-- 一键添加进错题本按钮 -->
+              <div v-if="reciteResult.score !== 100" class="add-to-wrongbook-row">
+                <button
+                  class="btn add-wrongbook-btn"
+                  @click="addReciteToWrongBook"
+                  :disabled="addingToWrongBook"
+                >
+                  <span v-if="addingToWrongBook" class="loading-spinner small-spinner"></span>
+                  {{ addingToWrongBook ? '添加中...' : '📝 一键添加进错题本' }}
+                </button>
+                <span v-if="wrongBookAdded" class="wrongbook-added-tip">已添加 ✓</span>
+              </div>
             </div>
           </div>
         </div>
+
+        <!-- 诗词创作背景卡片 -->
+        <div class="poem-background-card">
+          <h2 class="section-title">📜 诗词创作背景</h2>
+          <div v-if="poemBackgroundLoading" class="card-loading">
+            <div class="mini-spinner"></div>
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="poemBackground" class="poem-background-content">
+            <div class="background-item">
+              <div class="item-icon">🏛️</div>
+              <div class="item-text">{{ poemBackground }}</div>
+            </div>
+            <div v-if="poemBackgroundTips" class="background-tips">
+              <div class="tips-label">💡 学习提示</div>
+              <p>{{ poemBackgroundTips }}</p>
+            </div>
+          </div>
+          <button
+            v-else
+            class="ai-btn blue"
+            @click="fetchPoemBackground"
+            :disabled="poemBackgroundLoading"
+          >
+            <span v-if="poemBackgroundLoading" class="loading-spinner"></span>
+            {{ poemBackgroundLoading ? '生成中...' : '📖 了解创作背景' }}
+          </button>
+        </div>
+
+        <!-- 诗词趣味故事卡片 -->
+        <div class="poem-story-card">
+          <h2 class="section-title">🎭 诗词趣味故事</h2>
+          <div v-if="poemStoryLoading" class="card-loading">
+            <div class="mini-spinner"></div>
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="poemStory" class="poem-story-content">
+            <div class="story-text">{{ poemStory }}</div>
+          </div>
+          <button
+            v-else
+            class="ai-btn purple"
+            @click="fetchPoemStory"
+            :disabled="poemStoryLoading"
+          >
+            <span v-if="poemStoryLoading" class="loading-spinner"></span>
+            {{ poemStoryLoading ? '讲述中...' : '🎧 听诗人的故事' }}
+          </button>
+        </div>
+
+        <!-- 诵读技巧指南卡片 -->
+        <div class="recitation-guide-card">
+          <h2 class="section-title">🎤 诵读技巧指南</h2>
+          <div v-if="recitationGuideLoading" class="card-loading">
+            <div class="mini-spinner"></div>
+            <span>加载中...</span>
+          </div>
+          <div v-else-if="recitationGuide" class="recitation-guide-content">
+            <div v-if="recitationGuide.rhythm" class="guide-section">
+              <div class="guide-title">🎵 节奏韵律</div>
+              <p>{{ recitationGuide.rhythm }}</p>
+            </div>
+            <div v-if="recitationGuide.emotion" class="guide-section">
+              <div class="guide-title">💭 情感把控</div>
+              <p>{{ recitationGuide.emotion }}</p>
+            </div>
+            <div v-if="recitationGuide.tips" class="guide-section">
+              <div class="guide-title">🌟 诵读妙招</div>
+              <ul class="guide-tips-list">
+                <li v-for="(tip, i) in Array.isArray(recitationGuide.tips) ? recitationGuide.tips : recitationGuide.tips.split('\n').filter(t => t.trim())" :key="i">{{ tip }}</li>
+              </ul>
+            </div>
+          </div>
+          <button
+            v-else
+            class="ai-btn orange"
+            @click="fetchRecitationGuide"
+            :disabled="recitationGuideLoading"
+          >
+            <span v-if="recitationGuideLoading" class="loading-spinner"></span>
+            {{ recitationGuideLoading ? '生成中...' : '🎤 获取诵读技巧' }}
+          </button>
+        </div>
       </div>
-      
+
       <!-- 右侧栏 -->
       <div class="right-column">
         <!-- AI助教聊天窗口 -->
@@ -427,18 +530,16 @@
 
 /* 初始状态样式 */
 .initial-state {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  position: relative;
+  min-height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  z-index: 999;
+  z-index: 1;
   animation: page-fade-in 0.5s ease-out both;
+  overflow: hidden;
+  padding: 20px;
 }
 
 @keyframes page-fade-in {
@@ -454,23 +555,25 @@
 
 .start-learning-btn {
   padding: 20px 40px;
-  background-color: #4CAF50;
+  background: linear-gradient(135deg, #8b4513, #cd853f);
   color: white;
   border: none;
   border-radius: 50px;
   font-size: 18px;
   font-weight: bold;
   cursor: pointer;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgba(139, 69, 19, 0.3);
   z-index: 1000;
   transition: all 0.3s ease;
   margin-bottom: 20px;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  letter-spacing: 2px;
 }
 
 .start-learning-btn:hover {
-  background-color: #45a049;
+  background: linear-gradient(135deg, #cd853f, #8b4513);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 20px rgba(139, 69, 19, 0.4);
 }
 
 .loading-indicator {
@@ -606,27 +709,7 @@
   transform: translateY(-2px);
 }
 
-.immersive-content {
-  position: relative;
-  z-index: 10;
-  background: var(--glass-background);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  margin: 20px;
-  padding: 20px;
-  box-shadow: var(--glass-shadow);
-  transition: var(--transition);
-}
 
-.immersive-content:hover {
-  transform: translateY(-4px);
-  backdrop-filter: blur(calc(var(--glass-blur) + 4px));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px));
-  box-shadow: 0 12px 24px rgba(31, 38, 135, 0.15);
-  border-color: rgba(255, 255, 255, 0.4);
-}
 
 /* 响应式设计 */
 @media (max-width: 768px) {
@@ -636,16 +719,13 @@
     padding: 12px 24px;
     font-size: 14px;
   }
-  
-  .immersive-content {
-    margin: 10px;
-    padding: 15px;
-  }
 }
 </style>
 
 <script>
 import io from 'socket.io-client'
+
+const API_BASE_URL = 'http://localhost:3000'
 
 export default {
   name: 'PoemDetail',
@@ -695,6 +775,21 @@ export default {
       reciteLoading: false,
       reciteResult: null,
       reciteError: '',
+      addingToWrongBook: false,
+      wrongBookAdded: false,
+      // 诗词创作背景
+      poemBackground: null,
+      poemBackgroundTips: null,
+      poemBackgroundLoading: false,
+      poemBackgroundError: '',
+      // 诗词趣味故事
+      poemStory: null,
+      poemStoryLoading: false,
+      poemStoryError: '',
+      // 诵读技巧指南
+      recitationGuide: null,
+      recitationGuideLoading: false,
+      recitationGuideError: '',
       // AI助教聊天相关
       showTutorChat: false,
       tutorMessages: [],
@@ -753,18 +848,18 @@ export default {
       // 字符信息弹窗位置
       charInfoStyle: {
         position: 'fixed',
-        top: '0px',
         left: '0px',
+        top: '0px',
         transform: 'translate(-50%, -100%)'
       },
       charInfoBelow: false,  // 注释框是否显示在字符下方
       charElementRef: null,
       // 意境图
       sceneImageLoading: false,
-      sceneImageResult: {
+      sceneImageToast: {
         show: false,
-        url: null,
-        message: ''
+        message: '',
+        type: 'info' // info | success | error
       }
     }
   },
@@ -957,7 +1052,7 @@ export default {
       console.log('开始预生成背景图')
       this.imageStatus = 'pending'
       
-      fetch('/api/ai/image/pregenerate', {
+      fetch(`${API_BASE_URL}/api/ai/image/pregenerate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1030,6 +1125,8 @@ export default {
         
         // 重置所有状态
         this.poem = null
+        // 重置沉浸式学习模式
+        this.isImmersiveMode = false
         // 重置AI讲解相关状态
         this.aiExplanations = {
           daily_life_explanation: null,
@@ -1156,7 +1253,7 @@ export default {
         
         try {
           // 使用批量API端点，只发送一个请求
-          const response = await fetch('/api/ai/explainPoem/batch', requestConfig)
+          const response = await fetch(`${API_BASE_URL}/api/ai/explainPoem/batch`, requestConfig)
           
           // 清除超时
           clearTimeout(timeoutId);
@@ -1223,7 +1320,7 @@ export default {
         this.reciteLoading = true
         this.reciteError = ''
         
-        const response = await fetch('/api/ai/recite-check', {
+        const response = await fetch(`${API_BASE_URL}/api/ai/recite-check`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1293,7 +1390,7 @@ export default {
         }).join('，')
         
         // 调用AI背诵检测API
-        const response = await fetch('/api/ai/recite-check', {
+        const response = await fetch(`${API_BASE_URL}/api/ai/recite-check`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1345,6 +1442,9 @@ export default {
     // 重置背诵相关数据
     resetRecitationData() {
       this.refreshRecitation()
+      this.reciteResult = null
+      this.reciteInput = ''
+      this.wrongBookAdded = false
     },
     
     // 按标点符号分割句子
@@ -1485,7 +1585,158 @@ export default {
         this.isCollected = false
       }
     },
-    
+
+    // 获取诗词创作背景
+    async fetchPoemBackground() {
+      if (!this.poem || this.poemBackgroundLoading) return
+      this.poemBackgroundLoading = true
+      this.poemBackgroundError = ''
+
+      try {
+        const token = localStorage.getItem('token')
+        const response = await fetch(`${API_BASE_URL}/api/ai/poem/background`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            title: this.poem.title,
+            author: this.poem.author,
+            dynasty: this.poem.dynasty,
+            content: this.poem.content
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          this.poemBackground = data.background || ''
+          this.poemBackgroundTips = data.tips || ''
+        } else {
+          // 后端不支持时，使用内置数据
+          this.poemBackground = this.getBuiltinBackground(this.poem.title, this.poem.author, this.poem.dynasty)
+          this.poemBackgroundTips = '了解创作背景有助于理解诗词的情感和意境，更好地背诵和鉴赏。'
+        }
+      } catch (error) {
+        console.error('获取诗词背景失败:', error)
+        this.poemBackground = this.getBuiltinBackground(this.poem.title, this.poem.author, this.poem.dynasty)
+        this.poemBackgroundTips = '了解创作背景有助于理解诗词的情感和意境，更好地背诵和鉴赏。'
+      } finally {
+        this.poemBackgroundLoading = false
+      }
+    },
+
+    // 获取内置诗词背景数据
+    getBuiltinBackground(title, author, dynasty) {
+      const backgrounds = {
+        '静夜思': `《静夜思》是唐代诗人李白的名作，写于唐玄宗开元十四年（726年）。当时李白26岁，离开家乡四川赴扬州游历，在一个秋夜月明之时，诗人抬头望月，思念远方的故乡，写下了这首千古传诵的五言绝句。`,
+        '春晓': `《春晓》是唐代诗人孟浩然的名作。这首诗描写了春天清晨的景象，诗人通过"春眠不觉晓，处处闻啼鸟"的亲身感受，表达了对春光易逝的珍惜之情。全诗语言平易浅近，情景交融。`,
+        '登鹳雀楼': `《登鹳雀楼》由唐代诗人王之涣创作，写诗人登上鹳雀楼远眺的所见所感。此楼位于山西永济，因常有鹳雀栖息而得名。诗中既写了壮阔的山河景色，又表达了"欲穷千里目，更上一层楼"的哲理。`,
+        '悯农': `《悯农》是唐代诗人李绅的作品，共两首，此为其二。诗中描写了农民在烈日下锄禾的艰辛，表达了诗人对劳动人民的深切同情，警示人们珍惜粮食，具有深刻的社会意义。`,
+        '咏鹅': `《咏鹅》是唐代诗人骆宾王七岁时所作。相传诗人童年在义乌县城南一个小池塘边玩耍，看到白鹅在水中悠闲游弋，即景写下了这首咏物诗，成为中国诗歌史上最著名的儿童诗作之一。`
+      }
+      return backgrounds[title] || `《${title}》是${dynasty || '唐'}代诗人${author || '佚名'}的作品。这首诗以其独特的艺术魅力流传至今，表达了诗人对自然、生命或社会的深刻感悟。了解这首诗的创作背景，有助于我们更好地理解诗人的情感世界和诗歌的深层含义。`
+    },
+
+    // 获取诗词趣味故事
+    async fetchPoemStory() {
+      if (!this.poem || this.poemStoryLoading) return
+      this.poemStoryLoading = true
+      this.poemStoryError = ''
+
+      try {
+        const token = localStorage.getItem('token')
+        const response = await fetch(`${API_BASE_URL}/api/ai/poem/story`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            title: this.poem.title,
+            author: this.poem.author,
+            content: this.poem.content
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          this.poemStory = data.story || ''
+        } else {
+          this.poemStory = this.getBuiltinStory(this.poem.title, this.poem.author)
+        }
+      } catch (error) {
+        console.error('获取诗词故事失败:', error)
+        this.poemStory = this.getBuiltinStory(this.poem.title, this.poem.author)
+      } finally {
+        this.poemStoryLoading = false
+      }
+    },
+
+    // 获取内置诗词故事数据
+    getBuiltinStory(title, author) {
+      const stories = {
+        '静夜思': `相传李白年轻时离开家乡漫游四方，一年秋天，他在扬州一家客栈中辗转难眠。推开窗户，一轮明月当空，洒下如霜的清辉。诗人想起远在千里之外的父母妻儿，思念之情涌上心头，于是挥笔写下了这首流传千古的《静夜思》。有趣的是，诗句中的"举头望明月"据记载最初写的是"举头望山月"，后人才改成了我们现在熟悉的版本。`,
+        '春晓': `孟浩然是唐代著名的山水田园诗人，但他一生布衣，未曾入仕。一年春天，诗人隐居在鹿门山，一日清晨从睡梦中醒来，听到窗外鸟鸣声声，春雨过后的清晨格外清新。诗人惋惜昨夜的风雨不知打落了多少花瓣，于是写下了这首充满惜春之情的小诗。整首诗没有一个"喜"字，却处处透着对春光的爱惜。`,
+        '登鹳雀楼': `王之涣是唐代著名的边塞诗人，但这首《登鹳雀楼》却是一首登临楼阁的即景抒怀之作。传说鹳雀楼建成后吸引了许多文人墨客前来题诗，王之涣与友人打赌说："我写的诗将来一定最受欢迎。"说罢挥笔写下此诗，果然成为千古绝唱。诗的后两句"欲穷千里目，更上一层楼"更是成为激励人们不断进取的千古名言。`
+      }
+      return stories[title] || `关于《${title}》的创作，背后还有一个鲜为人知的故事。据传${author || '诗人'}在创作此诗时，正值人生的一个重要转折点。诗人将对自然景物的细致观察与内心深处的情感完美融合，创作出了这首意境深远、情感真挚的作品。细细品读，我们仿佛能看到诗人当时创作时的神情，感受到那颗对生活充满热爱的心。`
+    },
+
+    // 获取诵读技巧指南
+    async fetchRecitationGuide() {
+      if (!this.poem || this.recitationGuideLoading) return
+      this.recitationGuideLoading = true
+      this.recitationGuideError = ''
+
+      try {
+        const token = localStorage.getItem('token')
+        const response = await fetch(`${API_BASE_URL}/api/ai/poem/recitation-guide`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            title: this.poem.title,
+            author: this.poem.author,
+            content: this.poem.content,
+            dynasty: this.poem.dynasty
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          this.recitationGuide = data.guide || {}
+        } else {
+          this.recitationGuide = this.getBuiltinRecitationGuide(this.poem.title, this.poem.content)
+        }
+      } catch (error) {
+        console.error('获取诵读技巧失败:', error)
+        this.recitationGuide = this.getBuiltinRecitationGuide(this.poem.title, this.poem.content)
+      } finally {
+        this.recitationGuideLoading = false
+      }
+    },
+
+    // 获取内置诵读技巧数据
+    getBuiltinRecitationGuide(title, content) {
+      const lines = (content || '').split('\n').filter(l => l.trim())
+      const isFive = lines[0] && lines[0].length <= 7
+      const poemType = isFive ? '五言' : '七言'
+
+      return {
+        rhythm: `这首${poemType}${poemType === '五言' ? '绝句' : '律诗'}的节奏一般为${isFive ? '221' : '2221'}式。例如第一句朗读时要注意在第二个字后稍作停顿，形成"${lines[0] ? lines[0].slice(0, 2) + '，' + lines[0].slice(2) : ''}"的节奏感。`,
+        emotion: `朗诵时要注意"起承转合"的情感变化：起句要平缓引入，承句要自然承接，转句要情感递进，合句要收束有力。读的过程中要注意轻重缓急，不要一味平铺直叙。`,
+        tips: [
+          '先理解诗意，再带着情感朗读，效果会更好',
+          '注意诗句的押韵字，朗读时适当延长韵脚的读音',
+          '可以配合手势和表情，增强朗诵的感染力',
+          '反复练习，注意每句最后一个字的声调变化'
+        ]
+      }
+    },
+
     // 记录学习时长
     recordStudyTime(studyTime) {
       if (!this.poem) {
@@ -1498,7 +1749,7 @@ export default {
       if (token) {
         console.log('已登录，发送学习时长到后端:', studyTime, '分钟')
         // 已登录，发送学习时长到后端
-        fetch('/api/learning/record', {
+        fetch(`${API_BASE_URL}/api/learning/record`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1547,7 +1798,7 @@ export default {
         console.log('已登录，发送学习行为到后端')
         // 已登录，发送学习行为到后端
         try {
-          const response = await fetch('/api/learn/record', {
+          const response = await fetch(`${API_BASE_URL}/api/learn/record`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1607,6 +1858,82 @@ export default {
       if (score >= 70) return '👍 做得不错！';
       if (score >= 50) return '💪 继续努力！';
       return '📚 加油！';
+    },
+    // 一键添加背诵错误到错题本
+    async addReciteToWrongBook() {
+      if (!this.reciteResult || this.reciteResult.score >= 100) return;
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        this.$router.push('/login');
+        return;
+      }
+
+      this.addingToWrongBook = true;
+
+      try {
+        // 构建错题描述（整合错字、漏字、多字）
+        const wrongParts = [];
+        if (this.reciteResult.wrongChars && this.reciteResult.wrongChars.length > 0) {
+          wrongParts.push(`错字：${this.reciteResult.wrongChars.map(e => `"${e.input}"→"${e.original}"`).join('、')}`);
+        }
+        if (this.reciteResult.missing && this.reciteResult.missing.length > 0) {
+          wrongParts.push(`漏字：${this.reciteResult.missing.map(e => `"${e.char}"`).join('、')}`);
+        }
+        if (this.reciteResult.extra && this.reciteResult.extra.length > 0) {
+          wrongParts.push(`多字：${this.reciteResult.extra.map(e => `"${e.char}"`).join('、')}`);
+        }
+        const wrongDesc = wrongParts.join('；');
+
+        const response = await fetch(`${API_BASE_URL}/api/wrong-questions/add`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            question: `【背诵检测】${this.poem.title}（${this.poem.author}）`,
+            answer: this.poem.content,
+            user_answer: this.reciteInput,
+            full_poem: this.poem.content,
+            author: this.poem.author,
+            title: this.poem.title,
+            poem_id: this.poem.id,
+            extra_data: {
+              score: this.reciteResult.score,
+              wrongDesc: wrongDesc,
+              aiAdvice: this.reciteResult.aiAdvice,
+              reciteInput: this.reciteInput
+            }
+          })
+        });
+
+        if (response.ok) {
+          this.wrongBookAdded = true;
+          this.sceneImageToast = {
+            show: true,
+            message: '已加入错题本，记得复习哦！',
+            type: 'success'
+          };
+          setTimeout(() => {
+            this.sceneImageToast.show = false;
+          }, 3000);
+        } else {
+          throw new Error('添加失败');
+        }
+      } catch (error) {
+        console.error('添加错题失败:', error);
+        this.sceneImageToast = {
+          show: true,
+          message: '添加失败，请稍后重试',
+          type: 'error'
+        };
+        setTimeout(() => {
+          this.sceneImageToast.show = false;
+        }, 3000);
+      } finally {
+        this.addingToWrongBook = false;
+      }
     },
     // 切换朗读状态
     toggleRead() {
@@ -1707,7 +2034,7 @@ export default {
         }));
         
         // 发送请求
-        const response = await fetch('/api/ai/tutor', {
+        const response = await fetch(`${API_BASE_URL}/api/ai/tutor`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -1816,7 +2143,7 @@ export default {
       try {
         // 这里可以根据诗人或风格获取相似诗词，实际项目中可以从API获取
         // 这里使用模拟数据
-        const response = await fetch('/api/poems');
+        const response = await fetch(`${API_BASE_URL}/api/poems`);
         const allPoems = await response.json();
         
         // 基于风格相似性获取诗词
@@ -1901,7 +2228,7 @@ export default {
         
         // 使用批量接口预加载所有字符信息
         try {
-          const response = await fetch('/api/ai/char-info/batch', {
+          const response = await fetch(`${API_BASE_URL}/api/ai/char-info/batch`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -1970,24 +2297,24 @@ export default {
       this.selectedCharIndex = charIndex;
       this.selectedLineIndex = lineIndex;
 
-      // 获取点击元素的位置信息
+      // 直接使用鼠标点击位置定位注释框
       this.$nextTick(() => {
         const charSpan = event?.target?.closest('.poem-char');
         if (charSpan) {
-          const rect = charSpan.getBoundingClientRect();
-          // 计算注释框位置（在字符上方，水平居中）
-          let top = rect.top + window.scrollY;
-          let left = rect.left + window.scrollX + rect.width / 2;
+          // 直接使用鼠标点击的坐标
+          const clickX = event.clientX;
+          const clickY = event.clientY;
+
+          // 注释框尺寸
+          const popupWidth = 180;
+          const popupHeight = 130;
 
           // 获取视口尺寸
           const viewportWidth = window.innerWidth;
           const viewportHeight = window.innerHeight;
 
-          // 预估注释框尺寸（160px宽度，120px高度）
-          const popupWidth = 180;
-          const popupHeight = 130;
-
-          // 水平边界检测（左右偏移）
+          // 水平边界检测
+          let left = clickX;
           if (left - popupWidth / 2 < 10) {
             left = popupWidth / 2 + 10;
           }
@@ -1997,26 +2324,22 @@ export default {
 
           // 垂直边界检测（上方空间不足时显示在下方）
           let below = false;
-          if (rect.top < popupHeight + 20) {
+          let top = clickY;
+          if (clickY < popupHeight + 20) {
             // 空间不足，显示在下方
-            top = rect.bottom + window.scrollY + 10;
+            top = clickY + 10;
             below = true;
-            this.charInfoStyle = {
-              position: 'fixed',
-              top: `${top}px`,
-              left: `${left}px`,
-              transform: 'translate(-50%, 0)'
-            };
           } else {
             // 正常显示在上方
-            top = rect.top + window.scrollY - 10;
-            this.charInfoStyle = {
-              position: 'fixed',
-              top: `${top}px`,
-              left: `${left}px`,
-              transform: 'translate(-50%, -100%)'
-            };
+            top = clickY - 10;
           }
+
+          this.charInfoStyle = {
+            position: 'fixed',
+            top: `${top}px`,
+            left: `${left}px`,
+            transform: below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
+          };
           this.charInfoBelow = below;
         }
       });
@@ -2112,7 +2435,7 @@ export default {
         
         // 调用 API 获取字符信息
         try {
-          const response = await fetch('/api/ai/char-info', {
+          const response = await fetch(`${API_BASE_URL}/api/ai/char-info`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -2343,17 +2666,17 @@ export default {
       this.sendTutorMessageWithText(question);
     },
 
-    // 描绘选中诗句的画面
+    // 描绘选中诗句的画面（直接应用为背景，渐变切换）
     async handleScenePicture() {
       if (!this.selectionPopup.selectedText || this.sceneImageLoading) return;
       const text = this.selectionPopup.selectedText;
-      // 不关闭划词工具栏；保留选区高亮，避免误触清空后工具栏消失
 
+      this.selectionPopup.show = false;
+      window.getSelection().removeAllRanges();
       this.sceneImageLoading = true;
-      this.sceneImageResult = { show: false, url: null, message: '' };
 
       try {
-        const response = await fetch('/api/ai/scene-image', {
+        const response = await fetch(`${API_BASE_URL}/api/ai/scene-image`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2368,23 +2691,27 @@ export default {
         const data = await response.json();
 
         if (data.success && data.url) {
-          this.sceneImageResult = { show: true, url: data.url, message: '' };
+          // 先隐藏旧图，再设置新图（由 @load 触发 fade-in 渐变效果）
+          this.bgImageFadingIn = false;
+          this.backgroundImage = data.url;
+          this.sceneImageToast = { show: true, message: '意境渐染，画面已更新', type: 'success' };
         } else {
-          this.sceneImageResult = { show: true, url: null, message: data.message || '意境图生成失败' };
+          this.sceneImageToast = {
+            show: true,
+            message: data.message || '意境图生成失败，请稍后重试',
+            type: 'error'
+          };
         }
       } catch (error) {
         console.error('意境图生成失败:', error);
-        this.sceneImageResult = { show: true, url: null, message: '意境图生成失败，请稍后重试' };
+        this.sceneImageToast = { show: true, message: '意境图生成失败，请稍后重试', type: 'error' };
       } finally {
         this.sceneImageLoading = false;
+        // 3秒后自动隐藏toast
+        setTimeout(() => {
+          this.sceneImageToast.show = false;
+        }, 3000);
       }
-    },
-
-    // 关闭意境图弹窗
-    closeSceneImage() {
-      this.sceneImageResult.show = false;
-      this.sceneImageResult.url = null;
-      this.sceneImageResult.message = '';
     },
 
     // 发送带有文本的助教消息
@@ -2409,7 +2736,7 @@ export default {
           content: msg.content
         }));
 
-        const response = await fetch('/api/ai/tutor', {
+        const response = await fetch(`${API_BASE_URL}/api/ai/tutor`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2527,15 +2854,32 @@ export default {
   .poem-detail {
     padding: 15px;
   }
-  
+
   .poem-layout {
     gap: 20px;
     padding: 15px;
   }
-  
+
   .left-column,
   .right-column {
     gap: 20px;
+  }
+
+  .poem-background-card,
+  .poem-story-card,
+  .recitation-guide-card {
+    padding: 18px;
+  }
+
+  .poem-background-card .section-title,
+  .poem-story-card .section-title,
+  .recitation-guide-card .section-title {
+    font-size: 18px;
+  }
+
+  .ai-btn {
+    padding: 8px 16px;
+    font-size: 13px;
   }
 }
 
@@ -2799,6 +3143,7 @@ export default {
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 8px));
   color: #333;
   padding: 12px;
+  padding-top: 16px;
   border-radius: 12px;
   min-width: 160px;
   text-align: left;
@@ -2811,23 +3156,23 @@ export default {
 .char-info::after {
   content: '';
   position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
   width: 0;
   height: 0;
-  /* 上方显示时的箭头 */
+  /* 上方显示时：箭头在底部中间，指向鼠标点击位置 */
   bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
   border-left: 10px solid transparent;
   border-right: 10px solid transparent;
-  border-top: 10px solid rgba(255, 255, 255, 0.9);
+  border-top: 10px solid rgba(255, 255, 255, 0.95);
 }
 
 /* 下方显示时使用向上的箭头 */
 .char-info.below::after {
-  bottom: auto;
   top: -10px;
+  bottom: auto;
   border-top: none;
-  border-bottom: 10px solid rgba(255, 255, 255, 0.9);
+  border-bottom: 10px solid rgba(255, 255, 255, 0.95);
 }
 
 .char-phonetic {
@@ -3680,6 +4025,294 @@ input:checked + .slider:before {
   border-color: rgba(255, 255, 255, 0.5);
 }
 
+/* ===== 新增卡片通用样式 ===== */
+.poem-background-card,
+.poem-story-card,
+.recitation-guide-card {
+  background: var(--glass-background);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  box-shadow: var(--glass-shadow);
+  position: relative;
+  overflow: hidden;
+  transition: var(--transition);
+}
+
+.poem-background-card:hover,
+.poem-story-card:hover,
+.recitation-guide-card:hover {
+  transform: translateY(-4px);
+  backdrop-filter: blur(calc(var(--glass-blur) + 4px));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px));
+  box-shadow: 0 12px 24px rgba(31, 38, 135, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.poem-background-card::before,
+.poem-story-card::before,
+.recitation-guide-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.poem-background-card::before {
+  background: linear-gradient(90deg, #4a90e2, #50e3c2);
+}
+
+.poem-story-card::before {
+  background: linear-gradient(90deg, #9b59b6, #e91e63);
+}
+
+.recitation-guide-card::before {
+  background: linear-gradient(90deg, #f5a623, #f8e71c);
+}
+
+.poem-background-card:hover::before,
+.poem-story-card:hover::before,
+.recitation-guide-card:hover::before {
+  transform: scaleX(1);
+}
+
+/* 卡片加载状态 */
+.card-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  color: #666;
+  font-size: 14px;
+}
+
+.mini-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(100, 149, 237, 0.15);
+  border-top-color: #6495ed;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* ===== 创作背景卡片 ===== */
+.poem-background-content {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.background-item {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.item-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.item-text {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.8;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+.background-tips {
+  background: rgba(74, 144, 226, 0.08);
+  border: 1px solid rgba(74, 144, 226, 0.2);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.tips-label {
+  font-size: 13px;
+  font-weight: bold;
+  color: #4a90e2;
+  margin-bottom: 6px;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+.background-tips p {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.7;
+  margin: 0;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+/* ===== 趣味故事卡片 ===== */
+.poem-story-content {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.story-text {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.9;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  text-indent: 2em;
+}
+
+/* ===== 诵读指南卡片 ===== */
+.recitation-guide-content {
+  animation: fadeInUp 0.4s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.guide-section {
+  background: rgba(245, 166, 35, 0.05);
+  border: 1px solid rgba(245, 166, 35, 0.15);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.guide-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #d4881a;
+  margin-bottom: 6px;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+.guide-section p {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.7;
+  margin: 0;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+.guide-tips-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guide-tips-list li {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+  padding-left: 16px;
+  position: relative;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+.guide-tips-list li::before {
+  content: '·';
+  position: absolute;
+  left: 4px;
+  color: #f5a623;
+  font-weight: bold;
+}
+
+/* ===== AI按钮 ===== */
+.ai-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+}
+
+.ai-btn.blue {
+  background: linear-gradient(135deg, #4a90e2, #50e3c2);
+  color: white;
+  box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+}
+
+.ai-btn.blue:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3a7fcf, #40c9a8);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(74, 144, 226, 0.4);
+}
+
+.ai-btn.purple {
+  background: linear-gradient(135deg, #9b59b6, #e91e63);
+  color: white;
+  box-shadow: 0 4px 12px rgba(155, 89, 182, 0.3);
+}
+
+.ai-btn.purple:hover:not(:disabled) {
+  background: linear-gradient(135deg, #8244a8, #d01555);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(155, 89, 182, 0.4);
+}
+
+.ai-btn.orange {
+  background: linear-gradient(135deg, #f5a623, #f8e71c);
+  color: #7a5200;
+  box-shadow: 0 4px 12px rgba(245, 166, 35, 0.3);
+}
+
+.ai-btn.orange:hover:not(:disabled) {
+  background: linear-gradient(135deg, #e09515, #f0db10);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(245, 166, 35, 0.4);
+}
+
+.ai-btn.green {
+  background: linear-gradient(135deg, #4CAF50, #81C784);
+  color: white;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+.ai-btn.green:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3d8b40, #66bb6a);
+  transform: translateY(-2px);
+}
+
+.ai-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.ai-btn .loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* ===== 动画 ===== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .recite-check-content {
   background: var(--glass-background);
   backdrop-filter: blur(var(--glass-blur));
@@ -3945,6 +4578,56 @@ input:checked + .slider:before {
   line-height: 1.6;
   color: #555;
   margin: 0;
+}
+
+/* 一键添加错题本 */
+.add-to-wrongbook-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px dashed #e0e0e0;
+}
+
+.add-wrongbook-btn {
+  background: linear-gradient(135deg, #FF9800, #FF5722);
+  color: #fff;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+}
+
+.add-wrongbook-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
+  background: linear-gradient(135deg, #FFA726, #FF7043);
+}
+
+.add-wrongbook-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.wrongbook-added-tip {
+  color: #4CAF50;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.small-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
 }
 
 /* 响应式设计 */
@@ -4363,84 +5046,52 @@ input:checked + .slider:before {
   to { transform: rotate(360deg); }
 }
 
-/* 意境图弹窗样式 */
-.scene-image-overlay {
+/* 意境图生成结果 toast 提示 */
+.scene-toast {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9998;
-  animation: overlay-fade 0.3s ease;
-}
-
-@keyframes overlay-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.scene-image-modal {
-  position: relative;
-  max-width: 700px;
-  width: 90%;
-  background: rgba(255, 252, 240, 0.98);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(205, 133, 63, 0.3);
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
   border-radius: 24px;
-  padding: 32px;
-  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.3);
-  animation: modal-appear 0.3s ease;
-}
-
-@keyframes modal-appear {
-  0% { opacity: 0; transform: scale(0.9) translateY(20px); }
-  100% { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.close-scene-btn {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(205, 133, 63, 0.15);
-  color: #8b4513;
-  font-size: 20px;
-  cursor: pointer;
+  font-family: 'SimSun', 'STSong', serif;
+  font-size: 15px;
+  z-index: 10000;
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
+  gap: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.close-scene-btn:hover {
-  background: rgba(205, 133, 63, 0.3);
+.scene-toast-success {
+  background: rgba(76, 175, 80, 0.92);
+  color: #fff;
 }
 
-.scene-image-title {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #8b4513;
-  font-size: 18px;
-  margin: 0 0 20px 0;
-  text-align: center;
-  line-height: 1.5;
+.scene-toast-error {
+  background: rgba(220, 53, 69, 0.92);
+  color: #fff;
 }
 
-.scene-image {
-  width: 100%;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(205, 133, 63, 0.2);
+.scene-toast-info {
+  background: rgba(33, 150, 243, 0.92);
+  color: #fff;
 }
 
-.scene-image-error {
-  text-align: center;
-  color: #dc143c;
-  font-family: 'SimSun', 'STSong', serif;
-  padding: 40px;
+.toast-icon {
+  font-size: 16px;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: all 0.4s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px);
 }
 </style>

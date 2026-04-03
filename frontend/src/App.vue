@@ -11,10 +11,17 @@
     <div class="dynamic-elements" ref="dynamicElements"></div>
 
     <!-- 导航栏 -->
-    <nav class="navbar">
+    <nav class="navbar ios26-navbar">
+      <div class="nav-liquid-border"></div>
+      <div class="nav-liquid-shine"></div>
       <div class="container navbar-container">
         <!-- 品牌 logo/标题 -->
-        <router-link :to="isTeacher ? '/teacher/dashboard' : '/'" class="navbar-brand">古诗词学习系统</router-link>
+        <router-link :to="isTeacher ? '/teacher/dashboard' : '/'" class="navbar-brand">
+          <div class="brand-title">
+            <div class="main-title">《智韵·灵犀》</div>
+            <div class="sub-title">——基于大模型认知引擎与多维行为分析的智能化古诗词学习系统</div>
+          </div>
+        </router-link>
         
         <!-- 学生端导航 -->
         <ul v-if="!isTeacher" class="navbar-menu">
@@ -34,10 +41,16 @@
             <router-link to="/challenge" class="glass-nav-button" active-class="glass-nav-active">诗词闯关</router-link>
           </li>
           <li class="navbar-item">
+            <router-link to="/creation" class="glass-nav-button" active-class="glass-nav-active">诗词创作</router-link>
+          </li>
+          <li class="navbar-item">
+            <router-link to="/error-book" class="glass-nav-button" active-class="glass-nav-active">错题本</router-link>
+          </li>
+          <li class="navbar-item">
             <router-link to="/profile" class="glass-nav-button" active-class="glass-nav-active">个人中心</router-link>
           </li>
           <li class="navbar-item">
-            <router-link to="/creation" class="glass-nav-button" active-class="glass-nav-active">诗词创作</router-link>
+            <button class="glass-nav-button switch-teacher-btn" @click="switchToTeacher">切换教师端</button>
           </li>
         </ul>
         
@@ -61,7 +74,7 @@
               <router-link to="/teacher/game-data" class="glass-nav-button" active-class="glass-nav-active">对战数据</router-link>
             </li>
             <li class="navbar-item">
-              <router-link to="/teacher/settings" class="glass-nav-button" active-class="glass-nav-active">系统设置</router-link>
+              <button class="glass-nav-button switch-teacher-btn" @click="switchToStudent">切换学生端</button>
             </li>
             <li class="navbar-item">
               <button class="glass-nav-button logout-btn" @click="handleLogout">退出登录</button>
@@ -90,7 +103,7 @@
                 <router-link to="/teacher/game-data" class="mobile-menu-link" @click="toggleMobileMenu">对战数据</router-link>
               </li>
               <li class="mobile-menu-item">
-                <router-link to="/teacher/settings" class="mobile-menu-link" @click="toggleMobileMenu">系统设置</router-link>
+                <button class="mobile-menu-link switch-student-btn" @click="switchToStudent">切换学生端</button>
               </li>
               <li class="mobile-menu-item">
                 <button class="mobile-menu-link logout-btn" @click="handleLogout">退出登录</button>
@@ -102,7 +115,7 @@
     </nav>
 
     <!-- 主内容区 -->
-    <main class="container" style="padding: 20px 0;">
+    <main class="container">
       <router-view v-slot="{ Component }">
         <transition :name="transitionName" mode="out-in">
           <keep-alive :include="keepAliveIncludes">
@@ -115,7 +128,7 @@
     <!-- 页脚 -->
     <footer class="footer">
       <div class="container footer-container">
-        <p class="footer-text">© 2026 古诗词学习系统</p>
+        <p class="footer-text">© 2026 《智韵·灵犀》——基于大模型认知引擎与多维行为分析的智能化古诗词学习系统</p>
         <p class="footer-text">基于 AI 技术的智能学习平台</p>
       </div>
     </footer>
@@ -142,7 +155,8 @@ export default {
       isElectron: false,
       transitionName: 'page-forward',
       lastPath: '/',
-      keepAliveIncludes: ['PoemDetail']
+      keepAliveIncludes: ['PoemDetail'],
+      appReady: false // 全局就绪状态，防止页面一直转圈
     }
   },
   computed: {
@@ -201,6 +215,14 @@ export default {
         this.$router.push(route);
       });
     }
+
+    // 设置导航栏鼠标跟踪效果
+    this.setupNavbarHoverEffects();
+
+    // 确保页面一定能正常显示（防止后端无响应导致无限loading）
+    setTimeout(() => {
+      this.appReady = true;
+    }, 2000);
   },
   beforeUnmount() {
     this.stopCreatingDynamicElements()
@@ -220,10 +242,51 @@ export default {
     if (this.isElectron) {
       window.electronAPI.removeNavigateListener();
     }
+
+    // 清理导航栏鼠标跟踪效果
+    this.cleanupNavbarHoverEffects();
   },
   methods: {
     handlePageTransition(e) {
       this.transitionName = `page-${e.detail.direction}`
+    },
+    // 导航栏鼠标跟踪效果
+    handleNavbarMouseMove(e) {
+      const navbar = e.currentTarget;
+      const rect = navbar.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      navbar.style.setProperty('--mouse-x', `${x}%`);
+      navbar.style.setProperty('--mouse-y', `${y}%`);
+    },
+    // 导航按钮鼠标跟踪效果
+    handleBtnMouseMove(e) {
+      const btn = e.currentTarget;
+      const rect = btn.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      btn.style.setProperty('--btn-mouse-x', `${x}%`);
+      btn.style.setProperty('--btn-mouse-y', `${y}%`);
+    },
+    setupNavbarHoverEffects() {
+      const navbar = document.querySelector('.ios26-navbar');
+      if (navbar) {
+        navbar.addEventListener('mousemove', this.handleNavbarMouseMove);
+      }
+      const navButtons = document.querySelectorAll('.glass-nav-button');
+      navButtons.forEach(btn => {
+        btn.addEventListener('mousemove', this.handleBtnMouseMove);
+      });
+    },
+    cleanupNavbarHoverEffects() {
+      const navbar = document.querySelector('.ios26-navbar');
+      if (navbar) {
+        navbar.removeEventListener('mousemove', this.handleNavbarMouseMove);
+      }
+      const navButtons = document.querySelectorAll('.glass-nav-button');
+      navButtons.forEach(btn => {
+        btn.removeEventListener('mousemove', this.handleBtnMouseMove);
+      });
     },
     // 更新收藏数量
     updateCollectionCount() {
@@ -457,12 +520,47 @@ export default {
     clearAllData() {
       // 清除所有数据，包括登录类型
       localStorage.clear()
+    },
+    // 切换到教师端
+    switchToTeacher() {
+      // 保存当前登录类型为教师
+      localStorage.setItem('currentLoginType', 'teacher')
+      // 清除学生端相关数据
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('userInfo')
+      localStorage.removeItem('studentId')
+      localStorage.removeItem('userRole')
+      // 跳转到教师登录页
+      this.$router.push('/teacher/login')
+    },
+    // 切换到学生端
+    switchToStudent() {
+      // 保存当前登录类型为学生
+      localStorage.setItem('currentLoginType', 'student')
+      // 清除教师端相关数据
+      localStorage.removeItem('teacherToken')
+      localStorage.removeItem('teacher')
+      localStorage.removeItem('teacherInfo')
+      localStorage.removeItem('teacherId')
+      localStorage.removeItem('teacherRole')
+      // 跳转到学生登录页
+      this.$router.push('/login')
     }
   }
 }
 </script>
 
 <style>
+/* 全局样式 */
+#app {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 /* ===== 古风卷轴页面过渡 ===== */
 /* 前进：旧页向下滑出，新页从上方滑入 */
 .page-forward-enter-active,
@@ -520,7 +618,7 @@ export default {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 999;
   overflow: hidden;
 }
 
@@ -632,7 +730,7 @@ export default {
 /* 花瓣飘动动画 */
 @keyframes petal-float {
   0% {
-    transform: translateY(100vh) rotate(0deg);
+    transform: translateY(-100px) rotate(0deg);
     opacity: 0;
   }
   10% {
@@ -642,7 +740,7 @@ export default {
     opacity: 1;
   }
   100% {
-    transform: translateY(-100px) rotate(360deg);
+    transform: translateY(100vh) rotate(360deg);
     opacity: 0;
   }
 }
@@ -650,7 +748,7 @@ export default {
 /* 文字飘动动画 */
 @keyframes text-float {
   0% {
-    transform: translateY(100vh) scale(0.5);
+    transform: translateY(-100px) scale(0.5);
     opacity: 0;
   }
   10% {
@@ -660,7 +758,7 @@ export default {
     opacity: 1;
   }
   100% {
-    transform: translateY(-100px) scale(1.2);
+    transform: translateY(100vh) scale(1.2);
     opacity: 0;
   }
 }
@@ -843,6 +941,75 @@ export default {
   background: rgba(205, 133, 63, 0.3);
 }
 
+/* 品牌标题样式 */
+.brand-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.main-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: #8b4513;
+  margin: 0;
+  font-family: 'SimSun', 'STSong', serif;
+}
+
+.sub-title {
+  font-size: 12px;
+  color: #8b4513;
+  margin: 3px 0 0 0;
+  font-family: 'SimSun', 'STSong', serif;
+  line-height: 1.3;
+}
+
+/* 导航栏品牌链接样式 */
+.navbar-brand {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  padding: 10px 0;
+}
+
+/* 切换教师端按钮样式 */
+.switch-teacher-btn {
+  background: linear-gradient(135deg, rgba(139, 69, 19, 0.15), rgba(205, 133, 63, 0.15)) !important;
+  color: #8b4513 !important;
+  border: 1px solid rgba(139, 69, 19, 0.3) !important;
+  padding: 8px 16px !important;
+  font-size: 14px !important;
+  cursor: pointer;
+  transition: all 0.3s ease !important;
+  font-family: 'SimSun', 'STSong', serif;
+}
+
+.switch-teacher-btn:hover {
+  background: linear-gradient(135deg, rgba(139, 69, 19, 0.25), rgba(205, 133, 63, 0.25)) !important;
+  transform: translateY(-4px) !important;
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.2) !important;
+  border-color: rgba(139, 69, 19, 0.5) !important;
+}
+
+.switch-student-btn {
+  background: linear-gradient(135deg, rgba(139, 69, 19, 0.15), rgba(205, 133, 63, 0.15)) !important;
+  color: #8b4513 !important;
+  border: 1px solid rgba(139, 69, 19, 0.3) !important;
+  padding: 8px 16px !important;
+  font-size: 14px !important;
+  cursor: pointer;
+  transition: all 0.3s ease !important;
+  font-family: 'SimSun', 'STSong', serif;
+  width: 100%;
+  text-align: left;
+}
+
+.switch-student-btn:hover {
+  background: linear-gradient(135deg, rgba(139, 69, 19, 0.25), rgba(205, 133, 63, 0.25)) !important;
+  border-color: rgba(139, 69, 19, 0.5) !important;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .teacher-navbar-menu {
@@ -859,6 +1026,14 @@ export default {
   
   .navbar-container {
     position: relative;
+  }
+  
+  .main-title {
+    font-size: 18px;
+  }
+  
+  .sub-title {
+    font-size: 10px;
   }
 }
 </style>

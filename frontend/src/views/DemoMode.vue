@@ -45,10 +45,7 @@
             <span class="feature-icon">🎨</span>
             <span class="feature-name">诗词创作</span>
           </div>
-          <div class="feature-card" @click="goTo('/knowledge-graph')">
-            <span class="feature-icon">🗺️</span>
-            <span class="feature-name">知识图谱</span>
-          </div>
+
           <div class="feature-card" @click="goTo('/voice-recitation')">
             <span class="feature-icon">🎤</span>
             <span class="feature-name">语音背诵</span>
@@ -105,10 +102,7 @@ const steps = [
     title: '语音背诵检测',
     description: '对着麦克风背诵诗词，AI实时语音识别并评测。错别字、漏字一目了然，还有个性化学习建议。'
   },
-  {
-    title: '诗词知识图谱',
-    description: '可视化展示诗人、主题、朝代之间的关系。点击任意节点，探索诗词世界的关联之美。'
-  }
+
 ]
 
 const nextStep = () => {

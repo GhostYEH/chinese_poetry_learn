@@ -71,8 +71,8 @@
               v-else-if="currentStep === 2"
               :genre="poemDraft.genre"
               :theme="poemDraft.theme"
-              :is-loading="isLoading"
-              @load="handleLoadStructure"
+              :keywords="poemDraft.keywords"
+              :mood="poemDraft.mood"
               @back="currentStep = 1"
               @start="currentStep = 3"
             />
@@ -287,10 +287,10 @@ export default {
     // 步骤1：生成灵感
     const handleGenerateInspiration = async ({ theme, genre }) => {
       isLoading.value = true;
-      showTypewriterEffect('正在构思创意关键词...');
 
       try {
-        const result = await api.creationWorkbench.generateInspiration(theme, genre);
+        const response = await api.creationWorkbench.generateInspiration(theme, genre);
+        const result = response.data || response;
 
         if (result && inspirationPanel.value) {
           inspirationPanel.value.setResult(result);
@@ -298,28 +298,28 @@ export default {
           poemDraft.mood = result.mood || '';
           poemDraft.suggestions = result.suggestions || [];
         }
-
-        hideTypewriterEffect();
       } catch (error) {
         console.error('生成灵感失败:', error);
-        // 模拟数据用于演示
+        // 即使接口完全失败，也基于用户主题生成相关 fallback
         if (inspirationPanel.value) {
-          const mockResult = {
-            keywords: ['春风', '杨柳', '桃花', '燕子', '细雨'],
-            theme: '春日迟迟，卉木萋萋',
-            mood: '清新',
-            suggestions: [
-              '起句要点明季节特征',
-              '注意动静结合，写出春的生机',
-              '转句可以引入人事，增强层次感'
-            ]
+          const t = theme || '一般主题';
+          const fallbacks = {
+            '思乡': { keywords: ['明月', '孤灯', '归雁', '故园', '白发', '江湖', '烟波', '旧路'], theme: `围绕「${t}」主题，可从故乡景物（炊烟、老树、旧居）或旅途所见（孤舟、斜阳、霜鬓）切入，在空间对比中写出距离感与归心`， mood: '沉郁', suggestions: ['用故乡具体景物代替直接说「想家」', '以空间距离（千里）强化归心之切', '转句可宕入归期想象或梦境', '结尾以景结情，留白回味'] },
+            '离别': { keywords: ['长亭', '古道', '杨柳', '孤帆', '浊酒', '泪眼', '斜阳', '歧路'], theme: `围绕「${t}」主题，可从送别场景（渡口、长亭、暮色）或别后想象切入，以景托情，不言别而别情自现`, mood: '怅惘', suggestions: ['以具体动作（执手、折柳）代替空洞悲叹', '转句宕开写别后，不局限于当下', '用「浊酒」「斜阳」等浊重意象托出离愁', '结尾以景结情，不说再见'] },
+            '春日': { keywords: ['柳絮', '桃花', '燕归', '新芽', '微雨', '暖风', '蜂蝶', '纸鸢'], theme: `围绕「${t}」主题，可从一花一草的细微变化切入，写出春日独有的生机或春光易逝的感慨`, mood: '清新', suggestions: ['写春不写春字，借「柳绿」「桃红」让春意自己显现', '动静结合：蜂蝶忙而人静，意境更活', '转句引入「春将尽」或人事，增加层次', '结尾宕入人事，写春日里的思念或孩童'] },
+            '山水': { keywords: ['空山', '幽径', '飞鸟', '流泉', '松风', '白云', '独坐', '樵归'], theme: `围绕「${t}」主题，以山水为媒介写出诗人的精神世界，境随心转，山水即心境`, mood: '宁静', suggestions: ['以动写静：「鸟鸣山更幽」比直接说山很静更有张力', '远近层次：近处奇石细草，远处飞鸟孤云', '转句引入「人」：山中行人、渔樵问答，以人衬静', '结尾留白：「独坐」「忘言」比说完更耐读'] },
+            '怀古': { keywords: ['残碑', '故垒', '夕阳', '西风', '英雄', '往事', '成败', '兴亡'], theme: `围绕「${t}」主题，借历史遗迹或古人事迹发感慨，在「变与不变」中找立意，借古讽今或借古抒怀`, mood: '苍凉', suggestions: ['以小见大：选一个细节、一个决定，而非全面评价', '古今对比：打通古人处境与当下，在比较中找立意', '转句宕开议论，点明主旨', '结尾用反问或假设，增加思辨力量'] },
+            '闺怨': { keywords: ['高楼', '明月', '妆奁', '落花', '春雨', '孤灯', '秋风', '雁过'], theme: `围绕「${t}」主题，借女子之口写人间别情，通过妆扮变化、时令更替暗示思念，不言怨而怨自深`, mood: '婉约', suggestions: ['通过妆扮变化（懒梳头、眉不画）暗示思念', '转句宕入对方视角：他此刻在做什么？', '善用「梦」意象：梦里相聚、梦醒更孤', '结尾以物结情：落花、孤灯，以景写情胜于直说'] }
           };
+          let mockResult = fallbacks['春日'];
+          for (const key of Object.keys(fallbacks)) {
+            if (theme.includes(key)) { mockResult = fallbacks[key]; break; }
+          }
           inspirationPanel.value.setResult(mockResult);
           poemDraft.keywords = mockResult.keywords;
           poemDraft.mood = mockResult.mood;
           poemDraft.suggestions = mockResult.suggestions;
         }
-        hideTypewriterEffect();
       } finally {
         isLoading.value = false;
       }
@@ -334,28 +334,17 @@ export default {
       currentStep.value = 2;
     };
 
-    // 步骤2：加载结构引导
-    const handleLoadStructure = async () => {
-      isLoading.value = true;
-      try {
-        // API调用已在StructureGuide组件内处理
-      } catch (error) {
-        console.error('加载结构引导失败:', error);
-      } finally {
-        isLoading.value = false;
-      }
-    };
-
     // 获取行推荐
     const handleRecommend = async ({ currentLines, genre, theme, lineNumber, maxLength }) => {
       if (poemEditor.value) {
         try {
-          const result = await api.creationWorkbench.recommendNextLine({
+          const response = await api.creationWorkbench.recommendNextLine({
             currentLines,
             genre,
             theme,
             maxLength
           });
+          const result = response.data || response;
 
           if (result && result.suggestions) {
             const recs = result.suggestions.map((line, i) => ({
@@ -383,12 +372,13 @@ export default {
       showTypewriterEffect('AI正在创作中...');
 
       try {
-        const result = await api.creationWorkbench.generatePoem({
+        const response = await api.creationWorkbench.generatePoem({
           theme,
           genre,
           keywords,
           structure: ''
         });
+        const result = response.data || response;
 
         if (result && result.poem) {
           const newLines = result.poem.split('\n').filter(l => l.trim());
@@ -421,21 +411,38 @@ export default {
       showTypewriterEffect('AI正在润色中...');
 
       try {
-        // 模拟润色API调用
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        const poemContent = poemDraft.lines.filter(l => l.trim()).join('\n');
+        const response = await api.creationWorkbench.polishPoem({
+          poem: poemContent,
+          genre: poemDraft.genre,
+          theme: poemDraft.theme,
+          type: type || 'optimize'
+        });
+        const result = response.data || response;
 
-        const original = poemDraft.lines.join('\n');
-        const polished = original.replace(/春风/g, '东风')
-          .replace(/长/g, '柔')
-          .replace(/光/g, '晖');
-
-        polishResult.value = {
-          poem: polished,
-          original,
-          explanation: '已优化用词，增强韵律美感'
-        };
+        if (result && result.poem) {
+          polishResult.value = {
+            poem: result.poem,
+            original: result.original || poemContent,
+            explanation: result.explanation || '已优化用词，增强韵律美感',
+            changes: result.changes || []
+          };
+        } else {
+          polishResult.value = {
+            poem: poemContent,
+            original: poemContent,
+            explanation: '润色服务暂时不可用，请稍后重试',
+            changes: []
+          };
+        }
       } catch (error) {
         console.error('润色失败:', error);
+        polishResult.value = {
+          poem: poemDraft.lines.filter(l => l.trim()).join('\n'),
+          original: poemDraft.lines.filter(l => l.trim()).join('\n'),
+          explanation: '润色失败，请检查网络连接后重试',
+          changes: []
+        };
       } finally {
         isPolishing.value = false;
         hideTypewriterEffect();
@@ -459,12 +466,13 @@ export default {
 
       try {
         const poemContent = poemDraft.lines.filter(l => l.trim()).join('\n');
-        const result = await api.creationWorkbench.scorePoem({
+        const response = await api.creationWorkbench.scorePoem({
           poem: poemContent,
           title: poemDraft.title,
           genre: poemDraft.genre,
           theme: poemDraft.theme
         });
+        const result = response.data || response;
 
         currentScore.value = result;
         showScorePanel.value = true;
@@ -506,11 +514,12 @@ export default {
       showTypewriterEffect('正在评分...');
 
       try {
-        const result = await api.creationWorkbench.scoreFeihuaPoem({
+        const response = await api.creationWorkbench.scoreFeihuaPoem({
           poem: feihuaDraft.content,
           keyword: feihuaDraft.keyword,
           genre: '五言绝句'
         });
+        const result = response.data || response;
 
         currentScore.value = result;
         showScorePanel.value = true;
@@ -551,22 +560,25 @@ export default {
     };
 
     // 接龙提交
-    const handleChainSubmit = async ({ userLine, genre, theme, lineNumber }) => {
+    const handleChainSubmit = async ({ userLine, allLines, genre, theme, lineNumber }) => {
       isLoading.value = true;
 
       try {
         if (lineNumber === 1) {
-          const result = await api.creationWorkbench.startChainPoem(genre, theme);
+          const response = await api.creationWorkbench.startChainPoem(genre, theme);
+          const result = response.data || response;
           if (chainMode.value) {
             chainMode.value.setAILine(result.aiLine);
           }
         } else {
-          const result = await api.creationWorkbench.getChainNextLine({
+          const response = await api.creationWorkbench.getChainNextLine({
             userLine,
+            allLines,
             genre,
             theme,
             lineNumber
           });
+          const result = response.data || response;
           if (chainMode.value) {
             chainMode.value.setAILine(result.aiLine);
           }

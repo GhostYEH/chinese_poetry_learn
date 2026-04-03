@@ -523,10 +523,26 @@ const loadStudentRecords = async () => {
     
     learningRecords.value = data
     
-    // 从记录中获取学生姓名（假设第一条记录包含学生信息）
     if (data.length > 0) {
-      // 这里需要从用户表获取姓名，暂时使用占位符
-      studentName.value = `学生${studentId.value}`
+      studentName.value = data[0].student_name || `学生${studentId.value}`
+    } else {
+      try {
+        const userResponse = await fetch(`http://localhost:3000/api/teacher/rankings/overall`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        if (userResponse.ok) {
+          const userData = await userResponse.json()
+          const student = userData.data?.find(s => s.id === parseInt(studentId.value))
+          if (student) {
+            studentName.value = student.username
+          }
+        }
+      } catch (e) {
+        console.error('获取学生姓名失败:', e)
+      }
     }
   } catch (error) {
     console.error('加载数据失败:', error)

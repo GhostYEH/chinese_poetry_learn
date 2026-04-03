@@ -2,6 +2,8 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const { db } = require('../utils/db');
+const { feihuaPoems } = require('../data/feihuaPoems');
+const { validateFeihuaPoem } = require('../services/aiService');
 
 // 在线用户管理
 const onlineUsers = new Map();
@@ -11,6 +13,14 @@ const invitations = new Map();
 
 // 游戏房间管理
 const gameRooms = new Map();
+
+// 飞花令关键字列表（只包含数据库中已有的关键字，确保判题准确）
+const FEIHUA_KEYWORDS = [
+  '春', '月', '花', '山', '水', '风', '雪', '云',
+  '酒', '愁', '江', '河', '日', '夜', '心', '人',
+  '天', '鸟', '雨', '秋', '梅', '柳', '松', '竹',
+  '桃', '光'
+];
 
 // 生成唯一ID
 function generateId() {
@@ -221,15 +231,15 @@ function setupSocket(io) {
       
       // 生成邀请ID
       const inviteId = generateId();
-      
-      // 存储邀请信息
+
+      // 存储邀请信息（令字在accept时再随机生成，保持一致性）
       invitations.set(inviteId, {
         inviterId: socket.userId,
         inviterName: inviter.username,
         inviterClassId: inviter.classId,
         inviterMaxRounds: inviter.maxRounds,
         targetId: targetUserId,
-        keyword: keyword,
+        keyword: keyword, // 让邀请方选择或留空
         difficulty: difficulty,
         timestamp: Date.now()
       });
@@ -241,11 +251,18 @@ function setupSocket(io) {
         inviterName: inviter.username,
         inviterClassId: inviter.classId,
         inviterMaxRounds: inviter.maxRounds,
-        keyword: keyword,
+        keyword: keyword || '待定（接受后随机）', // 提示待定
         difficulty: difficulty
       });
-      
-      console.log(`${inviter.username} 邀请 ${targetUser.username} 进行飞花令对战，令字: ${keyword}`);
+
+      const savedInvitation = invitations.get(inviteId);
+      socket.emit('invitation-sent', {
+        inviteId,
+        keyword: savedInvitation ? savedInvitation.keyword : (keyword || '随机'),
+        difficulty: difficulty
+      });
+
+      console.log(`${inviter.username} 邀请 ${targetUser.username} 进行飞花令对战，令字: ${keyword || '随机'}`);
     });
     
     // 接受邀请
@@ -269,7 +286,13 @@ function setupSocket(io) {
       // 生成房间ID
       const roomId = generateId();
       
+      // 确定令字：优先使用邀请时指定的，否则随机生成
+      const finalKeyword = (invitation.keyword && invitation.keyword !== '待定（接受后随机）')
+        ? invitation.keyword
+        : FEIHUA_KEYWORDS[Math.floor(Math.random() * FEIHUA_KEYWORDS.length)];
+      
       // 创建游戏房间
+      
       gameRooms.set(roomId, {
         players: [
           { 
@@ -287,7 +310,7 @@ function setupSocket(io) {
             score: 0
           }
         ],
-        keyword: invitation.keyword,
+        keyword: finalKeyword, // 使用确定的关键字（指定或随机）
         difficulty: invitation.difficulty,
         currentTurn: 0, // 当前轮到谁（0或1）
         currentRound: 1, // 当前回合数
@@ -305,17 +328,17 @@ function setupSocket(io) {
       socket.join(roomId);
       io.to(inviter.socketId).socketsJoin(roomId);
       
-      // 通知双方游戏开始
+      // 通知双方游戏开始，使用确定的关键字（指定或随机）
       io.to(roomId).emit('game-start', {
         roomId,
-        keyword: invitation.keyword,
+        keyword: finalKeyword,
         difficulty: invitation.difficulty,
         players: gameRooms.get(roomId).players,
         currentTurn: 0,
         timeLimit: gameRooms.get(roomId).timeLimit
       });
       
-      console.log(`${acceptor.username} 接受了 ${inviter.username} 的邀请，进入房间 ${roomId}，令字: ${invitation.keyword}`);
+      console.log(`${acceptor.username} 接受了 ${inviter.username} 的邀请，进入房间 ${roomId}，令字: ${finalKeyword}`);
       
       // 清理邀请
       invitations.delete(inviteId);
@@ -348,58 +371,143 @@ function setupSocket(io) {
     });
     
     // 提交诗句
-    socket.on('submit-poem', (data) => {
+    socket.on('submit-poem', async (data) => {
       const { roomId, poem } = data;
       const room = gameRooms.get(roomId);
-      
+
       if (!room) {
         socket.emit('error', { message: '房间不存在' });
         return;
       }
-      
+
       // 检查是否轮到当前用户
       const currentPlayerIndex = room.players.findIndex(p => p.userId === socket.userId);
       if (currentPlayerIndex !== room.currentTurn) {
         socket.emit('error', { message: '还没轮到你' });
         return;
       }
-      
-      // 验证诗句（简化版）
-      const isValid = poem.includes(room.keyword);
-      
+
+      // 先检查是否包含令字
+      const normalizedPoem = poem.trim();
+      if (!normalizedPoem.includes(room.keyword)) {
+        socket.emit('error', { message: `诗句必须包含令字「${room.keyword}」` });
+        return;
+      }
+
+      // 检查是否已用过（精确匹配）
+      if (room.usedPoems.some(p => p.original === normalizedPoem)) {
+        socket.emit('error', { message: '该诗句已被使用', isDuplicate: true });
+        return;
+      }
+
+      // === 通知前端进入验证状态并暂停计时 ===
+      io.to(roomId).emit('timer-pause');
+      io.to(roomId).emit('validating');
+
+      // === 数据库优先验证 ===
+      let dbFound = false;
+      const poemsForKeyword = feihuaPoems[room.keyword] || [];
+      for (const entry of poemsForKeyword) {
+        const entryNorm = entry.poem.replace(/[，。！？、；：""''（）【】《》\s]/g, '');
+        if (entryNorm === normalizedPoem.replace(/[，。！？、；：""''（）【】《》\s]/g, '')) {
+          dbFound = true;
+          break;
+        }
+      }
+
+      let isValid = false;
+      let reason = '';
+
+      if (dbFound) {
+        isValid = true;
+        reason = '诗句验证通过（数据库）';
+        console.log(`[飞花令] 数据库命中: ${normalizedPoem}`);
+      } else {
+        // === 数据库未命中，调用AI验证 ===
+        console.log(`[飞花令] 数据库未命中，调用AI验证: ${normalizedPoem}`);
+        try {
+          const aiResult = await validateFeihuaPoem(normalizedPoem, room.keyword);
+          isValid = aiResult.valid;
+          reason = aiResult.message || (aiResult.valid ? 'AI验证通过' : 'AI验证失败');
+          console.log(`[飞花令] AI验证结果: isValid=${aiResult.valid}, reason=${reason}`);
+        } catch (err) {
+          console.error('[飞花令] AI验证异常:', err);
+          reason = '验证服务异常';
+        }
+      }
+
+      // === 判题结果 ===
       if (!isValid) {
-        socket.emit('error', { message: '诗句不包含令字' });
+        // 无效诗句：对手获胜
+        const opponentIndex = (currentPlayerIndex + 1) % 2;
+        const loser = room.players[currentPlayerIndex];
+        const winner = room.players[opponentIndex];
+
+        io.to(roomId).emit('error', {
+          message: reason || '诗句无效',
+          roomId,
+          isInvalid: true
+        });
+
+        // 通知双方验证完成
+        io.to(roomId).emit('poem-submitted', {
+          poem: normalizedPoem,
+          playerId: socket.userId,
+          playerName: loser.username,
+          isCorrect: false,
+          reason,
+          // winner will handle the end via 'game-result'
+        });
+
+        // 保存记录并结束本轮
+        await saveBattleRecord(room, winner.userId, loser.userId);
+
+        room.status = 'finished';
+        io.to(roomId).emit('game-result', {
+          winner: { userId: winner.userId, username: winner.username },
+          loser: { userId: loser.userId, username: loser.username },
+          reason: reason || '诗句无效',
+          totalRounds: room.currentRound,
+          usedPoems: room.usedPoems
+        });
+        room.usedPoems.push({ original: normalizedPoem, submittedBy: socket.userId, round: room.currentRound });
+        gameRooms.delete(roomId);
         return;
       }
-      
-      // 检查是否重复
-      if (room.usedPoems.includes(poem)) {
-        socket.emit('error', { message: '该诗句已被使用' });
-        return;
-      }
-      
-      // 添加到已使用诗句列表
-      room.usedPoems.push(poem);
-      
-      // 更新当前玩家分数
+
+      // 有效诗句：记录并切换回合
+      room.usedPoems.push({
+        original: normalizedPoem,
+        normalized: normalizedPoem.replace(/[，。！？、；：""''（）【】《》\s]/g, ''),
+        submittedBy: socket.userId,
+        submittedByName: room.players[currentPlayerIndex].username,
+        round: room.currentRound,
+        source: dbFound ? 'database' : 'ai'
+      });
+
       room.players[currentPlayerIndex].score += 1;
-      
-      // 切换到下一个玩家
       room.currentTurn = (room.currentTurn + 1) % 2;
       room.currentRound += 1;
-      
-      // 广播给房间内所有玩家
+
       io.to(roomId).emit('poem-submitted', {
-        poem,
+        poem: normalizedPoem,
         playerId: socket.userId,
         playerName: room.players[currentPlayerIndex].username,
+        isCorrect: true,
         currentTurn: room.currentTurn,
         currentRound: room.currentRound,
         usedPoems: room.usedPoems,
-        players: room.players
+        players: room.players.map(p => ({
+          id: p.userId,
+          userId: p.userId,
+          username: p.username,
+          score: p.score,
+          throwCount: p.throwCount,
+          remainingThrows: p.remainingThrows
+        }))
       });
-      
-      console.log(`玩家 ${socket.userId} 在房间 ${roomId} 提交了诗句: ${poem}`);
+
+      console.log(`[飞花令] 玩家 ${socket.userId} 在房间 ${roomId} 提交诗句: ${normalizedPoem} (${dbFound ? 'DB' : 'AI'})`);
     });
     
     // 扔题特权

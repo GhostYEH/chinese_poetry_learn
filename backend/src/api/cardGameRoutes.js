@@ -176,18 +176,16 @@ router.post('/ai-explain', async (req, res) => {
       max_tokens: 400,
       temperature: 0.7
     });
-    if (result) {
+    
+    if (result && result.reason && result.explanation && result.memory_tip) {
       res.json({ success: true, data: result });
     } else {
-      res.json({
-        success: true,
-        data: {
-          reason: '该下句与此诗意境不符',
-          explanation: `正确答案"${correctAnswer}"出自原文，意境优美，韵律和谐。`,
-          memory_tip: '记住关键词，多读几遍原诗。'
-        },
-        mock: true
-      });
+      const fallbackData = {
+        reason: result?.reason || '该下句与此诗意境不符',
+        explanation: result?.explanation || `正确答案"${correctAnswer}"出自原文，意境优美，韵律和谐。`,
+        memory_tip: result?.memory_tip || '记住关键词，多读几遍原诗。'
+      };
+      res.json({ success: true, data: fallbackData, mock: true });
     }
   } catch (error) {
     console.error('AI讲解失败:', error);
@@ -195,8 +193,8 @@ router.post('/ai-explain', async (req, res) => {
       success: true,
       data: {
         reason: '该下句与上句不匹配',
-        explanation: `正确下句应为"${correctAnswer}"。`,
-        memory_tip: '反复朗读，加深记忆。'
+        explanation: `正确下句应为"${correctAnswer}"。该句出自经典诗词，意境深远。`,
+        memory_tip: '反复朗读原诗，加深记忆。'
       },
       mock: true
     });
@@ -205,23 +203,28 @@ router.post('/ai-explain', async (req, res) => {
 
 // ==================== 添加到错题本 ====================
 router.post('/add-to-review', (req, res) => {
-  const { userId, questionText, correctAnswer, recordId, errorId } = req.body;
+  const { userId, questionText, correctAnswer, userAnswer, recordId, errorId } = req.body;
   const uid = userId || 1;
 
+  if (!questionText || !correctAnswer) {
+    return res.status(400).json({ success: false, message: '缺少必要参数' });
+  }
+
+  const now = new Date().toISOString();
+
   db.run(
-    `INSERT INTO card_game_review (user_id, question_text, correct_answer)
-     VALUES (?, ?, ?)`,
-    [uid, questionText || '', correctAnswer || ''],
+    `INSERT INTO wrong_questions (user_id, question, answer, user_answer, wrong_count, last_wrong_time)
+     VALUES (?, ?, ?, ?, 1, ?)`,
+    [String(uid), questionText, correctAnswer, userAnswer || '', now],
     function (err) {
       if (err) {
         console.error('添加错题失败:', err);
         return res.status(500).json({ success: false, message: '添加失败' });
       }
-      // 标记错误记录已添加
       if (errorId) {
         db.run(`UPDATE card_game_errors SET added_to_review = 1 WHERE id = ?`, [errorId]);
       }
-      res.json({ success: true, message: '已添加到错题本' });
+      res.json({ success: true, message: '已添加到错题本', id: this.lastID });
     }
   );
 });

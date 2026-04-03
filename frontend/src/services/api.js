@@ -16,19 +16,50 @@ const API_BASE_URL = 'http://localhost:3000/api';
 
 // 存储动态获取的 API URL
 let dynamicApiBaseUrl = null;
+let apiUrlPromise = null; // 防止重复请求
+
+// 带超时的获取 API URL
+const getApiUrlWithTimeout = async () => {
+  if (dynamicApiBaseUrl) return dynamicApiBaseUrl;
+  if (apiUrlPromise) return apiUrlPromise;
+
+  apiUrlPromise = new Promise((resolve) => {
+    // 超时兜底：3秒后使用默认URL
+    const timeout = setTimeout(() => {
+      if (!dynamicApiBaseUrl) {
+        dynamicApiBaseUrl = API_BASE_URL;
+        console.warn('[api] 获取动态API地址超时，使用默认:', dynamicApiBaseUrl);
+      }
+      resolve(dynamicApiBaseUrl);
+      apiUrlPromise = null;
+    }, 3000);
+
+    // 异步获取
+    getApiBaseUrl().then((url) => {
+      clearTimeout(timeout);
+      dynamicApiBaseUrl = url;
+      resolve(url);
+      apiUrlPromise = null;
+    }).catch(() => {
+      clearTimeout(timeout);
+      dynamicApiBaseUrl = API_BASE_URL;
+      resolve(API_BASE_URL);
+      apiUrlPromise = null;
+    });
+  });
+
+  return apiUrlPromise;
+};
 
 // 初始化动态 API URL
 const initApiUrl = async () => {
-  if (!dynamicApiBaseUrl) {
-    dynamicApiBaseUrl = await getApiBaseUrl();
-  }
-  return dynamicApiBaseUrl;
+  return getApiUrlWithTimeout();
 };
 
 // 公共 fetch 辅助函数（用于不需要认证的请求）
 const publicFetch = async (url) => {
   const baseUrl = await initApiUrl();
-  const response = await fetch(`${baseUrl}${url}`);
+  const response = await fetchWithTimeout(`${baseUrl}${url}`, {}, 10000);
   return response.json();
 };
 
@@ -53,18 +84,37 @@ const getHeaders = (includeAuth = true) => {
   return headers;
 };
 
+// 带超时的fetch包装
+const fetchWithTimeout = (url, options = {}, timeout = 10000) => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`请求超时: ${url}`));
+    }, timeout);
+
+    fetch(url, options)
+      .then((response) => {
+        clearTimeout(timer);
+        resolve(response);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+};
+
 // 通用请求方法
 const request = async (url, options = {}) => {
   try {
     // 使用动态 API URL
     const baseUrl = await initApiUrl();
-    const response = await fetch(`${baseUrl}${url}`, {
+    const response = await fetchWithTimeout(`${baseUrl}${url}`, {
       ...options,
       headers: {
         ...getHeaders(options.includeAuth !== false),
         ...options.headers
       }
-    });
+    }, options.timeout || 10000);
     
     const data = await response.json();
     
@@ -213,9 +263,11 @@ export const api = {
     delete: (id) => request(`/wrong-questions/${id}`, {
       method: 'DELETE'
     }),
+    // 后端可能调用硅基流动生成提示，默认 10s 易超时导致前端误用简陋兜底文案
     getHints: (data) => request('/wrong-questions/hints', {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
+      timeout: 55000
     })
   },
 
@@ -288,9 +340,9 @@ export const api = {
       body: JSON.stringify({ theme, genre })
     }),
     // 结构引导 - 获取写作结构提示
-    getStructureGuide: (genre, theme) => request('/creation/structure/guide', {
+    getStructureGuide: (params) => request('/creation/structure/guide', {
       method: 'POST',
-      body: JSON.stringify({ genre, theme })
+      body: JSON.stringify(params)
     }),
     // AI生成完整诗词
     generatePoem: (params) => request('/creation/generate', {
@@ -343,6 +395,11 @@ export const api = {
     generateImage: (params) => request('/creation/assist/generate-image', {
       method: 'POST',
       body: JSON.stringify(params)
+    }),
+    // AI润色诗词
+    polishPoem: (params) => request('/creation/polish', {
+      method: 'POST',
+      body: JSON.stringify(params)
     })
   },
 
@@ -368,10 +425,55 @@ export const api = {
 
   // 个性化推荐相关
   personalized: {
-    getData: () => request('/personalized'),
-    getReviewRecommendations: () => request('/personalized/review'),
-    getLearnRecommendations: () => request('/personalized/learn'),
-    getAIAnalysis: () => request('/personalized/analysis')
+    getData: () => request('/personalized', { timeout: 60000 }),
+    getReviewRecommendations: () => request('/personalized/review', { timeout: 20000 }),
+    getLearnRecommendations: () => request('/personalized/learn', { timeout: 20000 }),
+    getAIAnalysis: () => request('/personalized/analysis', { timeout: 60000 })
+  },
+
+  // 个人中心相关
+  profile: {
+    getBackground: () => request('/profile/background'),
+    getStats: () => request('/profile/stats'),
+    getActivityData: () => request('/profile/activity'),
+    getAchievements: () => request('/profile/achievements')
+  },
+
+  // 飞花令·问鼎天下游戏相关
+  feihualingGame: {
+    // 获取游戏数据
+    getGameData: () => request('/feihualing-game/game-data'),
+    // 获取地图
+    getMap: (params) => request(`/feihualing-game/map?position=${params?.position || 0}&difficulty=${params?.difficulty || 1}`),
+    // 掷骰子
+    rollDice: (data) => request('/feihualing-game/roll-dice', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    // 开始对战
+    startBattle: (data) => request('/feihualing-game/battle/start', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    // 提交对战结果
+    submitBattle: (data) => request('/feihualing-game/battle/submit', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    // 获取声望等级
+    getPrestigeLevels: () => request('/feihualing-game/prestige-levels'),
+    // 获取成就
+    getAchievements: () => request('/feihualing-game/achievements'),
+    // 获取对战历史
+    getBattleHistory: (limit) => request(`/feihualing-game/battle-history?limit=${limit || 10}`),
+    // 获取统计
+    getStats: () => request('/feihualing-game/stats'),
+    // 获取角色列表
+    getCharacters: () => request('/feihualing-game/characters'),
+    // 获取诗句库
+    getPoems: (difficulty) => request(`/feihualing-game/poems?difficulty=${difficulty || 1}`),
+    // 获取收藏诗句
+    getCollectedPoems: () => request('/feihualing-game/collected-poems')
   }
 };
 

@@ -266,9 +266,12 @@ export default {
       const lastLine = chainLines.value.length > 0
         ? chainLines.value[chainLines.value.length - 1].text
         : '';
+      
+      const allLinesText = chainLines.value.map(l => l.text);
 
       emit('submit', {
         userLine: lastLine,
+        allLines: allLinesText,
         genre: selectedGenre.value,
         theme: chainTheme.value,
         lineNumber: currentLineNumber.value

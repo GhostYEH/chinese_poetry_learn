@@ -1,70 +1,129 @@
 <template>
-  <div class="feihualing-multiplayer">
-    <div class="multiplayer-header">
-      <h1 class="page-title">飞花令 - 联机对战</h1>
-      <router-link to="/feihualing/single" class="back-link">← 单人模式</router-link>
+  <div class="feihualing-multiplayer" :class="{ 'in-game': currentRoom }">
+    <!-- 背景效果 -->
+    <div class="profile-background" :style="bgStyleInline">
+      <div class="bg-skeleton"></div>
+      <img
+        v-if="backgroundUrl"
+        :src="backgroundUrl"
+        class="bg-image"
+        :class="{ 'bg-image-visible': bgLoaded }"
+        @load="onBgLoad"
+        @error="onBgError"
+        alt="背景"
+      />
+      <div class="bg-overlay"></div>
+      <div class="bg-particle" v-for="n in 30" :key="n" :style="getParticleStyle(n)"></div>
     </div>
 
-    <div v-if="!currentRoom" class="lobby">
-      <div class="online-users-section">
-        <h2 class="section-title">在线玩家</h2>
-        <div v-if="loading" class="loading-state">
-          <div class="loading-spinner"></div>
-          <p>加载中...</p>
+    <!-- 大厅容器 -->
+    <div v-if="!currentRoom" class="lobby-container">
+      <div class="lobby-header">
+        <h1 class="page-title">飞花令 - 联机对战</h1>
+        <div class="lobby-actions">
+          <router-link to="/feihualing/single" class="mode-link">
+            <span class="link-icon">🌺</span>
+            单人练习
+          </router-link>
         </div>
-        <div v-else-if="onlineUsers.length === 0" class="empty-users">
-          <p>暂无在线玩家</p>
-          <p class="hint">邀请好友一起来玩吧！</p>
+      </div>
+
+      <div class="lobby-content">
+        <div class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <span class="title-icon">👥</span>
+              在线玩家
+            </h2>
+            <span class="online-count">{{ onlineUsers.length }} 人在线</span>
+          </div>
+          <div v-if="loading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <p>加载中...</p>
+          </div>
+          <div v-else-if="onlineUsers.length === 0" class="empty-state">
+            <div class="empty-icon">🌸</div>
+            <p>暂无在线玩家</p>
+            <p class="hint">邀请好友一起来玩吧！</p>
+          </div>
+          <div v-else class="users-list">
+            <div 
+              v-for="user in onlineUsers" 
+              :key="user.userId"
+              class="user-item"
+              :class="{ 'in-game': user.inGame }"
+              @click="inviteUser(user)"
+            >
+              <span class="user-avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
+              <div class="user-info">
+                <span class="user-name">{{ user.username }}</span>
+                <span class="status-badge" :class="user.inGame ? 'gaming' : 'online'">
+                  {{ user.inGame ? '游戏中' : '在线' }}
+                </span>
+              </div>
+              <div class="user-action">
+                <span v-if="user.inGame" class="action-disabled">进行中</span>
+                <span v-else class="action-invite">邀请对战</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div v-else class="users-list">
-          <div 
-            v-for="user in onlineUsers" 
-            :key="user.userId"
-            class="user-item"
-            :class="{ 'in-game': user.inGame }"
-            @click="inviteUser(user)"
-          >
-            <span class="user-avatar">{{ user.username.charAt(0).toUpperCase() }}</span>
-            <span class="user-name">{{ user.username }}</span>
-            <span v-if="user.inGame" class="in-game-badge">游戏中</span>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">
+              <span class="title-icon">📜</span>
+              最近战绩
+            </h2>
+          </div>
+          <div v-if="historyLoading" class="loading-state small">
+            <div class="loading-spinner small"></div>
+          </div>
+          <div v-else-if="gameHistory.length === 0" class="empty-state">
+            <div class="empty-icon">🎮</div>
+            <p>暂无对战记录</p>
+          </div>
+          <div v-else class="history-list">
+            <div v-for="record in gameHistory" :key="record.id" class="history-item">
+              <div class="history-info">
+                <span class="history-players">{{ record.player1 }} VS {{ record.player2 }}</span>
+              </div>
+              <span class="history-result" :class="getResultClass(record)">
+                {{ record.winner ? (record.winner === currentUsername ? '胜利' : '失败') : '平局' }}
+              </span>
+              <span class="history-date">{{ formatDate(record.date) }}</span>
+            </div>
           </div>
         </div>
       </div>
-
-      <div class="game-history-section">
-        <h2 class="section-title">最近战绩</h2>
-        <div v-if="historyLoading" class="loading-state">
-          <div class="loading-spinner small"></div>
-        </div>
-        <div v-else-if="gameHistory.length === 0" class="empty-history">
-          <p>暂无对战记录</p>
-        </div>
-        <div v-else class="history-list">
-          <div v-for="record in gameHistory" :key="record.id" class="history-item">
-            <span class="history-players">{{ record.player1 }} VS {{ record.player2 }}</span>
-            <span class="history-result" :class="getResultClass(record)">
-              {{ record.winner ? (record.winner === currentUsername ? '胜利' : '失败') : '平局' }}
-            </span>
-            <span class="history-date">{{ formatDate(record.date) }}</span>
-          </div>
-        </div>
-      </div>
     </div>
 
-    <div v-else class="game-room">
-      <div class="room-header">
-        <div class="room-info">
-          <span class="keyword-badge">{{ currentRoom.keyword }}</span>
-          <span class="room-rounds">第 {{ displayRound }} 回合</span>
+    <!-- 游戏房间 -->
+    <div v-else class="game-room-fullscreen">
+      <div class="game-hud">
+        <div class="hud-left">
+          <div class="keyword-display">
+            <span class="keyword-label">关键字</span>
+            <span class="keyword-char">{{ currentRoom.keyword }}</span>
+          </div>
         </div>
-        <div class="timer-display" :class="{ 'warning': remainingTime <= 10, 'danger': remainingTime <= 5 }">
-          <span class="timer-icon">⏱️</span>
-          <span class="timer-value">{{ remainingTime }}秒</span>
+        <div class="hud-center">
+          <div class="round-display">
+            <span class="round-label">第</span>
+            <span class="round-num">{{ displayRound }}</span>
+            <span class="round-label">回合</span>
+          </div>
         </div>
-        <button class="leave-btn" @click="leaveGame" :disabled="isSubmitting">离开</button>
+        <div class="hud-right">
+          <div class="timer-display" :class="{ 'warning': remainingTime <= 10, 'danger': remainingTime <= 5 }">
+            <span class="timer-icon">⏱️</span>
+            <span class="timer-value">{{ remainingTime }}秒</span>
+          </div>
+          <button class="leave-btn" @click="leaveGame" :disabled="isSubmitting">离开</button>
+        </div>
       </div>
 
-      <div class="players-display">
+      <div class="players-section">
         <div 
           v-for="(player, index) in currentRoom.players" 
           :key="playerId(player) || index"
@@ -75,21 +134,29 @@
             'disconnected': player.disconnected
           }"
         >
-          <div class="player-avatar">{{ player.username.charAt(0).toUpperCase() }}</div>
-          <div class="player-name">{{ player.username }}</div>
+          <div class="player-avatar-lg">{{ player.username.charAt(0).toUpperCase() }}</div>
+          <div class="player-details">
+            <span class="player-name">{{ player.username }}</span>
+            <span v-if="playerId(player) === currentUserId" class="me-badge">我</span>
+          </div>
           <div v-if="player.disconnected" class="disconnect-indicator">
-            <span class="disconnect-icon">⚠️</span>
-            断线中...
+            ⚠️ 断线中...
           </div>
           <div v-else-if="index === currentRoom.currentTurn" class="turn-indicator">
-            <span class="pulse-dot"></span>
+            <span class="pulse-ring"></span>
             思考中
+          </div>
+          <div v-else class="waiting-indicator">
+            等待中
           </div>
         </div>
       </div>
 
-      <div class="used-poems">
-        <h3>已用诗句 ({{ currentRoom.usedPoems.length }})</h3>
+      <div class="poems-display">
+        <div class="poems-header">
+          <h3>已用诗句</h3>
+          <span class="poems-count">{{ currentRoom.usedPoems.length }} 句</span>
+        </div>
         <div class="poems-scroll">
           <span 
             v-for="(poem, index) in currentRoom.usedPoems" 
@@ -102,66 +169,73 @@
         </div>
       </div>
 
-      <div v-if="isValidating" class="validating-overlay">
-        <div class="validating-content">
+      <div class="input-section">
+        <div v-if="isValidating" class="validating-overlay">
           <div class="validating-spinner"></div>
           <p>正在验证诗句...</p>
         </div>
-      </div>
-
-      <div v-else-if="isMyTurn" class="answer-input-area">
-        <input
-          v-model="answerInput"
-          type="text"
-          class="answer-input"
-          :placeholder="`请输入包含「${currentRoom.keyword}」字的诗句...`"
-          @keyup.enter="submitAnswer"
-          :disabled="isSubmitting"
-          ref="answerInputRef"
-        />
-        <button 
-          class="submit-btn"
-          @click="submitAnswer"
-          :disabled="isSubmitting || !answerInput.trim()"
-        >
-          <span v-if="isSubmitting" class="btn-loading"></span>
-          {{ isSubmitting ? '提交中...' : '提交' }}
-        </button>
-      </div>
-      <div v-else class="waiting-area">
-        <p>等待对方回答...</p>
-        <p class="waiting-hint">请准备好你的诗句</p>
+        <div v-else-if="isMyTurn" class="answer-area">
+          <input
+            v-model="answerInput"
+            type="text"
+            class="poem-input"
+            :placeholder="`请输入包含「${currentRoom.keyword}」字的诗句...`"
+            @keyup.enter="submitAnswer"
+            :disabled="isSubmitting"
+            ref="answerInputRef"
+          />
+          <button 
+            class="submit-btn"
+            @click="submitAnswer"
+            :disabled="isSubmitting || !answerInput.trim()"
+          >
+            <span v-if="isSubmitting" class="btn-loading"></span>
+            {{ isSubmitting ? '提交中...' : '提交' }}
+          </button>
+        </div>
+        <div v-else class="waiting-area">
+          <div class="waiting-icon">⏳</div>
+          <p>等待对方回答...</p>
+          <p class="waiting-hint">请准备好你的诗句</p>
+        </div>
       </div>
     </div>
 
     <div v-if="showInvitationModal" class="modal-overlay" @click.self="closeInvitationModal">
-      <div class="modal-content">
+      <div class="modal-card">
         <div class="modal-header">
-          <h3>🎮 游戏邀请</h3>
+          <div class="modal-icon">🎮</div>
+          <h3>游戏邀请</h3>
         </div>
         <div class="modal-body">
           <p><strong>{{ invitationFrom?.username }}</strong> 邀请你进行飞花令对战</p>
-          <p class="invitation-hint">准备好接受挑战了吗？</p>
+          <p class="invitation-detail">关键字：<span class="keyword-highlight">{{ invitationKeyword }}</span></p>
+          <p class="invitation-detail">准备好接受挑战了吗？</p>
         </div>
-        <div class="modal-footer">
-          <button class="modal-btn decline-btn" @click="declineInvitation">拒绝</button>
-          <button class="modal-btn accept-btn" @click="acceptInvitation">接受挑战</button>
+        <div class="waiting-animation">
+          <div class="waiting-dots">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="modal-btn decline" @click="declineInvitation">拒绝</button>
+          <button class="modal-btn accept" @click="acceptInvitation">接受挑战</button>
         </div>
       </div>
     </div>
 
     <div v-if="showGameEndModal" class="modal-overlay" @click.self="closeGameEndModal">
-      <div class="modal-content">
+      <div class="modal-card result-modal">
         <div class="modal-header">
+          <div class="modal-icon">{{ isWinnerMe ? '🎉' : '😢' }}</div>
           <h3>游戏结束</h3>
         </div>
         <div class="modal-body">
-          <div class="game-result" :class="{ 'win': isWinnerMe }">
-            <div class="result-icon">{{ isWinnerMe ? '🎉' : '😢' }}</div>
+          <div class="result-display" :class="{ 'win': isWinnerMe }">
             <p class="result-text">{{ isWinnerMe ? '恭喜你赢了！' : '对方获胜' }}</p>
             <p v-if="gameEndReason" class="result-reason">{{ gameEndReason }}</p>
           </div>
-          <div class="used-poems-summary">
+          <div class="poems-review">
             <h4>精彩回顾</h4>
             <div class="poems-list">
               <span v-for="(poem, index) in currentRoom?.usedPoems" :key="index" class="poem-item">
@@ -171,15 +245,16 @@
             </div>
           </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-actions">
           <button class="modal-btn primary" @click="backToLobby">返回大厅</button>
         </div>
       </div>
     </div>
 
     <div v-if="showWaitingModal" class="modal-overlay">
-      <div class="modal-content">
+      <div class="modal-card">
         <div class="modal-header">
+          <div class="modal-icon">⏳</div>
           <h3>等待对方响应</h3>
         </div>
         <div class="modal-body">
@@ -189,8 +264,9 @@
             </div>
           </div>
           <p>邀请已发送，等待对方接受...</p>
+          <p class="invitation-detail">关键字：<span class="keyword-highlight">{{ sentKeyword }}</span></p>
         </div>
-        <div class="modal-footer">
+        <div class="modal-actions">
           <button class="modal-btn" @click="cancelInvitation">取消邀请</button>
         </div>
       </div>
@@ -202,6 +278,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { io } from 'socket.io-client';
+import { getAvailableKeywords } from '@/data/feihuaPoems';
 
 export default {
   name: 'FeiHuaLingMultiplayer',
@@ -218,6 +295,8 @@ export default {
     const showGameEndModal = ref(false);
     const showWaitingModal = ref(false);
     const invitationFrom = ref(null);
+    const invitationKeyword = ref('花');
+    const sentKeyword = ref('花');
     const gameWinner = ref(null);
     const gameEndReason = ref('');
     const loading = ref(true);
@@ -225,9 +304,63 @@ export default {
     const remainingTime = ref(30);
     const answerInputRef = ref(null);
 
+    // ===== 本地倒计时管理 =====
+    const timerPaused = ref(false);
+    const localTimerInterval = ref(null);
+    const startLocalTimer = (initialSeconds) => {
+      stopLocalTimer();
+      remainingTime.value = initialSeconds || currentRoom.value?.turnTimeLimit || 30;
+      timerPaused.value = false;
+      localTimerInterval.value = setInterval(() => {
+        if (!timerPaused.value && remainingTime.value > 0) {
+          remainingTime.value -= 1;
+        }
+        if (remainingTime.value <= 0 && !timerPaused.value) {
+          stopLocalTimer();
+        }
+      }, 1000);
+    };
+    const stopLocalTimer = () => {
+      if (localTimerInterval.value) {
+        clearInterval(localTimerInterval.value);
+        localTimerInterval.value = null;
+      }
+    };
+    const pauseLocalTimer = () => { timerPaused.value = true; };
+    const resetLocalTimer = (seconds) => {
+      stopLocalTimer();
+      remainingTime.value = seconds || currentRoom.value?.turnTimeLimit || 30;
+      timerPaused.value = false;
+      startLocalTimer(remainingTime.value);
+    };
+
     const currentUser = ref(JSON.parse(localStorage.getItem('user') || '{}'));
     const currentUserId = ref(currentUser.value?.id?.toString());
     const currentUsername = ref(currentUser.value?.username);
+
+    // ===== 背景图 =====
+    const backgroundUrl = ref('');
+    const bgLoaded = ref(false);
+    const PROFILE_BACKGROUNDS = [
+      './profile-bg/1.jpg',
+      './profile-bg/2.jpg',
+      './profile-bg/3.jpg',
+      './profile-bg/4.jpg',
+    ];
+    const bgStyleInline = ref({});
+    const loadBackground = () => {
+      const randomIndex = Math.floor(Math.random() * PROFILE_BACKGROUNDS.length);
+      const chosen = PROFILE_BACKGROUNDS[randomIndex];
+      backgroundUrl.value = chosen;
+      bgStyleInline.value = {
+        backgroundImage: `url(${chosen})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      };
+    };
+    const onBgLoad = () => { bgLoaded.value = true; };
+    const onBgError = () => { bgLoaded.value = true; };
 
     /** 兼容服务端下发的 id / userId */
     const playerId = (p) => (p && (p.id ?? p.userId) != null ? String(p.id ?? p.userId) : '');
@@ -271,6 +404,27 @@ export default {
       }
     });
 
+    const getParticleStyle = (n) => {
+      const random = (min, max) => Math.random() * (max - min) + min
+      return {
+        left: random(0, 100) + '%',
+        top: random(0, 100) + '%',
+        animationDelay: random(0, 8) + 's',
+        animationDuration: random(6, 16) + 's',
+        width: random(3, 8) + 'px',
+        height: random(3, 8) + 'px',
+        opacity: random(0.08, 0.35),
+      }
+    };
+
+    const getPetalStyle = (i) => ({
+      left: `${Math.random() * 100}%`,
+      animationDelay: `${Math.random() * 10}s`,
+      animationDuration: `${8 + Math.random() * 8}s`,
+      fontSize: `${10 + Math.random() * 12}px`,
+      opacity: 0.15 + Math.random() * 0.25
+    });
+
     const connectSocket = () => {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -298,11 +452,13 @@ export default {
 
       socket.value.on('receive-invitation', (data) => {
         invitationFrom.value = data.from;
+        invitationKeyword.value = data.keyword || '花';
         showInvitationModal.value = true;
       });
 
-      socket.value.on('invitation-sent', () => {
+      socket.value.on('invitation-sent', (data) => {
         showWaitingModal.value = true;
+        sentKeyword.value = data.keyword || '花';
       });
 
       socket.value.on('invitation-rejected', () => {
@@ -314,11 +470,12 @@ export default {
         showWaitingModal.value = false;
         showInvitationModal.value = false;
         currentRoom.value = data.room;
-        remainingTime.value = data.room.turnTimeLimit || 30;
+        startLocalTimer(data.room.turnTimeLimit || 30);
       });
 
       socket.value.on('validating', () => {
         isValidating.value = true;
+        pauseLocalTimer();
       });
 
       socket.value.on('poem-submitted', (data) => {
@@ -338,7 +495,10 @@ export default {
         if (Array.isArray(data.usedPoems)) {
           currentRoom.value.usedPoems = data.usedPoems;
         }
-        remainingTime.value = currentRoom.value.turnTimeLimit || 30;
+        // 判题完成后恢复倒计时
+        if (data.isCorrect !== false) {
+          resetLocalTimer(currentRoom.value?.turnTimeLimit || 30);
+        }
       });
 
       socket.value.on('timer-tick', (data) => {
@@ -354,6 +514,14 @@ export default {
         }
       });
 
+      socket.value.on('timer-pause', () => {
+        pauseLocalTimer();
+      });
+
+      socket.value.on('timer-resume', () => {
+        timerPaused.value = false;
+      });
+
       socket.value.on('question-thrown', (data) => {
         if (!currentRoom.value) return;
         if (Array.isArray(data.players)) {
@@ -366,7 +534,7 @@ export default {
           const me = currentRoom.value.players.find(p => playerId(p) === currentUserId.value);
           if (me) me.remainingThrows = data.remainingThrows;
         }
-        remainingTime.value = currentRoom.value.turnTimeLimit || 30;
+        resetLocalTimer(currentRoom.value?.turnTimeLimit || 30);
       });
 
       socket.value.on('invitation-cancelled', () => {
@@ -374,6 +542,7 @@ export default {
       });
 
       socket.value.on('game-result', (data) => {
+        stopLocalTimer();
         gameWinner.value = data.winner;
         gameEndReason.value = data.reason || '';
         showGameEndModal.value = true;
@@ -533,11 +702,14 @@ export default {
     };
 
     onMounted(() => {
+      bgLoaded.value = true;
+      loadBackground();
       connectSocket();
       loadGameHistory();
     });
 
     onUnmounted(() => {
+      stopLocalTimer();
       if (socket.value) {
         socket.value.disconnect();
         socket.value = null;
@@ -545,6 +717,11 @@ export default {
     });
 
     return {
+      bgLoaded,
+      backgroundUrl,
+      bgStyleInline,
+      getParticleStyle,
+      getPetalStyle,
       onlineUsers,
       gameHistory,
       currentRoom,
@@ -555,6 +732,8 @@ export default {
       showGameEndModal,
       showWaitingModal,
       invitationFrom,
+      invitationKeyword,
+      sentKeyword,
       gameWinner,
       gameEndReason,
       currentUserId,
@@ -585,270 +764,405 @@ export default {
 </script>
 
 <style scoped>
+/* ===== 全屏布局基础 ===== */
 .feihualing-multiplayer {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 30px 20px;
   min-height: 100vh;
-  background: linear-gradient(135deg, rgba(205, 133, 63, 0.05) 0%, rgba(139, 69, 19, 0.1) 100%);
-  position: relative;
+  min-height: 100dvh;
+  width: 100vw;
+  min-width: 100vw;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 50%, #0a1a2a 100%);
+  z-index: 999;
 }
 
-.multiplayer-header {
+.feihualing-multiplayer.in-game {
+  background: linear-gradient(135deg, #0d1b2a 0%, #1b263b 50%, #415a77 100%);
+}
+
+/* ===== 背景效果 ===== */
+.profile-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  overflow: hidden;
+  background: linear-gradient(135deg, #0d0b1a 0%, #1a1035 30%, #0f0c2e 60%, #150d2a 100%);
+}
+
+.bg-skeleton {
+  position: absolute;
+  inset: 0;
+  background: inherit;
+  filter: blur(8px);
+  transform: scale(1.05);
+  transition: opacity 0.6s ease;
+}
+
+.profile-background:has(.bg-image-visible) .bg-skeleton {
+  opacity: 0;
+}
+
+.bg-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.bg-image-visible {
+  opacity: 1;
+}
+
+.bg-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.1) 0%,
+    rgba(0, 0, 0, 0.3) 50%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.bg-particle {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 180, 255, 0.4), transparent);
+  animation: floatParticle linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes floatParticle {
+  0% { transform: translateY(0) translateX(0) scale(1); opacity: 0; }
+  10% { opacity: 1; }
+  50% { transform: translateY(-30vh) translateX(15vw) scale(1.3); opacity: 0.6; }
+  90% { opacity: 0.3; }
+  100% { transform: translateY(-60vh) translateX(-10vw) scale(0.8); opacity: 0; }
+}
+
+/* ===== 大厅容器 ===== */
+.lobby-container {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  padding: 40px 48px;
+}
+
+.lobby-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 40px;
+  margin-bottom: 48px;
 }
 
 .page-title {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #8b4513;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', serif;
+  color: #f4d03f;
   margin: 0;
-  font-size: 32px;
+  font-size: 36px;
   font-weight: bold;
+  text-shadow: 0 0 20px rgba(244, 208, 63, 0.3);
 }
 
-.back-link {
-  padding: 10px 20px;
-  background: rgba(255, 252, 240, 0.85);
-  border: 1px solid rgba(205, 133, 63, 0.3);
+.lobby-actions { display: flex; gap: 16px; }
+
+.mode-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 20px;
-  color: #8b4513;
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
   text-decoration: none;
   transition: all 0.3s ease;
+  backdrop-filter: blur(12px);
 }
 
-.back-link:hover {
-  background: rgba(255, 252, 240, 0.95);
-  border-color: rgba(205, 133, 63, 0.5);
+.mode-link:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-2px);
 }
 
-.lobby {
+.link-icon { font-size: 18px; }
+
+.lobby-content {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 30px;
+  gap: 40px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-.online-users-section,
-.game-history-section {
-  background: rgba(255, 252, 240, 0.9);
-  border: 1px solid rgba(205, 133, 63, 0.25);
+.panel {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 24px;
-  padding: 30px;
-  box-shadow: 0 8px 32px rgba(139, 69, 19, 0.15);
+  padding: 32px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
-.section-title {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #8b4513;
-  margin: 0 0 24px 0;
-  font-size: 24px;
-  font-weight: bold;
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'Noto Serif SC', serif;
+  color: #fff;
+  margin: 0;
+  font-size: 22px;
+}
+
+.title-icon { font-size: 24px; }
+
+.online-count {
+  padding: 6px 16px;
+  background: rgba(74, 222, 128, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 20px;
+  color: #4ade80;
+  font-size: 13px;
 }
 
 .loading-state {
   text-align: center;
-  padding: 40px 20px;
-  color: #a0522d;
+  padding: 48px 24px;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(139, 69, 19, 0.2);
-  border-top: 3px solid #8b4513;
+  border: 3px solid rgba(168, 85, 247, 0.2);
+  border-top-color: #a855f7;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 15px;
+  margin: 0 auto 16px;
 }
 
-.loading-spinner.small {
-  width: 24px;
-  height: 24px;
-  border-width: 2px;
+.loading-spinner.small { width: 24px; height: 24px; border-width: 2px; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-state { text-align: center; padding: 48px 24px; }
+.empty-icon { font-size: 48px; margin-bottom: 16px; }
+
+.empty-state p {
+  font-family: 'Noto Serif SC', serif;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0 0 8px 0;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
+.empty-state .hint { font-size: 14px; opacity: 0.7; }
 
-.empty-users, .empty-history {
-  text-align: center;
-  padding: 40px 20px;
-  color: #a0522d;
-}
-
-.hint {
-  font-size: 14px;
-  opacity: 0.7;
-  margin-top: 10px;
-}
-
-.users-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.users-list { display: flex; flex-direction: column; gap: 12px; }
 
 .user-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   padding: 16px 20px;
-  background: rgba(205, 133, 63, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.3s ease;
-  border: 1px solid transparent;
 }
 
 .user-item:hover:not(.in-game) {
-  background: rgba(205, 133, 63, 0.2);
-  border-color: rgba(205, 133, 63, 0.4);
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.3);
   transform: translateY(-2px);
 }
 
-.user-item.in-game {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+.user-item.in-game { opacity: 0.5; cursor: not-allowed; }
 
 .user-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #cd853f, #8b4513);
+  background: linear-gradient(135deg, #a855f7, #6366f1);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: bold;
 }
 
+.user-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+
 .user-name {
-  flex: 1;
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 16px;
-  color: #5c4033;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 17px;
+  color: #fff;
 }
 
-.in-game-badge {
-  padding: 4px 12px;
-  background: rgba(205, 133, 63, 0.2);
-  color: #8b4513;
-  border-radius: 12px;
+.status-badge {
   font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  width: fit-content;
 }
 
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.status-badge.online {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
 }
+
+.status-badge.gaming {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.user-action { font-size: 13px; font-family: 'Noto Serif SC', serif; }
+
+.action-invite {
+  padding: 6px 16px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(99, 102, 241, 0.4));
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  border-radius: 10px;
+  color: #a855f7;
+}
+
+.action-disabled { color: rgba(255, 255, 255, 0.4); }
+
+.history-list { display: flex; flex-direction: column; gap: 12px; }
 
 .history-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 14px 18px;
-  background: rgba(205, 133, 63, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  border: 1px solid rgba(205, 133, 63, 0.15);
 }
 
+.history-info { display: flex; align-items: center; gap: 12px; }
+
 .history-players {
-  font-family: 'SimSun', 'STSong', serif;
+  font-family: 'Noto Serif SC', serif;
   font-size: 14px;
-  color: #5c4033;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .history-result {
   padding: 4px 12px;
   border-radius: 10px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: bold;
 }
 
 .history-result.win {
-  background: rgba(50, 205, 50, 0.2);
-  color: #228b22;
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
 }
 
 .history-result.lose {
-  background: rgba(220, 20, 60, 0.2);
-  color: #dc143c;
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
 }
 
-.history-date {
-  font-size: 12px;
-  color: #a0522d;
-}
+.history-date { font-size: 12px; color: rgba(255, 255, 255, 0.5); }
 
-.game-room {
+/* ===== 游戏房间全屏布局 ===== */
+.game-room-fullscreen {
   position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-.room-header {
+/* ===== 游戏顶部HUD ===== */
+.game-hud {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
-  padding: 20px 30px;
-  background: rgba(255, 252, 240, 0.9);
-  border: 1px solid rgba(205, 133, 63, 0.25);
-  border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(139, 69, 19, 0.15);
+  padding: 24px 48px;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.room-info {
+.hud-left, .hud-center, .hud-right {
   display: flex;
-  gap: 16px;
   align-items: center;
+  gap: 20px;
 }
 
-.keyword-badge {
-  padding: 8px 24px;
-  background: linear-gradient(135deg, #8b4513, #a0522d);
-  color: white;
-  border-radius: 24px;
+.keyword-display { display: flex; align-items: center; gap: 12px; }
+
+.keyword-label {
+  padding: 6px 16px;
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 10px;
+  color: #a855f7;
+  font-size: 13px;
+  font-family: 'Noto Serif SC', serif;
+}
+
+.keyword-char {
+  font-size: 36px;
   font-weight: bold;
-  font-size: 20px;
-  box-shadow: 0 4px 16px rgba(139, 69, 19, 0.3);
+  color: #f4d03f;
+  font-family: 'Noto Serif SC', serif;
+  text-shadow: 0 0 20px rgba(244, 208, 63, 0.5);
 }
 
-.room-rounds {
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 16px;
-  color: #8b4513;
-}
+.round-display { display: flex; align-items: baseline; gap: 6px; }
+.round-label { font-size: 14px; color: rgba(255, 255, 255, 0.6); }
+.round-num { font-size: 28px; font-weight: bold; color: #a855f7; }
 
 .timer-display {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: rgba(205, 133, 63, 0.15);
-  border-radius: 20px;
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 18px;
-  color: #8b4513;
+  gap: 10px;
+  padding: 12px 24px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 16px;
+  font-size: 24px;
+  color: #a855f7;
   transition: all 0.3s ease;
 }
 
 .timer-display.warning {
-  background: rgba(255, 165, 0, 0.2);
-  color: #ff8c00;
+  background: rgba(251, 191, 36, 0.15);
+  border-color: rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
 }
 
 .timer-display.danger {
-  background: rgba(220, 20, 60, 0.2);
-  color: #dc143c;
+  background: rgba(248, 113, 113, 0.15);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #f87171;
   animation: pulse-danger 0.5s ease-in-out infinite;
 }
 
@@ -857,260 +1171,296 @@ export default {
   50% { transform: scale(1.05); }
 }
 
+.timer-icon { font-size: 22px; }
+.timer-value { font-weight: bold; font-family: 'Noto Serif SC', serif; }
+
 .leave-btn {
-  padding: 10px 24px;
-  background: rgba(220, 20, 60, 0.2);
-  color: #dc143c;
-  border: 1px solid rgba(220, 20, 60, 0.3);
-  border-radius: 14px;
-  font-size: 15px;
+  padding: 12px 24px;
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 12px;
+  color: #fca5a5;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.3s ease;
+  font-family: 'Noto Serif SC', serif;
 }
 
-.leave-btn:hover:not(:disabled) {
-  background: rgba(220, 20, 60, 0.3);
-}
+.leave-btn:hover:not(:disabled) { background: rgba(248, 113, 113, 0.25); }
+.leave-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.leave-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.players-display {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  margin-bottom: 30px;
+/* ===== 玩家区域 ===== */
+.players-section {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 80px;
+  padding: 60px 48px;
 }
 
 .player-card {
-  background: rgba(255, 252, 240, 0.9);
-  border: 2px solid rgba(205, 133, 63, 0.25);
-  border-radius: 20px;
-  padding: 30px;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 48px 64px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 32px;
   transition: all 0.3s ease;
-  box-shadow: 0 8px 32px rgba(139, 69, 19, 0.15);
+  min-width: 280px;
 }
 
 .player-card.current-turn {
-  border-color: #cd853f;
-  box-shadow: 0 8px 32px rgba(205, 133, 63, 0.3);
-  animation: current-turn-pulse 2s ease-in-out infinite;
+  border-color: #a855f7;
+  box-shadow: 0 0 40px rgba(168, 85, 247, 0.3);
+  animation: current-turn-glow 2s ease-in-out infinite;
+}
+
+@keyframes current-turn-glow {
+  0%, 100% { box-shadow: 0 0 40px rgba(168, 85, 247, 0.3); }
+  50% { box-shadow: 0 0 60px rgba(168, 85, 247, 0.5); }
 }
 
 .player-card.is-me {
-  background: linear-gradient(135deg, rgba(50, 205, 50, 0.1), rgba(255, 252, 240, 0.9));
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.1), rgba(255, 255, 255, 0.08));
 }
 
 .player-card.disconnected {
   opacity: 0.6;
-  border-color: #dc143c;
+  border-color: rgba(248, 113, 113, 0.5);
 }
 
-@keyframes current-turn-pulse {
-  0%, 100% { box-shadow: 0 8px 32px rgba(205, 133, 63, 0.3); }
-  50% { box-shadow: 0 12px 48px rgba(205, 133, 63, 0.4); }
-}
-
-.player-avatar {
-  width: 80px;
-  height: 80px;
+.player-avatar-lg {
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #cd853f, #8b4513);
+  background: linear-gradient(135deg, #a855f7, #6366f1);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 36px;
+  font-size: 48px;
   font-weight: bold;
-  margin: 0 auto 16px;
+  box-shadow: 0 8px 32px rgba(168, 85, 247, 0.4);
 }
+
+.player-card.current-turn .player-avatar-lg {
+  animation: avatar-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes avatar-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.player-details { display: flex; align-items: center; gap: 10px; }
 
 .player-name {
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 20px;
-  color: #5c4033;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 24px;
+  color: #fff;
   font-weight: bold;
 }
 
-.turn-indicator, .disconnect-indicator {
-  margin-top: 12px;
+.me-badge {
+  padding: 4px 12px;
+  background: rgba(74, 222, 128, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 10px;
+  color: #4ade80;
+  font-size: 12px;
+}
+
+.turn-indicator, .waiting-indicator, .disconnect-indicator {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 10px;
+  font-size: 16px;
+  font-family: 'Noto Serif SC', serif;
+  padding: 10px 20px;
+  border-radius: 12px;
 }
 
 .turn-indicator {
-  color: #cd853f;
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
+}
+
+.pulse-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #a855f7;
+  animation: pulse-ring 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+.waiting-indicator {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .disconnect-indicator {
-  color: #dc143c;
+  background: rgba(248, 113, 113, 0.15);
+  color: #fca5a5;
 }
 
-.pulse-dot {
-  width: 10px;
-  height: 10px;
-  background: #cd853f;
-  border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
+/* ===== 已用诗句展示 ===== */
+.poems-display {
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px 48px;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.2); }
+.poems-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
 }
 
-.used-poems {
-  background: rgba(255, 252, 240, 0.9);
-  border: 1px solid rgba(205, 133, 63, 0.25);
-  border-radius: 20px;
-  padding: 24px 30px;
-  margin-bottom: 30px;
-  box-shadow: 0 8px 32px rgba(139, 69, 19, 0.15);
+.poems-header h3 {
+  font-family: 'Noto Serif SC', serif;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  font-size: 16px;
 }
 
-.used-poems h3 {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #8b4513;
-  margin: 0 0 16px 0;
-  font-size: 18px;
+.poems-count {
+  padding: 4px 12px;
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 10px;
+  color: #a855f7;
+  font-size: 13px;
 }
 
 .poems-scroll {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  max-height: 150px;
+  max-height: 100px;
   overflow-y: auto;
 }
 
 .used-poem {
   padding: 6px 14px;
-  background: rgba(205, 133, 63, 0.15);
-  color: #8b4513;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  color: #c084fc;
   border-radius: 16px;
   font-size: 14px;
-  white-space: nowrap;
+  font-family: 'Noto Serif SC', serif;
 }
 
 .no-poems {
-  color: #a0522d;
-  opacity: 0.6;
+  color: rgba(255, 255, 255, 0.4);
   font-size: 14px;
+  font-family: 'Noto Serif SC', serif;
+}
+
+/* ===== 输入区域 ===== */
+.input-section {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px 48px;
 }
 
 .validating-overlay {
-  text-align: center;
-  padding: 40px;
-  background: rgba(255, 252, 240, 0.95);
-  border-radius: 16px;
-  border: 1px solid rgba(205, 133, 63, 0.25);
-}
-
-.validating-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 15px;
+  gap: 16px;
+  padding: 32px;
+}
+
+.validating-overlay p {
+  font-family: 'Noto Serif SC', serif;
+  color: #a855f7;
+  margin: 0;
 }
 
 .validating-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(139, 69, 19, 0.2);
-  border-top: 3px solid #8b4513;
+  border: 3px solid rgba(168, 85, 247, 0.2);
+  border-top-color: #a855f7;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
 
-.answer-input-area {
+.answer-area {
   display: flex;
-  gap: 12px;
+  gap: 16px;
+  max-width: 800px;
+  margin: 0 auto;
 }
 
-.answer-input {
+.poem-input {
   flex: 1;
-  padding: 16px 24px;
-  background: rgba(255, 252, 240, 0.9);
-  border: 2px solid rgba(205, 133, 63, 0.35);
+  padding: 18px 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(168, 85, 247, 0.3);
   border-radius: 16px;
-  font-size: 18px;
+  font-size: 20px;
+  font-family: 'Noto Serif SC', serif;
+  color: #fff;
   outline: none;
   transition: all 0.3s ease;
 }
 
-.answer-input:focus {
-  border-color: #cd853f;
-  box-shadow: 0 0 0 3px rgba(205, 133, 63, 0.15);
+.poem-input:focus {
+  border-color: #a855f7;
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
 }
 
-.answer-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+.poem-input::placeholder { color: rgba(255, 255, 255, 0.4); }
+.poem-input:disabled { opacity: 0.6; }
 
 .submit-btn {
-  padding: 16px 36px;
-  background: linear-gradient(135deg, #cd853f, #8b4513);
+  padding: 18px 40px;
+  background: linear-gradient(135deg, #a855f7, #6366f1);
   color: white;
   border: none;
   border-radius: 16px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: bold;
   cursor: pointer;
   transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 120px;
+  font-family: 'Noto Serif SC', serif;
 }
 
 .submit-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(139, 69, 19, 0.25);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.4);
 }
 
-.submit-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.waiting-area { text-align: center; padding: 32px; }
+.waiting-icon { font-size: 48px; margin-bottom: 16px; }
+
+.waiting-area p {
+  font-family: 'Noto Serif SC', serif;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0 0 8px 0;
 }
 
-.btn-loading {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top: 2px solid white;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
+.waiting-hint { font-size: 14px; color: rgba(255, 255, 255, 0.4); }
 
-.waiting-area {
-  text-align: center;
-  padding: 30px;
-  background: rgba(255, 252, 240, 0.9);
-  border-radius: 16px;
-  color: #a0522d;
-}
-
-.waiting-hint {
-  font-size: 14px;
-  opacity: 0.7;
-  margin-top: 8px;
-}
-
+/* ===== 模态框 ===== */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1118,14 +1468,14 @@ export default {
   backdrop-filter: blur(4px);
 }
 
-.modal-content {
-  background: rgba(255, 252, 240, 0.98);
-  border: 1px solid rgba(205, 133, 63, 0.3);
+.modal-card {
+  background: rgba(30, 30, 50, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
-  padding: 32px;
-  max-width: 500px;
+  padding: 40px;
+  max-width: 480px;
   width: 90%;
-  box-shadow: 0 20px 60px rgba(139, 69, 19, 0.3);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   animation: modal-appear 0.3s ease-out;
 }
 
@@ -1134,147 +1484,45 @@ export default {
   to { opacity: 1; transform: scale(1); }
 }
 
-.modal-header {
-  text-align: center;
-  margin-bottom: 24px;
-}
+.modal-header { text-align: center; margin-bottom: 28px; }
+.modal-icon { font-size: 48px; margin-bottom: 16px; }
 
 .modal-header h3 {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #8b4513;
+  font-family: 'Noto Serif SC', serif;
+  color: #fff;
   margin: 0;
   font-size: 24px;
 }
 
-.modal-body {
-  margin-bottom: 28px;
-  text-align: center;
-}
+.modal-body { text-align: center; margin-bottom: 28px; }
 
 .modal-body p {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #5c4033;
+  font-family: 'Noto Serif SC', serif;
+  color: rgba(255, 255, 255, 0.8);
   font-size: 16px;
-  margin: 0;
-}
-
-.invitation-hint {
-  font-size: 14px;
-  opacity: 0.7;
-  margin-top: 10px;
-}
-
-.modal-footer {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-}
-
-.modal-btn {
-  padding: 12px 32px;
-  border: 1px solid rgba(205, 133, 63, 0.35);
-  border-radius: 14px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  background: rgba(205, 133, 63, 0.15);
-  color: #8b4513;
-}
-
-.modal-btn:hover {
-  transform: translateY(-2px);
-}
-
-.modal-btn.primary {
-  background: linear-gradient(135deg, #cd853f, #8b4513);
-  color: white;
-  border: none;
-}
-
-.decline-btn:hover {
-  background: rgba(205, 133, 63, 0.25);
-}
-
-.accept-btn {
-  background: linear-gradient(135deg, rgba(50, 205, 50, 0.35), rgba(34, 139, 34, 0.3));
-  color: #228b22;
-  border-color: rgba(50, 205, 50, 0.4);
-}
-
-.accept-btn:hover {
-  background: linear-gradient(135deg, rgba(50, 205, 50, 0.45), rgba(34, 139, 34, 0.4));
-}
-
-.game-result {
-  text-align: center;
-  margin-bottom: 28px;
-}
-
-.game-result.win .result-text {
-  color: #32cd32;
-}
-
-.result-icon {
-  font-size: 72px;
-  margin-bottom: 16px;
-}
-
-.result-text {
-  font-size: 24px;
-  font-weight: bold;
   margin: 0 0 8px 0;
-  color: #dc143c;
 }
 
-.result-reason {
-  font-size: 14px;
-  color: #a0522d;
-  opacity: 0.8;
+.invitation-detail {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 14px !important;
 }
 
-.used-poems-summary {
-  margin-bottom: 20px;
+.keyword-highlight {
+  color: #f4d03f !important;
+  font-weight: bold;
+  font-size: 18px !important;
+  text-shadow: 0 0 10px rgba(244, 208, 63, 0.5);
 }
 
-.used-poems-summary h4 {
-  font-family: 'SimSun', 'STSong', serif;
-  color: #8b4513;
-  margin: 0 0 16px 0;
-  font-size: 18px;
-  text-align: center;
-}
+.waiting-animation { margin-bottom: 20px; }
 
-.poems-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.poem-item {
-  padding: 4px 12px;
-  background: rgba(205, 133, 63, 0.15);
-  color: #8b4513;
-  border-radius: 12px;
-  font-size: 13px;
-}
-
-.waiting-animation {
-  margin-bottom: 20px;
-}
-
-.waiting-dots {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-}
+.waiting-dots { display: flex; justify-content: center; gap: 8px; }
 
 .waiting-dots span {
   width: 12px;
   height: 12px;
-  background: #cd853f;
+  background: #a855f7;
   border-radius: 50%;
   animation: bounce 1.4s ease-in-out infinite;
 }
@@ -1288,10 +1536,107 @@ export default {
   40% { transform: scale(1); }
 }
 
-@media (max-width: 768px) {
-  .lobby { grid-template-columns: 1fr; }
-  .players-display { grid-template-columns: 1fr; }
-  .answer-input-area { flex-direction: column; }
+.modal-actions { display: flex; gap: 16px; justify-content: center; }
+
+.modal-btn {
+  padding: 14px 32px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  font-family: 'Noto Serif SC', serif;
+}
+
+.modal-btn:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.modal-btn.decline {
+  background: rgba(248, 113, 113, 0.15);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #fca5a5;
+}
+
+.modal-btn.decline:hover { background: rgba(248, 113, 113, 0.25); }
+
+.modal-btn.accept {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.3), rgba(34, 197, 94, 0.3));
+  border-color: rgba(74, 222, 128, 0.5);
+  color: #4ade80;
+}
+
+.modal-btn.accept:hover {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.4), rgba(34, 197, 94, 0.4));
+}
+
+.modal-btn.primary {
+  background: linear-gradient(135deg, #a855f7, #6366f1);
+  border: none;
+  color: white;
+}
+
+.result-modal { max-width: 520px; }
+.result-display { margin-bottom: 24px; }
+.result-display.win .result-text { color: #4ade80; }
+
+.result-icon { font-size: 72px; margin-bottom: 16px; }
+
+.result-text {
+  font-size: 26px;
+  font-weight: bold;
+  color: #f87171;
+  margin: 0 0 8px 0;
+  font-family: 'Noto Serif SC', serif;
+}
+
+.result-reason {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: 'Noto Serif SC', serif;
+}
+
+.poems-review h4 {
+  font-family: 'Noto Serif SC', serif;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0 0 16px 0;
+  font-size: 16px;
+}
+
+.poems-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.poem-item {
+  padding: 6px 12px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 12px;
+  color: #c084fc;
+  font-size: 13px;
+  font-family: 'Noto Serif SC', serif;
+}
+
+/* ===== 响应式设计 ===== */
+@media (max-width: 900px) {
+  .lobby-content { grid-template-columns: 1fr; }
+  .players-section {
+    flex-direction: column;
+    gap: 32px;
+    padding: 32px 20px;
+  }
+  .player-card { width: 100%; min-width: auto; padding: 32px; }
+  .game-hud { flex-direction: column; gap: 16px; padding: 20px; }
+  .hud-left, .hud-center, .hud-right { width: 100%; justify-content: center; }
+  .answer-area { flex-direction: column; }
   .submit-btn { width: 100%; }
 }
 </style>

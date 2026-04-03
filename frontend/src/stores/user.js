@@ -1,6 +1,18 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+// 带超时的fetch包装函数
+const fetchWithTimeout = (url, options = {}, timeout = 8000) => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`请求超时`));
+    }, timeout);
+    fetch(url, options)
+      .then((res) => { clearTimeout(timer); resolve(res); })
+      .catch((err) => { clearTimeout(timer); reject(err); });
+  });
+};
+
 export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem('token') || null)
   const userInfo = ref(null)
@@ -24,11 +36,11 @@ export const useUserStore = defineStore('user', () => {
     loading.value = true
 
     try {
-      const response = await fetch('http://localhost:3000/api/auth/verify', {
+      const response = await fetchWithTimeout('http://localhost:3000/api/auth/verify', {
         headers: {
           'Authorization': `Bearer ${savedToken}`
         }
-      })
+      }, 8000);
 
       if (response.ok) {
         const data = await response.json()

@@ -49,9 +49,9 @@
       <div v-else-if="currentQuestion" class="question-area glass-card">
         <div class="question-header">
           <span class="level-badge">第 {{ currentLevel }} 关</span>
-          <span class="difficulty-badge" :class="currentQuestion.difficulty">
-            {{ getDifficultyText(currentQuestion.difficulty) }}
-          </span>
+            <span class="difficulty-badge" :class="getDifficultyClass(currentQuestion.difficulty)">
+              {{ getDifficultyText(currentQuestion.difficulty) }} | {{ currentQuestion.description }}
+            </span>
         </div>
 
         <div class="poem-info">
@@ -60,18 +60,38 @@
         </div>
 
         <div class="question-text">
-          {{ currentQuestion.question }}
+          <span v-if="currentQuestion.type === 'fill'">{{ currentQuestion.question }}</span>
+          <span v-else-if="currentQuestion.type === 'choice'">{{ currentQuestion.question }}</span>
+          <span v-else>{{ currentQuestion.question }}</span>
+          <!-- 显示选项（如果是选择题） -->
+          <div v-if="currentQuestion.type === 'choice' && !answered" class="options-area">
+            <div
+              v-for="(option, index) in currentQuestion.options"
+              :key="index"
+              :class="['option-item', { 'selected': selectedOption === index }]"
+              @click="selectOption(index)"
+            >
+              {{ String.fromCharCode(65 + index) }}. {{ option }}
+            </div>
+          </div>
         </div>
 
         <div v-if="!answered" class="answer-input-area">
-          <input
-            v-model="userAnswer"
-            type="text"
-            class="answer-input"
-            placeholder="请输入答案"
-            @keyup.enter="submitAnswer"
-          />
-          <button class="glass-button submit-btn" @click="submitAnswer">提交答案</button>
+          <template v-if="currentQuestion.type === 'choice'">
+            <button class="glass-button submit-btn" @click="submitAnswer" :disabled="selectedOption === null">
+              提交答案
+            </button>
+          </template>
+          <template v-else>
+            <input
+              v-model="userAnswer"
+              type="text"
+              class="answer-input"
+              placeholder="请输入答案"
+              @keyup.enter="submitAnswer"
+            />
+            <button class="glass-button submit-btn" @click="submitAnswer">提交答案</button>
+          </template>
         </div>
 
         <div v-else class="result-area">
@@ -120,6 +140,7 @@
 </template>
 
 <script>
+import poetryLevels from '../data/poetryLevels.json';
 import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../services/api';
@@ -144,6 +165,7 @@ export default {
     const addedToErrorBook = ref(false);
     const leaderboard = ref([]);
     const localQuestionsKey = 'poem_challenge_questions';
+    const selectedOption = ref(null);
 
     const getDifficultyText = (difficulty) => {
       const map = {
@@ -153,6 +175,10 @@ export default {
         'challenge': '挑战'
       };
       return map[difficulty] || '简单';
+    };
+
+    const getDifficultyClass = (difficulty) => {
+      return difficulty || 'easy';
     };
 
     const loadProgress = async () => {
@@ -167,25 +193,55 @@ export default {
 
     const loadQuestions = async (startLevel, count = 20) => {
       try {
-        let cached = getLocalQuestions();
-        let needed = [];
+        const needed = [];
         for (let i = startLevel; i < startLevel + count && i <= 200; i++) {
-          if (!cached.find(q => q.level === i)) {
+          if (!questions.value.find(q => q.level === i)) {
             needed.push(i);
           }
         }
 
         if (needed.length > 0) {
-          const newQuestions = await api.challenge.generateQuestions(needed[0], needed.length);
-          cached = [...cached, ...newQuestions];
-          saveLocalQuestions(cached);
-        }
+          const newQuestions = needed.map(level => {
+            const levelData = poetryLevels.find(l => l.level === level);
+            if (levelData) {
+              // 随机选择该关卡的一道题目
+              const randomIndex = Math.floor(Math.random() * levelData.questions.length);
+              const q = levelData.questions[randomIndex];
+              const poem = levelData.poems[0];
 
-        questions.value = cached;
+              return {
+                level: levelData.level,
+                title: poem.title,
+                author: poem.author,
+                dynasty: poem.dynasty,
+                question: q.question,
+                answer: q.answer,
+                hint: q.hint,
+                analysis: q.analysis,
+                type: q.type,
+                options: q.options || [],
+                full_poem: poem.content,
+                difficulty: levelData.difficulty,
+                description: levelData.description
+              };
+            }
+            return null;
+          }).filter(q => q !== null);
+
+          questions.value = [...questions.value, ...newQuestions];
+          saveLocalQuestions(questions.value);
+        }
       } catch (error) {
         console.error('加载题目失败:', error);
-        questions.value = getLocalQuestions();
       }
+    };
+
+    // 根据关卡获取难度
+    const getDifficultyByLevel = (level) => {
+      if (level <= 50) return 'easy';
+      if (level <= 100) return 'medium';
+      if (level <= 150) return 'hard';
+      return 'challenge';
     };
 
     const getLocalQuestions = () => {
@@ -210,6 +266,14 @@ export default {
       if (q) {
         currentQuestion.value = q;
         loading.value = false;
+      } else if (questions.value.length > 0) {
+        // 如果没有找到当前级别的题目，但有其他题目，尝试加载第一题
+        currentQuestion.value = questions.value[0];
+        loading.value = false;
+      } else {
+        // 如果没有任何题目，设置loading为false，显示错误信息
+        loading.value = false;
+        console.error('没有加载到任何题目');
       }
     };
 
@@ -220,27 +284,74 @@ export default {
       isCorrect.value = false;
       userAnswer.value = '';
       addedToErrorBook.value = false;
+      selectedOption.value = null;
       loadCurrentQuestion();
       if (level + 20 > highestLevel.value) {
         loadQuestions(level, 20);
       }
     };
 
+    const selectOption = (index) => {
+      if (!answered.value) {
+        selectedOption.value = index;
+      }
+    };
+
+    // 规范化答案用于比对
+    const normalize = (str) => {
+      if (!str) return '';
+      return str
+        .replace(/\s/g, '')
+        .replace(/[，。！？；：""''（）【】、,.!?;:"'()\[\]\\/]/g, '')
+        .split('')
+        .map(ch => {
+          const code = ch.charCodeAt(0);
+          if (code >= 65281 && code <= 65374) return String.fromCharCode(code - 65248);
+          return ch;
+        })
+        .join('');
+    };
+
     const submitAnswer = async () => {
-      if (!userAnswer.value.trim() || !currentQuestion.value) return;
+      if (!currentQuestion.value) return;
+
+      // 如果是选择题，检查是否已选择
+      if (currentQuestion.value.type === 'choice' && selectedOption.value === null) {
+        alert('请先选择一个选项');
+        return;
+      }
+
+      // 如果是填空题，检查是否已输入
+      if (currentQuestion.value.type !== 'choice' && !userAnswer.value.trim()) {
+        alert('请输入答案');
+        return;
+      }
+
+      let correctAnswer;
+      let userAnswerText;
+
+      if (currentQuestion.value.type === 'choice') {
+        correctAnswer = currentQuestion.value.options[currentQuestion.value.answer];
+        userAnswerText = currentQuestion.value.options[selectedOption.value];
+        isCorrect.value = selectedOption.value === currentQuestion.value.answer;
+      } else {
+        correctAnswer = currentQuestion.value.answer;
+        userAnswerText = userAnswer.value;
+        isCorrect.value = normalize(userAnswer.value) === normalize(correctAnswer);
+      }
+
+      answered.value = true;
 
       try {
         const result = await api.challenge.submitAnswer({
           level: currentLevel.value,
           question: currentQuestion.value.question,
-          userAnswer: userAnswer.value,
-          correctAnswer: currentQuestion.value.answer,
+          userAnswer: userAnswerText,
+          correctAnswer: correctAnswer,
           poemTitle: currentQuestion.value.title,
           poemAuthor: currentQuestion.value.author
         });
 
-        answered.value = true;
-        isCorrect.value = result.correct;
         currentRecordId.value = result.recordId;
         if (result.correct) {
           highestLevel.value = Math.max(highestLevel.value, currentLevel.value);
@@ -249,8 +360,8 @@ export default {
             await api.wrongQuestions.add({
               question_id: currentQuestion.value.id,
               question: currentQuestion.value.question,
-              answer: currentQuestion.value.answer,
-              user_answer: userAnswer.value,
+              answer: correctAnswer,
+              user_answer: userAnswerText,
               level: currentLevel.value,
               full_poem: currentQuestion.value.full_poem,
               author: currentQuestion.value.author,
@@ -284,12 +395,32 @@ export default {
       isCorrect.value = false;
       userAnswer.value = '';
       addedToErrorBook.value = false;
-      
+      selectedOption.value = null;
+
       retryLoading.value = true;
       try {
-        const newQuestions = await api.challenge.generateQuestions(currentLevel.value, 1);
-        if (newQuestions && newQuestions.length > 0) {
-          const newQ = newQuestions[0];
+        const levelData = poetryLevels.find(l => l.level === currentLevel.value);
+        if (levelData && levelData.questions.length > 0) {
+          const randomIndex = Math.floor(Math.random() * levelData.questions.length);
+          const q = levelData.questions[randomIndex];
+          const poem = levelData.poems[0];
+
+          const newQ = {
+            level: levelData.level,
+            title: poem.title,
+            author: poem.author,
+            dynasty: poem.dynasty,
+            question: q.question,
+            answer: q.answer,
+            hint: q.hint,
+            analysis: q.analysis,
+            type: q.type,
+            options: q.options || [],
+            full_poem: poem.content,
+            difficulty: levelData.difficulty,
+            description: levelData.description
+          };
+
           const existingIndex = questions.value.findIndex(q => q.level === currentLevel.value);
           if (existingIndex !== -1) {
             questions.value[existingIndex] = newQ;
@@ -388,8 +519,10 @@ export default {
       answered,
       isCorrect,
       leaderboard,
+      selectedOption,
       getDifficultyText,
       selectLevel,
+      selectOption,
       submitAnswer,
       nextLevel,
       retry,
@@ -619,7 +752,7 @@ export default {
 .question-area {
   margin-bottom: 40px;
   position: relative;
-  z-index: 1;
+  z-index: 1001;
 }
 
 .question-header {
@@ -709,6 +842,35 @@ export default {
   box-shadow: 0 8px 32px rgba(139, 69, 19, 0.1);
   position: relative;
   overflow: hidden;
+}
+
+.options-area {
+  margin-top: 24px;
+  text-align: left;
+}
+
+.option-item {
+  background: rgba(255, 252, 240, 0.85);
+  border: 2px solid rgba(205, 133, 63, 0.3);
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 12px;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'SimSun', 'STSong', serif;
+}
+
+.option-item:hover {
+  background: rgba(255, 248, 220, 0.95);
+  border-color: rgba(205, 133, 63, 0.5);
+  transform: translateX(4px);
+}
+
+.option-item.selected {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(205, 133, 63, 0.5);
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.15);
 }
 
 .question-text::after {

@@ -57,3 +57,35 @@ function optionalAuthenticateToken(req, res, next) {
 }
 
 module.exports.optionalAuthenticateToken = optionalAuthenticateToken;
+
+// 获取用户ID（从token或query参数）
+function getUserIdFromToken(req) {
+  try {
+    // 优先从URL参数获取
+    const queryUserId = parseInt(req.query.userId);
+    if (queryUserId && !isNaN(queryUserId)) {
+      return queryUserId;
+    }
+
+    // 从Authorization header获取
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      if (token) {
+        const decoded = jwt.verify(token, config.jwt.secret);
+        return decoded.userId;
+      }
+    }
+
+    // 从请求体获取
+    if (req.body && req.body.userId) {
+      return parseInt(req.body.userId);
+    }
+
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+module.exports.getUserIdFromToken = getUserIdFromToken;

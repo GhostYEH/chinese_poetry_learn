@@ -19,6 +19,7 @@ const CACHE_DIR = path.join(__dirname, 'cache');
 
 // 导入数据库模块
 const { initDatabase, initCreationTables, initAbilityTables, db } = require('./src/utils/db');
+const { seedDatabase } = require('./src/utils/seedData');
 
 // 导入模块化路由
 const poemRoutesModule = require('./src/api/poemRoutes');
@@ -140,6 +141,21 @@ initData().then(async () => {
   } catch (error) {
     console.error('能力评估和高级功能表初始化失败:', error);
   }
+
+  try {
+    db.get('SELECT COUNT(*) as count FROM users', async (err, row) => {
+      if (!err && row.count === 0) {
+        console.log('检测到数据库为空，开始填充模拟数据...');
+        try {
+          await seedDatabase();
+        } catch (seedError) {
+          console.error('填充模拟数据失败:', seedError);
+        }
+      }
+    });
+  } catch (error) {
+    console.error('检查数据失败:', error);
+  }
   
   console.log('所有模块初始化完成');
   console.log(`诗词数据数量: ${poems.length}`);
@@ -220,6 +236,9 @@ app.use('/api/home', homeRoutes);
 
 const personalizedRoutes = require('./src/routes/personalizedRoutes');
 app.use('/api/personalized', personalizedRoutes);
+
+const { router: profileRoutes } = require('./src/api/profileRoutes');
+app.use('/api/profile', profileRoutes);
 
 // 导出poems变量，供其他模块使用
 module.exports = { poems };

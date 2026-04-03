@@ -45,7 +45,7 @@
           v-for="(feature, index) in features"
           :key="feature.name"
           class="feature-card"
-          :class="`feature-card--${feature.color}`"
+          :class="[`feature-card--${feature.color}`, { 'highlight-card': feature.highlight }]"
           :style="{ animationDelay: `${index * 0.1}s` }"
           @click="navigateTo(feature.path)"
         >
@@ -369,6 +369,8 @@
 import AIPersonalizedSection from '@/components/AIPersonalizedSection.vue'
 import api from '@/services/api.js'
 
+const API_BASE_URL = 'http://localhost:3000'
+
 export default {
   name: 'Home',
   components: {
@@ -389,9 +391,8 @@ export default {
         { name: '飞花令', icon: '🌸', desc: '在线对战，以诗会友，感受飞花令的乐趣', path: '/feihualing/single', color: 'pink' },
         { name: 'AI 创作', icon: '✒️', desc: '智能辅助创作，挥洒才情写就锦绣诗篇', path: '/creation', color: 'purple' },
         { name: '诗词跑酷', icon: '🏃', desc: '穿越文字方块塔，在游戏中背诵诗词经典', path: '/parkour', color: 'green' },
-        { name: '诗词大富翁', icon: '🎲', desc: '接取正确诗句卡片，趣味闯关赢取高分', path: '/card-catch', color: 'amber' },
+        { name: '诗词大富翁', icon: '🎲', desc: '接住千古名句，对接诗词灵魂，体验连击的快乐！', path: '/card-catch', color: 'amber' },
         { name: '学习分析', icon: '📊', desc: '详细记录学习轨迹，智能分析薄弱环节', path: '/dashboard', color: 'orange' },
-        { name: '知识图谱', icon: '🕸️', desc: '可视化诗人关系，探索诗词知识网络', path: '/knowledge-graph', color: 'teal' },
       ],
       // 每日一诗
       dailyPoem: null,
@@ -535,7 +536,10 @@ export default {
     // 每日一诗
     async fetchDailyPoem() {
       try {
-        const response = await fetch('/api/daily-poem')
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const response = await fetch(`${API_BASE_URL}/api/daily-poem`, { signal: controller.signal });
+        clearTimeout(timeout);
         if (response.ok) {
           this.dailyPoem = await response.json()
         } else {
@@ -545,6 +549,7 @@ export default {
           }
         }
       } catch (e) {
+        console.warn('每日一诗获取失败，使用默认', e)
         this.dailyPoem = {
           id: 1, title: '静夜思', author: '李白', dynasty: '唐',
           content: '床前明月光，疑是地上霜。\n举头望明月，低头思故乡。'
@@ -556,7 +561,7 @@ export default {
       this.showAiExplain = true
       this.aiExplanation = ''
       try {
-        const res = await fetch('/api/ai/explain', {
+        const res = await fetch(`${API_BASE_URL}/api/ai/explain`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -582,7 +587,10 @@ export default {
     // 一言
     async fetchHitokoto() {
       try {
-        const response = await fetch('https://v1.hitokoto.cn/?c=l')
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch('https://v1.hitokoto.cn/?c=l', { signal: controller.signal });
+        clearTimeout(timeout);
         if (response.ok) {
           const data = await response.json()
           if (data.hitokoto) {
@@ -719,11 +727,14 @@ export default {
       try {
         if (this.page === 1) this.loading = true
         this.error = ''
-        let url = `/api/poems?page=${this.page}&pageSize=${this.pageSize}&_=${Date.now()}`
+        let url = `${API_BASE_URL}/api/poems?page=${this.page}&pageSize=${this.pageSize}&_=${Date.now()}`
         if (!this.searchQuery && !this.dynastyFilter && !this.authorFilter) {
           url += '&random=true'
         }
-        const response = await fetch(url)
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 10000)
+        const response = await fetch(url, { signal: controller.signal })
+        clearTimeout(timeout)
         if (!response.ok) throw new Error('获取诗词列表失败')
         const data = await response.json()
         if (this.page === 1) {
@@ -1058,6 +1069,36 @@ export default {
 .feature-card--teal:hover { box-shadow: 0 12px 40px rgba(0, 150, 136, 0.2); }
 .feature-card--amber { background: linear-gradient(135deg, #fff8e1, #ffecb3); }
 .feature-card--amber:hover { box-shadow: 0 12px 40px rgba(255, 160, 0, 0.2); }
+.feature-card--pink-light { background: linear-gradient(135deg, #fce4ec, #f8bbd0); }
+.feature-card--pink-light:hover { box-shadow: 0 12px 40px rgba(233, 30, 99, 0.15); }
+/* 联机对战入口特殊高亮样式 */
+.feature-card.highlight-card {
+  background: linear-gradient(135deg, #ff6b9d 0%, #c44569 50%, #ff6b9d 100%) !important;
+  background-size: 200% 200%;
+  animation: highlightPulse 3s ease-in-out infinite !important;
+  box-shadow: 0 8px 32px rgba(255, 107, 157, 0.4) !important;
+  transform: scale(1.03);
+  z-index: 10;
+}
+.feature-card.highlight-card .feature-name {
+  font-size: 22px;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.feature-card.highlight-card .feature-desc {
+  color: rgba(255,255,255,0.9);
+}
+.feature-card.highlight-card .feature-arrow {
+  color: rgba(255,255,255,0.7);
+}
+.feature-card.highlight-card:hover {
+  transform: scale(1.06) translateY(-4px) !important;
+  box-shadow: 0 16px 48px rgba(255, 107, 157, 0.5) !important;
+}
+@keyframes highlightPulse {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
 .feature-card-inner {
   padding: 28px;
   display: flex;
@@ -1390,9 +1431,10 @@ export default {
 
 /* 通用侧边栏卡片 */
 .sidebar-card {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(205, 133, 63, 0.15);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(205, 133, 63, 0.1);
   border-radius: 20px;
   padding: 24px;
   position: sticky;
@@ -1731,8 +1773,9 @@ export default {
   margin-bottom: 28px;
 }
 .poem-item {
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   border: 1px solid rgba(205, 133, 63, 0.1);
   border-radius: 16px;
   padding: 20px;

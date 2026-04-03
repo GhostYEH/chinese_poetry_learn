@@ -54,29 +54,38 @@
       </div>
 
       <div class="filter-bar">
-        <select v-model="selectedDynasty" @change="filterPoems">
+      <div class="filter-left">
+        <select v-model="selectedDynasty" @change="loadPoems">
           <option value="">全部朝代</option>
           <option v-for="d in dynasties" :key="d" :value="d">{{ d }}</option>
         </select>
-        <select v-model="selectedAuthor" @change="filterPoems">
+        <select v-model="selectedAuthor" @change="loadPoems">
           <option value="">全部作者</option>
           <option v-for="a in authors" :key="a" :value="a">{{ a }}</option>
         </select>
       </div>
+      <div class="filter-right">
+        <button class="btn-secondary btn-small" @click="clearFilters" v-if="searchKeyword || selectedDynasty || selectedAuthor">
+          清空筛选
+        </button>
+      </div>
+    </div>
 
-      <div class="poems-grid">
-        <div v-for="poem in filteredPoems" :key="poem.id" class="poem-card">
-          <div class="poem-header">
-            <h3>{{ poem.title }}</h3>
-            <span class="poem-dynasty">{{ poem.dynasty }}</span>
-          </div>
-          <p class="poem-author">{{ poem.author }}</p>
-          <p class="poem-content">{{ poem.content.slice(0, 60) }}{{ poem.content.length > 60 ? '...' : '' }}</p>
-          <div class="poem-tags">
-            <span v-for="tag in (poem.tags || '').split(',').slice(0, 3)" :key="tag" class="tag">
-              {{ tag }}
-            </span>
-          </div>
+    <div class="poems-grid">
+      <div v-for="poem in filteredPoems" :key="poem.id" class="poem-card">
+        <div class="poem-header">
+          <h3>{{ poem.title }}</h3>
+          <span class="poem-dynasty">{{ poem.dynasty }}</span>
+        </div>
+        <p class="poem-author">{{ poem.author }}</p>
+        <p class="poem-content">{{ poem.content.slice(0, 80) }}{{ poem.content.length > 80 ? '...' : '' }}</p>
+        <div class="poem-tags" v-if="poem.tags">
+          <span v-for="tag in poem.tags.split(',').filter(t => t.trim()).slice(0, 3)" :key="tag" class="tag">
+            {{ tag.trim() }}
+          </span>
+        </div>
+        <div class="poem-footer">
+          <span class="poem-date" v-if="poem.created_at">{{ formatDate(poem.created_at) }}</span>
           <div class="poem-actions">
             <button class="btn-small" @click="viewPoem(poem)">查看</button>
             <button class="btn-small secondary" @click="editPoem(poem)">编辑</button>
@@ -84,13 +93,27 @@
           </div>
         </div>
       </div>
-
-      <div v-if="filteredPoems.length === 0" class="empty-state">
-        <p>暂无诗词数据</p>
-      </div>
     </div>
 
-    <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
+    <div v-if="filteredPoems.length === 0 && !loading" class="empty-state">
+      <div class="empty-icon">📚</div>
+      <p>暂无诗词数据</p>
+      <p class="empty-hint">点击右上角「添加诗词」开始您的诗词库建设</p>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pagination" v-if="totalCount > pageSize">
+      <button class="page-btn" :disabled="currentPage === 1" @click="changePage(currentPage - 1)">
+        上一页
+      </button>
+      <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
+      <button class="page-btn" :disabled="currentPage >= totalPages" @click="changePage(currentPage + 1)">
+        下一页
+      </button>
+    </div>
+  </div>
+
+  <div v-if="showAddModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content modal-large">
         <h2>{{ editingPoem ? '编辑诗词' : '添加诗词' }}</h2>
         <div class="form-group">
@@ -144,7 +167,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -157,6 +180,12 @@ const showAddModal = ref(false)
 const showViewModal = ref(false)
 const editingPoem = ref(null)
 const viewingPoem = ref(null)
+const dynasties = ref([])
+
+const currentPage = ref(1)
+const pageSize = ref(30)
+const totalCount = ref(0)
+
 const poemForm = ref({
   title: '',
   author: '',
@@ -165,10 +194,7 @@ const poemForm = ref({
   tags: ''
 })
 
-const dynasties = computed(() => {
-  const set = new Set(poems.value.map(p => p.dynasty).filter(Boolean))
-  return Array.from(set).sort()
-})
+const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
 
 const authors = computed(() => {
   const set = new Set(poems.value.map(p => p.author).filter(Boolean))
@@ -187,25 +213,10 @@ const topDynasty = computed(() => {
 })
 
 const filteredPoems = computed(() => {
-  let result = poems.value
-  if (searchKeyword.value) {
-    const keyword = searchKeyword.value.toLowerCase()
-    result = result.filter(p => 
-      p.title?.toLowerCase().includes(keyword) ||
-      p.author?.toLowerCase().includes(keyword) ||
-      p.content?.toLowerCase().includes(keyword)
-    )
-  }
-  if (selectedDynasty.value) {
-    result = result.filter(p => p.dynasty === selectedDynasty.value)
-  }
-  if (selectedAuthor.value) {
-    result = result.filter(p => p.author === selectedAuthor.value)
-  }
-  return result
+  return poems.value
 })
 
-const request = async (url, options = {}) => {
+const api = async (url, options = {}) => {
   const token = localStorage.getItem('teacherToken')
   const response = await fetch(`http://localhost:3000/api/teacher${url}`, {
     ...options,
@@ -215,21 +226,42 @@ const request = async (url, options = {}) => {
       ...options.headers
     }
   })
-  
+
   if (response.status === 401) {
     localStorage.removeItem('teacherToken')
     router.push('/teacher/login')
     throw new Error('认证已过期')
   }
-  
-  return response.json()
+
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(data.error || '请求失败')
+  }
+  return data
+}
+
+const loadDynasties = async () => {
+  try {
+    const data = await api('/poems/dynasties')
+    dynasties.value = data || []
+  } catch (err) {
+    console.error('加载朝代列表失败:', err)
+  }
 }
 
 const loadPoems = async () => {
   loading.value = true
   try {
-    const result = await request('/poems')
-    poems.value = result.data || result || []
+    const params = new URLSearchParams({
+      page: currentPage.value,
+      limit: pageSize.value,
+      keyword: searchKeyword.value,
+      dynasty: selectedDynasty.value,
+      author: selectedAuthor.value
+    })
+    const data = await api(`/poems?${params.toString()}`)
+    poems.value = data.data || data || []
+    totalCount.value = data.total || poems.value.length
   } catch (err) {
     console.error('加载诗词失败:', err)
     poems.value = []
@@ -238,12 +270,43 @@ const loadPoems = async () => {
   }
 }
 
-const searchPoems = () => {
-  // 搜索逻辑已在 computed 中实现
+let searchTimer = null
+watch(searchKeyword, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadPoems()
+  }, 400)
+})
+
+watch(selectedDynasty, () => {
+  currentPage.value = 1
+  loadPoems()
+})
+
+watch(selectedAuthor, () => {
+  currentPage.value = 1
+  loadPoems()
+})
+
+const changePage = (page) => {
+  if (page < 1 || page > totalPages.value) return
+  currentPage.value = page
+  loadPoems()
 }
 
-const filterPoems = () => {
-  // 过滤逻辑已在 computed 中实现
+const clearFilters = () => {
+  searchKeyword.value = ''
+  selectedDynasty.value = ''
+  selectedAuthor.value = ''
+  currentPage.value = 1
+  loadPoems()
+}
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const viewPoem = (poem) => {
@@ -258,7 +321,7 @@ const editPoem = (poem) => {
     author: poem.author,
     dynasty: poem.dynasty,
     content: poem.content,
-    tags: poem.tags
+    tags: poem.tags || ''
   }
   showAddModal.value = true
 }
@@ -270,44 +333,46 @@ const closeModal = () => {
 }
 
 const savePoem = async () => {
-  if (!poemForm.value.title || !poemForm.value.author || !poemForm.value.content) {
-    alert('请填写完整信息')
+  if (!poemForm.value.title || !poemForm.value.author || !poemForm.value.dynasty || !poemForm.value.content) {
+    alert('请填写完整信息（标题、作者、朝代、内容）')
     return
   }
-  
+
   try {
     if (editingPoem.value) {
-      await request(`/poems/${editingPoem.value.id}`, {
+      await api(`/poems/${editingPoem.value.id}`, {
         method: 'PUT',
         body: JSON.stringify(poemForm.value)
       })
     } else {
-      await request('/poems', {
+      await api('/poems', {
         method: 'POST',
         body: JSON.stringify(poemForm.value)
       })
     }
     closeModal()
     loadPoems()
+    loadDynasties()
   } catch (err) {
     console.error('保存诗词失败:', err)
-    alert('保存诗词失败')
+    alert('保存诗词失败: ' + err.message)
   }
 }
 
 const deletePoem = async (id) => {
-  if (!confirm('确定要删除这首诗词吗？')) return
-  
+  if (!confirm('确定要删除这首诗词吗？此操作不可恢复。')) return
+
   try {
-    await request(`/poems/${id}`, { method: 'DELETE' })
+    await api(`/poems/${id}`, { method: 'DELETE' })
     loadPoems()
   } catch (err) {
     console.error('删除诗词失败:', err)
-    alert('删除诗词失败')
+    alert('删除诗词失败: ' + err.message)
   }
 }
 
 onMounted(() => {
+  loadDynasties()
   loadPoems()
 })
 </script>
@@ -445,6 +510,8 @@ onMounted(() => {
 
 .filter-bar {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 15px;
   margin-bottom: 25px;
 }
@@ -458,6 +525,16 @@ onMounted(() => {
   font-size: 14px;
   cursor: pointer;
   min-width: 150px;
+}
+
+.filter-left {
+  display: flex;
+  gap: 15px;
+}
+
+.filter-right {
+  display: flex;
+  gap: 10px;
 }
 
 .poems-grid {
@@ -529,6 +606,17 @@ onMounted(() => {
   border-radius: 6px;
 }
 
+.poem-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.poem-date {
+  font-size: 11px;
+  color: #bbb;
+}
+
 .poem-actions {
   display: flex;
   gap: 8px;
@@ -563,6 +651,51 @@ onMounted(() => {
   text-align: center;
   padding: 60px 20px;
   color: #999;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: #bbb;
+  margin-top: 10px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  margin-top: 30px;
+}
+
+.page-btn {
+  padding: 8px 20px;
+  border: 1px solid rgba(205,133,63,0.3);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.9);
+  color: #8b4513;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(205,133,63,0.2), rgba(139,69,19,0.15));
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 14px;
+  color: #8b4513;
+  font-weight: 500;
 }
 
 .modal-overlay {

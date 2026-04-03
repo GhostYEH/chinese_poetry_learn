@@ -1,1695 +1,2220 @@
 <template>
-  <div class="feihua-game">
-    <div class="container">
-      <!-- 顶部导航 -->
-      <div class="nav-tabs">
-        <div class="tab active">
-          <router-link to="/feihualing/single">单人模式</router-link>
-        </div>
-        <div class="tab">
-          <router-link to="/feihualing/online">在线对战</router-link>
-        </div>
+  <div class="feihua-page" :class="{ 'bg-loaded': bgLoaded }">
+    <!-- 背景效果 -->
+    <div class="feihua-bg">
+      <div class="bg-gradient"></div>
+      <div class="bg-particles">
+        <span v-for="n in 20" :key="n" class="particle" :style="getParticleStyle(n)"></span>
       </div>
-      
-      <h1 class="game-title">飞花令</h1>
-      
-      <!-- 新手规则引导 -->
-      <div v-if="showNewbieGuide" class="newbie-guide-modal">
-        <div class="modal-content">
-          <h3>飞花令玩法</h3>
-          <p>轮流说出含有指定令字的诗句，每回合需符合规则要求。</p>
-          <p class="example">例如：令字为「春」，可以说「春眠不觉晓，处处闻啼鸟」</p>
-          <button class="guide-btn" @click="showNewbieGuide = false">我知道了</button>
-        </div>
+      <div class="floating-petals">
+        <span v-for="i in 15" :key="i" class="petal" :style="getPetalStyle(i)">🌸</span>
       </div>
-      
-      <!-- 规则说明入口 -->
-      <div class="rules-entry">
-        <button class="rules-btn" @click="showRules = true">📖 规则说明</button>
+      <div class="floating-chars">
+        <span v-for="(char, i) in floatingChars" :key="i" class="float-char" :style="char.style">{{ char.text }}</span>
       </div>
-      
-      <!-- 规则说明弹窗 -->
-      <div v-if="showRules" class="rules-modal">
-        <div class="modal-content">
-          <h2>飞花令规则</h2>
-          <div class="rules-content">
-            <h3>核心规则</h3>
-            <ul>
-              <li>选择令字后，轮流说出含有该令字的诗句</li>
-              <li>入门难度：任意位置包含令字</li>
-              <li>进阶/专业难度：令字位置轮流变化</li>
-              <li>每回合有时间限制，超时未作答则落败</li>
-              <li>禁止重复使用已出现的诗句</li>
-              <li>必须是正统古诗词中的完整诗句</li>
-            </ul>
-            <h3>令字位置规则</h3>
-            <p>进阶/专业难度：首回合令字在第1位，每完成一个回合位置+1，循环往复。</p>
-            <p class="example">例如：令字「春」，位置1：「春眠不觉晓」，位置2：「当春乃发生」</p>
+    </div>
+
+    <!-- 主容器 -->
+    <div class="feihua-container">
+
+      <!-- ===== 顶部标题区 ===== -->
+      <transition name="fade-scale" mode="out-in">
+        <div v-if="!gameStarted" class="hero-section">
+          <div class="hero-badge">
+            <span class="badge-star">✦</span>
+            <span class="badge-text">飞花令</span>
+            <span class="badge-star">✦</span>
           </div>
-          <button class="close-btn" @click="showRules = false">关闭</button>
+          <h1 class="hero-title">
+            <span class="title-cn">诗词飞花令</span>
+            <span class="title-en">LITERARY CHALLENGE</span>
+          </h1>
+          <p class="hero-subtitle">以诗会友，飞花传韵</p>
         </div>
-      </div>
-      
-      <!-- 难度选择页面 -->
-      <div class="difficulty-select" v-if="!gameStarted && !inSetup">
-        <h2>选择难度</h2>
-        <div class="difficulty-options">
-          <div 
-            v-for="diff in difficulties" 
-            :key="diff.level"
-            class="difficulty-card"
-            :class="{ active: selectedDifficulty === diff.level }"
-            @click="selectDifficulty(diff.level)"
-          >
-            <h3>{{ diff.name }}</h3>
-            <p>{{ diff.description }}</p>
-            <p class="time-limit">时限：{{ diff.timeLimit }}秒</p>
+      </transition>
+
+      <!-- ===== 模式选择 ===== -->
+      <transition name="fade-scale" mode="out-in">
+        <div class="mode-section" v-if="!gameStarted && !inSetup">
+          <div class="section-header">
+            <span class="section-icon">🎯</span>
+            <h2 class="section-title">选择挑战模式</h2>
           </div>
-        </div>
-        <button class="next-btn" @click="goToSetup">下一步</button>
-      </div>
-      
-      <!-- 令字选择页面 -->
-      <div class="keyword-setup" v-if="inSetup && !gameStarted">
-        <h2>选择令字</h2>
-        <div class="keyword-options">
-          <h3>推荐令字</h3>
-          <div class="recommended-keywords">
-            <button 
-              v-for="keyword in recommendedKeywords" 
-              :key="keyword"
-              class="keyword-btn"
-              :class="{ active: selectedKeyword === keyword }"
-              @click="selectedKeyword = keyword"
+          <div class="mode-grid">
+            <div 
+              v-for="(mode, idx) in gameModes" 
+              :key="mode.id"
+              class="ios26-card mode-card"
+              :class="{ active: selectedMode === mode.id }"
+              :style="{ animationDelay: `${idx * 0.12}s` }"
+              @click="selectedMode = mode.id"
             >
-              {{ keyword }}
+              <div class="card-liquid-border"></div>
+              <div class="card-liquid-shine"></div>
+              <div class="card-content">
+                <div class="mode-icon-wrap">
+                  <span class="mode-icon">{{ mode.icon }}</span>
+                  <div class="mode-icon-glow"></div>
+                </div>
+                <h3 class="mode-name">{{ mode.name }}</h3>
+                <p class="mode-desc">{{ mode.desc }}</p>
+                <div class="mode-stats">
+                  <span class="mode-stat">
+                    <span class="stat-dot" :style="{ background: mode.color }"></span>
+                    <span class="stat-text">{{ mode.difficulty }}</span>
+                  </span>
+                  <span class="mode-stat">
+                    <span class="stat-icon-sm">⏱</span>
+                    <span class="stat-text">{{ mode.time }}秒</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="ios26-btn primary-btn next-step-btn" @click="goToSetup">
+              <span class="btn-icon">→</span>
+              <span>选择令字</span>
             </button>
           </div>
-          <div class="custom-keyword">
-            <h3>自定义令字</h3>
-            <div class="keyword-input-container">
-              <button class="random-keyword-btn" @click="generateRandomKeyword">随机令字</button>
-              <input 
-                type="text" 
-                v-model="customKeyword" 
-                class="custom-input"
-                placeholder="输入单个中文字符"
-                @input="validateCustomKeyword"
-                maxlength="1"
+        </div>
+      </transition>
+
+      <!-- ===== 令字选择 ===== -->
+      <transition name="fade-slide" mode="out-in">
+        <div class="keyword-section" v-if="inSetup && !gameStarted">
+          <button class="back-btn ios26-btn secondary-btn" @click="backToMode">
+            <span class="btn-icon">←</span>
+            <span>返回</span>
+          </button>
+          
+          <div class="section-header">
+            <span class="section-icon">🎴</span>
+            <h2 class="section-title">选择令字</h2>
+            <span class="keyword-hint">选择一个关键字，说出含此字的诗句</span>
+          </div>
+
+          <!-- 热门令字 -->
+          <div class="keyword-category">
+            <h3 class="category-title">
+              <span class="category-icon">🔥</span>
+              <span>热门令字</span>
+              <span class="category-count">{{ hotKeywords.length }}个</span>
+            </h3>
+            <div class="keyword-grid">
+              <button 
+                v-for="kw in hotKeywords" 
+                :key="kw.char"
+                class="ios26-card keyword-btn"
+                :class="{ active: selectedKeyword === kw.char }"
+                @click="selectKeyword(kw.char)"
               >
-            </div>
-            <p v-if="keywordError" class="error-message">{{ keywordError }}</p>
-            <p v-if="keywordWarning" class="warning-message">{{ keywordWarning }}</p>
-          </div>
-        </div>
-        <div class="setup-actions">
-          <button class="back-btn" @click="backToDifficulty">上一步</button>
-          <button class="start-btn" @click="confirmSetup" :disabled="!selectedKeyword && !customKeyword">开始对局</button>
-        </div>
-      </div>
-      
-      <!-- 游戏界面 -->
-      <div class="game-play" v-if="gameStarted">
-        <div class="game-info">
-          <div class="info-item">
-            <span class="label">难度：</span>
-            <span class="value">{{ getDifficultyName() }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">令字：</span>
-            <span class="keyword">{{ currentKeyword }}</span>
-          </div>
-          <div v-if="currentPosition > 0" class="info-item">
-            <span class="label">位置：</span>
-            <span class="position">{{ currentPosition }}位</span>
-          </div>
-          <div class="info-item">
-            <span class="label">得分：</span>
-            <span class="score">{{ score }}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">时间：</span>
-            <span class="timer" :class="{ 'time-warning': timeLeft < 10 }">
-              {{ timeLeft }}s
-            </span>
-          </div>
-        </div>
-        
-        <div class="poem-input-section">
-          <h3>{{ currentPlayer === 'user' ? '请说出含有「' + currentKeyword + '」' : '系统思考中...' }}</h3>
-          <div v-if="currentPlayer === 'user'">
-            <input 
-              type="text" 
-              v-model="userInput" 
-              class="poem-input" 
-              placeholder="例如：春眠不觉晓，处处闻啼鸟" 
-              @keyup.enter="submitPoem"
-              ref="poemInput"
-              :disabled="currentPlayer !== 'user'"
-            >
-            <div class="input-actions">
-              <button class="submit-btn" @click="submitPoem" :disabled="!userInput.trim() || currentPlayer !== 'user'">提交</button>
-              <div class="hint-buttons">
-                <button 
-                  v-if="canUseHint" 
-                  class="hint-btn level-1" 
-                  @click="useHint(1)"
-                  :disabled="!canUseHint"
-                >
-                  作者提示 (-5分)
-                </button>
-                <button 
-                  v-if="canUseHint" 
-                  class="hint-btn level-2" 
-                  @click="useHint(2)"
-                  :disabled="!canUseHint"
-                >
-                  首字提示 (-10分)
-                </button>
-                <button 
-                  v-if="canUseHint" 
-                  class="hint-btn level-3" 
-                  @click="useHint(3)"
-                  :disabled="!canUseHint"
-                >
-                  完整示例 (-20分)
-                </button>
-              </div>
-            </div>
-          </div>
-          <div v-else class="system-thinking">
-            <div class="loading-spinner"></div>
-            <p>系统正在思考...</p>
-          </div>
-        </div>
-        
-        <!-- 历史记录 -->
-        <div class="history-section">
-          <h3>历史记录</h3>
-          <div class="history-list">
-            <div 
-              v-for="(item, index) in poemHistory" 
-              :key="index"
-              class="history-item"
-              :class="{ 'user-poem': item.player === 'user', 'system-poem': item.player === 'system' }"
-            >
-              <span class="history-number">{{ index + 1 }}.</span>
-              <span class="history-content">
-                <template v-if="item.position > 0">
-                  <span v-for="(char, charIndex) in item.poem" :key="charIndex" class="char"
-                        :class="{ 'keyword': char === currentKeyword && charIndex === item.position - 1 }">
-                    {{ char }}
-                    <span v-if="charIndex === item.position - 1" class="position-mark">{{ item.position }}</span>
-                  </span>
-                </template>
-                <template v-else>
-                  <span v-for="(char, charIndex) in item.poem" :key="charIndex" class="char"
-                        :class="{ 'keyword': char === currentKeyword }">
-                    {{ char }}
-                  </span>
-                </template>
-              </span>
-              <div v-if="item.analysis" class="poem-analysis">
-                <p class="analysis-author">{{ item.analysis.author }} · {{ item.analysis.dynasty }}</p>
-                <p class="analysis-title">{{ item.analysis.title }}</p>
-                <p class="analysis-translation">{{ item.analysis.translation }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <button class="stop-btn" @click="stopGame">结束游戏</button>
-      </div>
-      
-      <!-- 游戏结束界面 -->
-      <div class="game-over" v-if="gameOver">
-        <h2>{{ gameResult === 'win' ? '🎉 恭喜获胜！' : '游戏结束' }}</h2>
-        <div class="game-result">
-          <p>最终得分：<span class="final-score">{{ score }}</span></p>
-          <p>答对回合数：{{ correctRounds }}</p>
-          <p v-if="gameResult === 'win'">系统无法接出符合规则的诗句，你获胜了！</p>
-          <p v-else-if="gameResult === 'timeout'">超时未作答，挑战失败</p>
-          <p v-else-if="gameResult === 'invalid'">诗句不符合规则，挑战失败</p>
-        </div>
-        <div class="game-actions">
-          <button class="action-btn restart" @click="restartGame">再来一局</button>
-          <button class="action-btn change-keyword" @click="changeKeyword">更换令字</button>
-          <button class="action-btn change-difficulty" @click="changeDifficulty">更换难度</button>
-          <button class="action-btn back-home" @click="goBack">返回首页</button>
-        </div>
-        <div class="learning-section">
-          <h3>学习复盘</h3>
-          <div class="learning-content">
-            <div v-for="(item, index) in poemHistory" :key="index" class="learning-item">
-              <h4>{{ index + 1 }}. {{ item.poem }}</h4>
-              <p v-if="item.analysis">
-                {{ item.analysis.author }} · {{ item.analysis.dynasty }} · {{ item.analysis.title }}
-              </p>
-              <p v-if="item.error" class="error-analysis">{{ item.error }}</p>
-              <button v-if="!item.isCollected" class="collect-btn" @click="collectPoem(item)">
-                收藏到错题本
+                <div class="card-liquid-border"></div>
+                <div class="card-liquid-shine"></div>
+                <div class="card-content">
+                  <span class="kw-char">{{ kw.char }}</span>
+                  <span class="kw-count">{{ kw.count }}句</span>
+                  <div class="kw-glow"></div>
+                </div>
               </button>
             </div>
           </div>
+
+          <!-- 更多令字 -->
+          <div class="keyword-category">
+            <h3 class="category-title">
+              <span class="category-icon">✨</span>
+              <span>更多令字</span>
+            </h3>
+            <div class="keyword-grid">
+              <button 
+                v-for="char in moreKeywords" 
+                :key="char"
+                class="ios26-card keyword-btn small"
+                :class="{ active: selectedKeyword === char }"
+                @click="selectKeyword(char)"
+              >
+                <div class="card-liquid-border"></div>
+                <div class="card-liquid-shine"></div>
+                <div class="card-content">
+                  <span class="kw-char">{{ char }}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="ios26-btn random-btn" @click="randomKeyword">
+              <span class="btn-icon">🎲</span>
+              <span>随机令字</span>
+            </button>
+          </div>
+
+          <div class="action-row">
+            <button class="ios26-btn primary-btn start-game-btn" @click="startGame" :disabled="!selectedKeyword">
+              <span class="btn-icon">▶</span>
+              <span>开始挑战</span>
+            </button>
+          </div>
         </div>
-      </div>
+      </transition>
+
+      <!-- ===== 游戏界面 ===== -->
+      <transition name="fade-scale" mode="out-in">
+        <div class="game-section" v-if="gameStarted">
+
+          <!-- 游戏HUD -->
+          <div class="game-hud">
+            <div class="hud-left">
+              <div class="hud-badge">
+                <span class="badge-icon">🎴</span>
+                <span class="badge-keyword">{{ currentKeyword }}</span>
+              </div>
+              <div class="hud-round">
+                <span class="round-label">第</span>
+                <span class="round-num">{{ roundNumber }}</span>
+                <span class="round-label">回合</span>
+              </div>
+            </div>
+            
+            <div class="hud-center">
+              <div class="score-display">
+                <span class="score-icon">⭐</span>
+                <div class="score-content">
+                  <span class="score-value">{{ score }}</span>
+                  <span class="score-label">积分</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hud-right">
+              <div class="timer-ring">
+                <svg viewBox="0 0 50 50">
+                  <circle class="ring-bg" cx="25" cy="25" r="22" />
+                  <circle 
+                    class="ring-progress" 
+                    cx="25" cy="25" r="22"
+                    :stroke="timerColor"
+                    :stroke-dasharray="`${(timeLeft / timeLimit) * 138} 138`"
+                    :class="{ warning: timeLeft <= 10 }"
+                  />
+                </svg>
+                <span class="timer-text" :class="{ warning: timeLeft <= 10 }">{{ timeLeft }}s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 题目显示 -->
+          <div class="question-card ios26-card">
+            <div class="card-liquid-border"></div>
+            <div class="card-liquid-shine"></div>
+            <div class="card-content">
+              <div class="question-prompt">
+                <span class="prompt-icon">📜</span>
+                <span class="prompt-text">请说出含有</span>
+                <span class="prompt-keyword">{{ currentKeyword }}</span>
+                <span class="prompt-text">的诗句</span>
+              </div>
+              <div class="question-hint">
+                <span class="hint-icon">💡</span>
+                <span>诗句需出自经典诗词，点击下方示例获取灵感</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 快捷提示 -->
+          <div class="hint-card ios26-card" v-if="currentHint">
+            <div class="card-liquid-border"></div>
+            <div class="card-content">
+              <div class="hint-header">
+                <span class="hint-icon-lg">💡</span>
+                <span class="hint-title">系统提示</span>
+              </div>
+              <p class="hint-text">{{ currentHint }}</p>
+              <p class="hint-meta" v-if="currentHintAuthor">{{ currentHintAuthor }} · {{ currentHintDynasty }}《{{ currentHintTitle }}》</p>
+            </div>
+          </div>
+
+          <!-- 输入区域 -->
+          <div class="input-section">
+            <div class="input-card ios26-card">
+              <div class="card-liquid-border"></div>
+              <div class="card-liquid-shine"></div>
+              <div class="card-content">
+                <input 
+                  type="text" 
+                  v-model="userInput" 
+                  class="poem-input"
+                  :placeholder="`请输入含「${currentKeyword}」的完整诗句，如：春眠不觉晓，处处闻啼鸟`"
+                  @keyup.enter="submitPoem"
+                  :disabled="isThinking"
+                  ref="inputRef"
+                />
+                <button class="submit-btn ios26-btn primary-btn" @click="submitPoem" :disabled="!userInput.trim() || isThinking">
+                  <span class="btn-icon">{{ isThinking ? '⏳' : '✦' }}</span>
+                  <span>{{ isThinking ? '验证中...' : '提交诗句' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 历史记录 -->
+          <div class="history-section">
+            <div class="section-header">
+              <span class="section-icon">📖</span>
+              <h3 class="section-title">对局记录</h3>
+              <span class="history-count">{{ poemHistory.length }}句</span>
+            </div>
+            <div class="history-list">
+              <transition-group name="poem-slide">
+                <div 
+                  v-for="(item, idx) in poemHistory" 
+                  :key="item.id"
+                  class="history-item ios26-card"
+                  :class="[item.player, item.result]"
+                  :style="{ animationDelay: `${idx * 0.05}s` }"
+                >
+                  <div class="card-liquid-border"></div>
+                  <div class="card-liquid-shine"></div>
+                  <div class="card-content">
+                    <div class="item-header">
+                      <span class="player-tag">{{ item.player === 'user' ? '👤 我' : '🤖 系统' }}</span>
+                      <span class="item-round">第{{ idx + 1 }}回合</span>
+                      <span class="item-score" v-if="item.player === 'user' && item.result === 'correct'">+{{ item.scoreGained }}分</span>
+                    </div>
+                    <div class="poem-text">
+                      <span 
+                        v-for="(char, ci) in item.poem" 
+                        :key="ci"
+                        class="poem-char"
+                        :class="{ highlight: char === currentKeyword }"
+                      >{{ char }}</span>
+                    </div>
+                    <div class="poem-meta" v-if="item.analysis">
+                      <span class="meta-author">{{ item.analysis.author }}</span>
+                      <span class="meta-sep">·</span>
+                      <span class="meta-dynasty">{{ item.analysis.dynasty }}</span>
+                      <span class="meta-sep">·</span>
+                      <span class="meta-title">《{{ item.analysis.title }}》</span>
+                    </div>
+                    <div class="poem-result" :class="item.result">
+                      <span class="result-icon">{{ item.result === 'correct' ? '✓' : '✗' }}</span>
+                      <span class="result-text">{{ item.resultText }}</span>
+                    </div>
+                  </div>
+                </div>
+              </transition-group>
+              <div v-if="poemHistory.length === 0" class="history-empty">
+                <span class="empty-icon">📝</span>
+                <p>开始你的飞花令之旅吧！</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 退出按钮 -->
+          <div class="action-row">
+            <button class="ios26-btn danger-btn quit-btn" @click="quitGame">
+              <span class="btn-icon">✕</span>
+              <span>结束挑战</span>
+            </button>
+          </div>
+        </div>
+      </transition>
+
+      <!-- ===== 游戏结果 ===== -->
+      <transition name="fade-scale" mode="out-in">
+        <div class="result-section" v-if="gameOver">
+          <div class="result-card ios26-card">
+            <div class="card-liquid-border"></div>
+            <div class="card-liquid-shine"></div>
+            
+            <div class="card-content">
+              <div class="result-animation">
+                <div class="result-orb" :class="resultGrade">
+                  <span class="orb-icon">{{ resultIcon }}</span>
+                  <div class="orb-ring"></div>
+                  <div class="orb-glow"></div>
+                </div>
+              </div>
+
+              <h2 class="result-title">{{ resultTitle }}</h2>
+              <p class="result-subtitle">{{ resultSubtitle }}</p>
+
+              <div class="result-stats">
+                <div class="main-stat">
+                  <span class="stat-icon">🏆</span>
+                  <div class="stat-content">
+                    <span class="stat-number">{{ score }}</span>
+                    <span class="stat-label">最终积分</span>
+                  </div>
+                </div>
+                <div class="stats-row">
+                  <div class="stat-item">
+                    <span class="item-icon">📜</span>
+                    <span class="item-value">{{ poemHistory.length }}</span>
+                    <span class="item-label">回合数</span>
+                  </div>
+                  <div class="stat-item correct">
+                    <span class="item-icon">✓</span>
+                    <span class="item-value">{{ correctCount }}</span>
+                    <span class="item-label">正确</span>
+                  </div>
+                  <div class="stat-item wrong">
+                    <span class="item-icon">✗</span>
+                    <span class="item-value">{{ wrongCount }}</span>
+                    <span class="item-label">错误</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="result-actions">
+                <button class="ios26-btn primary-btn" @click="restartGame">
+                  <span class="btn-icon">🔄</span>
+                  <span>再来一局</span>
+                </button>
+                <button class="ios26-btn secondary-btn" @click="changeKeyword">
+                  <span class="btn-icon">🎴</span>
+                  <span>换令字</span>
+                </button>
+                <button class="ios26-btn" @click="goHome">
+                  <span class="btn-icon">🏠</span>
+                  <span>返回首页</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+
     </div>
+
+    <!-- Toast通知 -->
+    <transition name="toast-slide">
+      <div v-if="toast.show" class="toast" :class="toast.type">
+        <span class="toast-icon">{{ toastIcon }}</span>
+        <span class="toast-text">{{ toast.message }}</span>
+      </div>
+    </transition>
+
   </div>
 </template>
 
 <script>
-export default {
-  name: 'Feihua',
-  data() {
-    return {
-      // 游戏状态
-      gameStarted: false,
-      gameOver: false,
-      inSetup: false,
-      showRules: false,
-      showNewbieGuide: true,
-      
-      // 难度设置
-      selectedDifficulty: 'easy',
-      difficulties: [
-        { level: 'easy', name: '入门', description: '令字可在诗句任意位置', timeLimit: 60 },
-        { level: 'medium', name: '进阶', description: '令字位置轮流变化', timeLimit: 45 },
-        { level: 'hard', name: '专业', description: '令字位置轮流变化，禁止提示', timeLimit: 30 }
-      ],
-      
-      // 令字设置
-      selectedKeyword: '',
-      customKeyword: '',
-      recommendedKeywords: ['春', '月', '花', '山', '水', '风', '雪', '云', '酒', '愁', '江', '河', '日', '夜', '心', '人', '天', '地', '光', '影', '声', '色', '香', '年', '时', '处', '间', '客', '路', '星', '海', '竹', '梅', '柳', '草', '松', '菊', '思', '情', '爱', '别', '离', '归', '梦', '看', '望', '听', '行'],
-      
-      
-      
-      
-      keywordError: '',
-      keywordWarning: '',
-      
-      // 游戏参数
-      currentKeyword: '',
-      currentDifficulty: 'easy',
-      timeLimit: 60,
-      timeLeft: 60,
-      timer: null,
-      score: 0,
-      correctRounds: 0,
-      gameResult: '', // win, timeout, invalid
-      
-      // 对局状态
-      currentPlayer: 'user', // user, system
-      currentPosition: 0, // 0表示任意位置
-      userInput: '',
-      poemHistory: [],
-      usedPoems: new Set(),
-      
-      // 提示功能
-      hintCount: 0,
-      maxHints: {
-        easy: Infinity,
-        medium: 3,
-        hard: 0
-      },
-      
-      // 诗句数据库
-      poemDatabase: {
-        '春': [
-          { poem: '春眠不觉晓，处处闻啼鸟', author: '孟浩然', dynasty: '唐', title: '春晓' },
-          { poem: '春色满园关不住，一枝红杏出墙来', author: '叶绍翁', dynasty: '宋', title: '游园不值' },
-          { poem: '春潮带雨晚来急，野渡无人舟自横', author: '韦应物', dynasty: '唐', title: '滁州西涧' },
-          { poem: '春江水暖鸭先知，竹外桃花三两枝', author: '苏轼', dynasty: '宋', title: '惠崇春江晚景' },
-          { poem: '春风又绿江南岸，明月何时照我还', author: '王安石', dynasty: '宋', title: '泊船瓜洲' },
-          { poem: '春蚕到死丝方尽，蜡炬成灰泪始干', author: '李商隐', dynasty: '唐', title: '无题' },
-          { poem: '春种一粒粟，秋收万颗子', author: '李绅', dynasty: '唐', title: '悯农' },
-          { poem: '春城无处不飞花，寒食东风御柳斜', author: '韩翃', dynasty: '唐', title: '寒食' },
-          { poem: '春阴垂野草青青，时有幽花一树明', author: '苏舜钦', dynasty: '宋', title: '淮中晚泊犊头' },
-          { poem: '春山暖日和风，阑干楼阁帘栊', author: '白朴', dynasty: '元', title: '天净沙·春' }
-        ],
-        '月': [
-          { poem: '床前明月光，疑是地上霜', author: '李白', dynasty: '唐', title: '静夜思' },
-          { poem: '举头望明月，低头思故乡', author: '李白', dynasty: '唐', title: '静夜思' },
-          { poem: '小时不识月，呼作白玉盘', author: '李白', dynasty: '唐', title: '古朗月行' },
-          { poem: '月落乌啼霜满天，江枫渔火对愁眠', author: '张继', dynasty: '唐', title: '枫桥夜泊' },
-          { poem: '明月几时有，把酒问青天', author: '苏轼', dynasty: '宋', title: '水调歌头' },
-          { poem: '海上生明月，天涯共此时', author: '张九龄', dynasty: '唐', title: '望月怀远' },
-          { poem: '春风又绿江南岸，明月何时照我还', author: '王安石', dynasty: '宋', title: '泊船瓜洲' },
-          { poem: '秦时明月汉时关，万里长征人未还', author: '王昌龄', dynasty: '唐', title: '出塞' },
-          { poem: '举杯邀明月，对影成三人', author: '李白', dynasty: '唐', title: '月下独酌' },
-          { poem: '明月松间照，清泉石上流', author: '王维', dynasty: '唐', title: '山居秋暝' }
-        ],
-        '花': [
-          { poem: '春城无处不飞花，寒食东风御柳斜', author: '韩翃', dynasty: '唐', title: '寒食' },
-          { poem: '花落知多少，夜来风雨声', author: '孟浩然', dynasty: '唐', title: '春晓' },
-          { poem: '待到山花烂漫时，她在丛中笑', author: '毛泽东', dynasty: '现代', title: '卜算子·咏梅' },
-          { poem: '接天莲叶无穷碧，映日荷花别样红', author: '杨万里', dynasty: '宋', title: '晓出净慈寺送林子方' },
-          { poem: '人间四月芳菲尽，山寺桃花始盛开', author: '白居易', dynasty: '唐', title: '大林寺桃花' },
-          { poem: '落红不是无情物，化作春泥更护花', author: '龚自珍', dynasty: '清', title: '己亥杂诗' },
-          { poem: '人面不知何处去，桃花依旧笑春风', author: '崔护', dynasty: '唐', title: '题都城南庄' },
-          { poem: '去年今日此门中，人面桃花相映红', author: '崔护', dynasty: '唐', title: '题都城南庄' },
-          { poem: '不经一番寒彻骨，怎得梅花扑鼻香', author: '黄蘖禅师', dynasty: '唐', title: '上堂开示颂' },
-          { poem: '墙角数枝梅，凌寒独自开', author: '王安石', dynasty: '宋', title: '梅花' }
-        ],
-        '山': [
-          { poem: '不识庐山真面目，只缘身在此山中', author: '苏轼', dynasty: '宋', title: '题西林壁' },
-          { poem: '相看两不厌，只有敬亭山', author: '李白', dynasty: '唐', title: '独坐敬亭山' },
-          { poem: '会当凌绝顶，一览众山小', author: '杜甫', dynasty: '唐', title: '望岳' },
-          { poem: '五岳归来不看山，黄山归来不看岳', author: '徐霞客', dynasty: '明', title: '漫游黄山仙境' },
-          { poem: '山重水复疑无路，柳暗花明又一村', author: '陆游', dynasty: '宋', title: '游山西村' },
-          { poem: '远看山有色，近听水无声', author: '王维', dynasty: '唐', title: '画' },
-          { poem: '山不在高，有仙则名', author: '刘禹锡', dynasty: '唐', title: '陋室铭' },
-          { poem: '白日依山尽，黄河入海流', author: '王之涣', dynasty: '唐', title: '登鹳雀楼' },
-          { poem: '空山不见人，但闻人语响', author: '王维', dynasty: '唐', title: '鹿柴' },
-          { poem: '种豆南山下，草盛豆苗稀', author: '陶渊明', dynasty: '晋', title: '归园田居' }
-        ],
-        '水': [
-          { poem: '白毛浮绿水，红掌拨清波', author: '骆宾王', dynasty: '唐', title: '咏鹅' },
-          { poem: '春江水暖鸭先知，竹外桃花三两枝', author: '苏轼', dynasty: '宋', title: '惠崇春江晚景' },
-          { poem: '桃花潭水深千尺，不及汪伦送我情', author: '李白', dynasty: '唐', title: '赠汪伦' },
-          { poem: '山重水复疑无路，柳暗花明又一村', author: '陆游', dynasty: '宋', title: '游山西村' },
-          { poem: '水何澹澹，山岛竦峙', author: '曹操', dynasty: '汉', title: '观沧海' },
-          { poem: '所谓伊人，在水一方', author: '佚名', dynasty: '周', title: '蒹葭' },
-          { poem: '日出江花红胜火，春来江水绿如蓝', author: '白居易', dynasty: '唐', title: '忆江南' },
-          { poem: '孤帆远影碧空尽，唯见长江天际流', author: '李白', dynasty: '唐', title: '黄鹤楼送孟浩然之广陵' },
-          { poem: '黄河之水天上来，奔流到海不复回', author: '李白', dynasty: '唐', title: '将进酒' },
-          { poem: '大江东去，浪淘尽，千古风流人物', author: '苏轼', dynasty: '宋', title: '念奴娇·赤壁怀古' }
-        ],
-        '风': [
-          { poem: '随风潜入夜，润物细无声', author: '杜甫', dynasty: '唐', title: '春夜喜雨' },
-          { poem: '夜来风雨声，花落知多少', author: '孟浩然', dynasty: '唐', title: '春晓' },
-          { poem: '春风又绿江南岸，明月何时照我还', author: '王安石', dynasty: '宋', title: '泊船瓜洲' },
-          { poem: '风萧萧兮易水寒，壮士一去兮不复还', author: '荆轲', dynasty: '战国', title: '易水歌' },
-          { poem: '大风起兮云飞扬，威加海内兮归故乡', author: '刘邦', dynasty: '汉', title: '大风歌' },
-          { poem: '相见时难别亦难，东风无力百花残', author: '李商隐', dynasty: '唐', title: '无题' },
-          { poem: '长风破浪会有时，直挂云帆济沧海', author: '李白', dynasty: '唐', title: '行路难' },
-          { poem: '忽如一夜春风来，千树万树梨花开', author: '岑参', dynasty: '唐', title: '白雪歌送武判官归京' },
-          { poem: '沾衣欲湿杏花雨，吹面不寒杨柳风', author: '志南', dynasty: '宋', title: '绝句' },
-          { poem: '等闲识得东风面，万紫千红总是春', author: '朱熹', dynasty: '宋', title: '春日' }
-        ],
-        '雪': [
-          { poem: '孤舟蓑笠翁，独钓寒江雪', author: '柳宗元', dynasty: '唐', title: '江雪' },
-          { poem: '忽如一夜春风来，千树万树梨花开', author: '岑参', dynasty: '唐', title: '白雪歌送武判官归京' },
-          { poem: '梅须逊雪三分白，雪却输梅一段香', author: '卢梅坡', dynasty: '宋', title: '雪梅' },
-          { poem: '柴门闻犬吠，风雪夜归人', author: '刘长卿', dynasty: '唐', title: '逢雪宿芙蓉山主人' },
-          { poem: '夜深知雪重，时闻折竹声', author: '白居易', dynasty: '唐', title: '夜雪' },
-          { poem: '已讶衾枕冷，复见窗户明', author: '白居易', dynasty: '唐', title: '夜雪' },
-          { poem: '北国风光，千里冰封，万里雪飘', author: '毛泽东', dynasty: '现代', title: '沁园春·雪' },
-          { poem: '欲渡黄河冰塞川，将登太行雪满山', author: '李白', dynasty: '唐', title: '行路难' },
-          { poem: '窗含西岭千秋雪，门泊东吴万里船', author: '杜甫', dynasty: '唐', title: '绝句' },
-          { poem: '寒雪梅中尽，春风柳上归', author: '李白', dynasty: '唐', title: '宫中行乐词' }
-        ],
-        '云': [
-          { poem: '远上寒山石径斜，白云生处有人家', author: '杜牧', dynasty: '唐', title: '山行' },
-          { poem: '黄河远上白云间，一片孤城万仞山', author: '王之涣', dynasty: '唐', title: '凉州词' },
-          { poem: '朝辞白帝彩云间，千里江陵一日还', author: '李白', dynasty: '唐', title: '早发白帝城' },
-          { poem: '不畏浮云遮望眼，自缘身在最高层', author: '王安石', dynasty: '宋', title: '登飞来峰' },
-          { poem: '总为浮云能蔽日，长安不见使人愁', author: '李白', dynasty: '唐', title: '登金陵凤凰台' },
-          { poem: '浮云游子意，落日故人情', author: '李白', dynasty: '唐', title: '送友人' },
-          { poem: '黑云压城城欲摧，甲光向日金鳞开', author: '李贺', dynasty: '唐', title: '雁门太守行' },
-          { poem: '青海长云暗雪山，孤城遥望玉门关', author: '王昌龄', dynasty: '唐', title: '从军行' },
-          { poem: '孤云独去闲，相看两不厌', author: '李白', dynasty: '唐', title: '独坐敬亭山' },
-          { poem: '野径云俱黑，江船火独明', author: '杜甫', dynasty: '唐', title: '春夜喜雨' }
-        ],
-        '酒': [
-          { poem: '花间一壶酒，独酌无相亲', author: '李白', dynasty: '唐', title: '月下独酌' },
-          { poem: '劝君更尽一杯酒，西出阳关无故人', author: '王维', dynasty: '唐', title: '送元二使安西' },
-          { poem: '葡萄美酒夜光杯，欲饮琵琶马上催', author: '王翰', dynasty: '唐', title: '凉州词' },
-          { poem: '借问酒家何处有，牧童遥指杏花村', author: '杜牧', dynasty: '唐', title: '清明' },
-          { poem: '金樽清酒斗十千，玉盘珍羞直万钱', author: '李白', dynasty: '唐', title: '行路难' },
-          { poem: '醉卧沙场君莫笑，古来征战几人回', author: '王翰', dynasty: '唐', title: '凉州词' },
-          { poem: '浊酒一杯家万里，燕然未勒归无计', author: '范仲淹', dynasty: '宋', title: '渔家傲·秋思' },
-          { poem: '今宵酒醒何处？杨柳岸，晓风残月', author: '柳永', dynasty: '宋', title: '雨霖铃' },
-          { poem: '酒入愁肠，化作相思泪', author: '范仲淹', dynasty: '宋', title: '苏幕遮' },
-          { poem: '对酒当歌，人生几何', author: '曹操', dynasty: '汉', title: '短歌行' }
-        ],
-        '愁': [
-          { poem: '问君能有几多愁，恰似一江春水向东流', author: '李煜', dynasty: '南唐', title: '虞美人' },
-          { poem: '抽刀断水水更流，举杯消愁愁更愁', author: '李白', dynasty: '唐', title: '宣州谢朓楼饯别校书叔云' },
-          { poem: '月落乌啼霜满天，江枫渔火对愁眠', author: '张继', dynasty: '唐', title: '枫桥夜泊' },
-          { poem: '剪不断，理还乱，是离愁，别是一般滋味在心头', author: '李煜', dynasty: '南唐', title: '相见欢' },
-          { poem: '一种相思，两处闲愁', author: '李清照', dynasty: '宋', title: '一剪梅' },
-          { poem: '薄雾浓云愁永昼，瑞脑销金兽', author: '李清照', dynasty: '宋', title: '醉花阴' },
-          { poem: '却看妻子愁何在，漫卷诗书喜欲狂', author: '杜甫', dynasty: '唐', title: '闻官军收河南河北' },
-          { poem: '少年不识愁滋味，爱上层楼', author: '辛弃疾', dynasty: '宋', title: '丑奴儿·书博山道中壁' },
-          { poem: '日暮乡关何处是？烟波江上使人愁', author: '崔颢', dynasty: '唐', title: '黄鹤楼' },
-          { poem: '总为浮云能蔽日，长安不见使人愁', author: '李白', dynasty: '唐', title: '登金陵凤凰台' }
-        ]
-      }
-    }
-  },
-  computed: {
-    canUseHint() {
-      return this.currentDifficulty !== 'hard' && this.hintCount < this.maxHints[this.currentDifficulty]
-    }
-  },
-  methods: {
-    // 难度选择
-    selectDifficulty(difficulty) {
-      this.selectedDifficulty = difficulty
-    },
-    
-    // 进入令字设置
-    goToSetup() {
-      this.inSetup = true
-    },
-    
-    // 返回难度选择
-    backToDifficulty() {
-      this.inSetup = false
-    },
-    
-    // 验证自定义令字
-    validateCustomKeyword() {
-      this.keywordError = ''
-      this.keywordWarning = ''
-      
-      const keyword = this.customKeyword
-      if (!keyword) return
-      
-      // 检查是否为单个中文字符
-      const chineseCharRegex = /^[\u4e00-\u9fa5]$/
-      if (!chineseCharRegex.test(keyword)) {
-        this.keywordError = '请输入单个简体中文字符'
-        return
-      }
-      
-      // 检查诗词库覆盖率
-      const poems = this.poemDatabase[keyword] || []
-      if (poems.length < 10) {
-        this.keywordWarning = '该令字诗词储备较少，建议更换高频令字'
-      }
-      
-      this.selectedKeyword = keyword
-    },
-    
-    // 生成随机令字
-    generateRandomKeyword() {
-      // 从推荐令字中随机选择一个
-      const randomIndex = Math.floor(Math.random() * this.recommendedKeywords.length)
-      const randomKeyword = this.recommendedKeywords[randomIndex]
-      this.customKeyword = randomKeyword
-      this.validateCustomKeyword()
-    },
-    
-    // 确认设置并开始游戏
-    confirmSetup() {
-      // 检查登录状态
-      const token = localStorage.getItem('token')
-      if (!token) {
-        localStorage.setItem('redirectPath', this.$route.fullPath)
-        this.$router.push('/login')
-        return
-      }
-      
-      // 确定令字
-      this.currentKeyword = this.selectedKeyword || this.customKeyword
-      if (!this.currentKeyword) {
-        alert('请选择或输入令字')
-        return
-      }
-      
-      // 确定难度
-      this.currentDifficulty = this.selectedDifficulty
-      this.timeLimit = this.difficulties.find(d => d.level === this.currentDifficulty).timeLimit
-      
-      // 开始游戏
-      this.startGame()
-    },
-    
-    // 开始游戏
-    startGame() {
-      // 重置游戏状态
-      this.gameStarted = true
-      this.gameOver = false
-      this.inSetup = false
-      this.score = 0
-      this.correctRounds = 0
-      this.timeLeft = this.timeLimit
-      this.userInput = ''
-      this.poemHistory = []
-      this.usedPoems = new Set()
-      this.hintCount = 0
-      this.currentPlayer = 'user'
-      this.currentPosition = this.currentDifficulty === 'easy' ? 0 : 1
-      
-      // 开始计时
-      this.startTimer()
-      
-      // 聚焦输入框
-      this.$nextTick(() => {
-        if (this.$refs.poemInput) {
-          this.$refs.poemInput.focus()
-        }
-      })
-    },
-    
-    // 开始计时
-    startTimer() {
-      this.stopTimer()
-      this.timer = setInterval(() => {
-        this.timeLeft--
-        if (this.timeLeft <= 0) {
-          this.handleTimeout()
-        }
-      }, 1000)
-    },
-    
-    // 停止计时
-    stopTimer() {
-      if (this.timer) {
-        clearInterval(this.timer)
-        this.timer = null
-      }
-    },
-    
-    // 处理超时
-    handleTimeout() {
-      this.stopTimer()
-      this.gameResult = 'timeout'
-      this.gameOver = true
-      this.gameStarted = false
-    },
-    
-    // 提交诗句
-    submitPoem() {
-      const poem = this.userInput.trim()
-      if (!poem) return
-      
-      // 校验诗句
-      const validation = this.validatePoem(poem)
-      if (!validation.valid) {
-        alert(validation.message)
-        return
-      }
-      
-      // 添加到历史记录
-      const historyItem = {
-        player: 'user',
-        poem: poem,
-        position: this.currentPosition,
-        analysis: this.getPoemAnalysis(poem)
-      }
-      this.poemHistory.push(historyItem)
-      this.usedPoems.add(poem)
-      
-      // 更新分数和回合数
-      this.score += this.getScoreForRound()
-      this.correctRounds++
-      
-      // 重置输入和时间
-      this.userInput = ''
-      this.timeLeft = this.timeLimit
-      
-      // 切换到系统回合
-      this.currentPlayer = 'system'
-      
-      // 系统思考后生成诗句
-      setTimeout(() => {
-        this.generateSystemPoem()
-      }, 1000)
-    },
-    
-    // 校验诗句
-    validatePoem(poem) {
-      // 格式校验
-      if (!/^[\u4e00-\u9fa5，。！？；]+$/.test(poem)) {
-        return { valid: false, message: '请输入纯中文诗句，不含字母、数字、符号' }
-      }
-      
-      // 长度校验 - 进一步放宽限制，允许4-20字的诗句（支持完整联句）
-      const charCount = poem.replace(/[，。！？；]/g, '').length
-      if (charCount < 4 || charCount > 20) {
-        return { valid: false, message: '请输入完整的诗句，长度在4-20字之间' }
-      }
-      
-      // 令字校验
-      if (!poem.includes(this.currentKeyword)) {
-        return { valid: false, message: `诗句中未包含本局令字【${this.currentKeyword}】` }
-      }
-      
-      // 位置校验（进阶/专业难度）
-      if (this.currentPosition > 0) {
-        const charIndex = poem.indexOf(this.currentKeyword)
-        if (charIndex !== this.currentPosition - 1) {
-          return { valid: false, message: `当前回合要求令字【${this.currentKeyword}】在诗句的第${this.currentPosition}位` }
-        }
-      }
-      
-      // 重复校验
-      if (this.usedPoems.has(poem)) {
-        return { valid: false, message: '该诗句已在本局中使用过' }
-      }
-      
-      return { valid: true, message: '诗句有效' }
-    },
-    
-    // 检查诗句是否在数据库中
-    isValidPoemInDatabase(poem) {
-      // 简化版：检查是否在诗句库中
-      for (const keyword in this.poemDatabase) {
-        for (const item of this.poemDatabase[keyword]) {
-          if (item.poem === poem) {
-            return true
-          }
-        }
-      }
-      return false
-    },
-    
-    // 获取诗句分析
-    getPoemAnalysis(poem) {
-      for (const keyword in this.poemDatabase) {
-        for (const item of this.poemDatabase[keyword]) {
-          if (item.poem === poem) {
-            return {
-              author: item.author,
-              dynasty: item.dynasty,
-              title: item.title,
-              translation: this.getPoemTranslation(item.poem)
-            }
-          }
-        }
-      }
-      // 如果诗句不在数据库中，返回默认分析
-      return {
-        author: '未知',
-        dynasty: '未知',
-        title: '未知',
-        translation: '译文暂无'
-      }
-    },
-    
-    // 获取诗句译文（简化版）
-    getPoemTranslation(poem) {
-      // 这里可以根据需要扩展更详细的译文
-      const translations = {
-        '春眠不觉晓，处处闻啼鸟': '春天睡觉不知不觉天就亮了，到处都能听到鸟儿的叫声',
-        '床前明月光，疑是地上霜': '明亮的月光洒在床前，好像地上的霜',
-        '举头望明月，低头思故乡': '抬起头望着天上的明月，低下头思念自己的故乡',
-        '锄禾日当午，汗滴禾下土': '农民在正午烈日下锄草，汗水滴落在禾苗生长的土地上',
-        '谁知盘中餐，粒粒皆辛苦': '有谁知道盘子里的饭食，每一粒都是农民辛苦劳动得来的'
-      }
-      return translations[poem] || '译文暂无'
-    },
-    
-    // 系统生成诗句
-    generateSystemPoem() {
-      const poems = this.poemDatabase[this.currentKeyword] || []
-      if (poems.length === 0) {
-        this.handleSystemDefeat()
-        return
-      }
-      
-      // 过滤掉已使用的诗句
-      const availablePoems = poems.filter(item => !this.usedPoems.has(item.poem))
-      
-      // 过滤位置要求（进阶/专业难度）
-      const filteredPoems = this.currentPosition > 0 
-        ? availablePoems.filter(item => item.poem.indexOf(this.currentKeyword) === this.currentPosition - 1)
-        : availablePoems
-      
-      if (filteredPoems.length === 0) {
-        this.handleSystemDefeat()
-        return
-      }
-      
-      // 随机选择一句
-      const randomIndex = Math.floor(Math.random() * filteredPoems.length)
-      const selectedPoem = filteredPoems[randomIndex]
-      
-      // 添加到历史记录
-      const historyItem = {
-        player: 'system',
-        poem: selectedPoem.poem,
-        position: this.currentPosition,
-        analysis: {
-          author: selectedPoem.author,
-          dynasty: selectedPoem.dynasty,
-          title: selectedPoem.title,
-          translation: this.getPoemTranslation(selectedPoem.poem)
-        }
-      }
-      this.poemHistory.push(historyItem)
-      this.usedPoems.add(selectedPoem.poem)
-      
-      // 更新位置（进阶/专业难度）
-      if (this.currentPosition > 0) {
-        const lineLength = selectedPoem.poem.replace(/[，。！？；]/g, '').length
-        const maxPosition = lineLength === 5 ? 5 : 7
-        this.currentPosition = this.currentPosition % maxPosition + 1
-      }
-      
-      // 切换回用户回合
-      this.currentPlayer = 'user'
-      this.timeLeft = this.timeLimit
-      
-      // 聚焦输入框
-      this.$nextTick(() => {
-        if (this.$refs.poemInput) {
-          this.$refs.poemInput.focus()
-        }
-      })
-    },
-    
-    // 处理系统无法接句
-    handleSystemDefeat() {
-      this.stopTimer()
-      this.gameResult = 'win'
-      this.gameOver = true
-      this.gameStarted = false
-    },
-    
-    // 使用提示
-    useHint(level) {
-      if (!this.canUseHint) return
-      
-      this.hintCount++
-      
-      // 扣除积分
-      const hintScores = { 1: 5, 2: 10, 3: 20 }
-      this.score = Math.max(0, this.score - hintScores[level])
-      
-      // 生成提示
-      const availablePoems = this.getAvailablePoems()
-      if (availablePoems.length === 0) {
-        alert('暂无可用提示')
-        return
-      }
-      
-      const hintPoem = availablePoems[Math.floor(Math.random() * availablePoems.length)]
-      
-      switch (level) {
-        case 1:
-          alert(`提示：作者是${hintPoem.author}，朝代是${hintPoem.dynasty}`)
-          break
-        case 2:
-          alert(`提示：首字是「${hintPoem.poem.charAt(0)}」`)
-          break
-        case 3:
-          alert(`提示：示例诗句：${hintPoem.poem}`)
-          break
-      }
-    },
-    
-    // 获取可用诗句
-    getAvailablePoems() {
-      const poems = this.poemDatabase[this.currentKeyword] || []
-      const availablePoems = poems.filter(item => !this.usedPoems.has(item.poem))
-      
-      if (this.currentPosition > 0) {
-        return availablePoems.filter(item => item.poem.indexOf(this.currentKeyword) === this.currentPosition - 1)
-      }
-      return availablePoems
-    },
-    
-    // 获取回合得分
-    getScoreForRound() {
-      const baseScores = { easy: 10, medium: 20, hard: 30 }
-      let score = baseScores[this.currentDifficulty]
-      
-      // 连胜加成
-      if (this.correctRounds >= 2) {
-        score += 5 * (this.correctRounds - 1)
-      }
-      
-      return score
-    },
-    
-    // 停止游戏
-    stopGame() {
-      this.stopTimer()
-      this.gameOver = true
-      this.gameStarted = false
-      this.gameResult = 'invalid'
-    },
-    
-    // 重新开始
-    restartGame() {
-      this.startGame()
-    },
-    
-    // 更换令字
-    changeKeyword() {
-      this.inSetup = true
-      this.gameOver = false
-    },
-    
-    // 更换难度
-    changeDifficulty() {
-      this.inSetup = false
-      this.gameOver = false
-    },
-    
-    // 返回首页
-    goBack() {
-      this.$router.push('/')
-    },
-    
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
+import { feihuaPoems, getAvailableKeywords, validatePoem, getKeywordCount, validatePoemByAI } from '@/data/feihuaPoems'
 
+export default {
+  name: 'FeiHuaLingSingle',
+  setup() {
+    const router = useRouter()
+    const inputRef = ref(null)
+    const bgLoaded = ref(false)
+    let historyIdCounter = 0
+
+    // ===== 游戏状态 =====
+    const gameStarted = ref(false)
+    const gameOver = ref(false)
+    const inSetup = ref(false)
+    const selectedMode = ref('single')
+    const selectedKeyword = ref('')
+    const userInput = ref('')
+    const isThinking = ref(false)
     
-    // 收藏诗句到错题本
-    collectPoem(item) {
-      // 这里可以实现收藏功能
-      item.isCollected = true
-      alert('已收藏到错题本')
-    },
-    
-    // 获取难度名称
-    getDifficultyName() {
-      const difficulty = this.difficulties.find(d => d.level === this.currentDifficulty)
-      return difficulty ? difficulty.name : '未知'
+    // ===== 游戏数据 =====
+    const score = ref(0)
+    const roundNumber = ref(1)
+    const timeLeft = ref(60)
+    const timeLimit = ref(60)
+    const poemHistory = ref([])
+    const usedPoems = ref([])
+    const timer = ref(null)
+    const timerInterval = ref(null)
+
+    // ===== Toast =====
+    const toast = ref({ show: false, message: '', type: 'info' })
+    let toastTimer = null
+
+    const showToast = (message, type = 'info') => {
+      toast.value = { show: true, message, type }
+      if (toastTimer) clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => { toast.value.show = false }, 3000)
     }
-  },
-  beforeUnmount() {
-    this.stopTimer()
+
+    const toastIcon = computed(() => {
+      const icons = { success: '✓', error: '✗', info: '💡', warning: '⚠' }
+      return icons[toast.value.type] || icons.info
+    })
+
+    // ===== 模式选择 =====
+    const gameModes = [
+      { 
+        id: 'single', 
+        name: '单人练习', 
+        icon: '📖',
+        desc: '与AI对战，循序渐进提升诗词功底',
+        difficulty: '入门',
+        color: '#4ade80',
+        time: 60,
+        delay: 0.1
+      },
+      { 
+        id: 'online', 
+        name: '在线对战', 
+        icon: '🌸',
+        desc: '与好友实时对战，以诗会友',
+        difficulty: '联机',
+        color: '#a855f7',
+        time: 45,
+        delay: 0.15
+      },
+      { 
+        id: 'challenge', 
+        name: '限时挑战', 
+        icon: '⏱',
+        desc: '紧张刺激的限时答题模式',
+        difficulty: '进阶',
+        color: '#fbbf24',
+        time: 45,
+        delay: 0.2
+      },
+      { 
+        id: 'master', 
+        name: '诗词大师', 
+        icon: '🏆',
+        desc: '专业难度，考验真正实力',
+        difficulty: '专业',
+        color: '#f87171',
+        time: 30,
+        delay: 0.3
+      }
+    ]
+
+    // ===== 令字数据库 =====
+    const keywordsData = computed(() => {
+      const available = getAvailableKeywords()
+      return available.reduce((acc, char) => {
+        acc[char] = { count: getKeywordCount(char), position: false }
+        return acc
+      }, {})
+    })
+
+    const hotKeywords = computed(() => {
+      return Object.entries(keywordsData.value)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 8)
+        .map(([char, data]) => ({ char, ...data }))
+    })
+
+    const moreKeywords = computed(() => {
+      return Object.entries(keywordsData.value)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(8)
+        .map(([char]) => char)
+    })
+
+    const currentKeyword = computed(() => selectedKeyword.value)
+
+    // ===== 快捷提示 =====
+    const currentHint = ref('')
+    const currentHintAuthor = ref('')
+    const currentHintDynasty = ref('')
+    const currentHintTitle = ref('')
+
+    const updateHint = () => {
+      const available = feihuaPoems[currentKeyword.value] || []
+      const unused = available.filter(p => !usedPoems.value.includes(p.poem))
+      if (unused.length > 0) {
+        const hint = unused[Math.floor(Math.random() * unused.length)]
+        currentHint.value = hint.poem
+        currentHintAuthor.value = hint.author
+        currentHintDynasty.value = hint.dynasty
+        currentHintTitle.value = hint.title
+      }
+    }
+
+    // ===== 计时器颜色 =====
+    const timerColor = computed(() => {
+      if (timeLeft.value <= 10) return '#f87171'
+      if (timeLeft.value <= 20) return '#fbbf24'
+      return '#4ade80'
+    })
+
+    // ===== 计算属性 =====
+    const correctCount = computed(() => 
+      poemHistory.value.filter(p => p.player === 'user' && p.result === 'correct').length
+    )
+    const wrongCount = computed(() => 
+      poemHistory.value.filter(p => p.player === 'user' && p.result !== 'correct').length
+    )
+    
+    const resultGrade = computed(() => {
+      if (score.value >= 200) return 'grade-immortal'
+      if (score.value >= 150) return 'grade-master'
+      if (score.value >= 100) return 'grade-expert'
+      if (score.value >= 50) return 'grade-talent'
+      return 'grade-rookie'
+    })
+
+    const resultTitle = computed(() => {
+      const titles = {
+        'grade-immortal': '诗仙降临！',
+        'grade-master': '诗词大师！',
+        'grade-expert': '诗词达人！',
+        'grade-talent': '诗坛新秀！',
+        'grade-rookie': '初露锋芒！'
+      }
+      return titles[resultGrade.value]
+    })
+
+    const resultSubtitle = computed(() => {
+      const subtitles = {
+        'grade-immortal': '才高八斗，诗词满腹！',
+        'grade-master': '功力深厚，令人赞叹！',
+        'grade-expert': '表现优异，继续加油！',
+        'grade-talent': '潜力无限，期待更好！',
+        'grade-rookie': '初学乍练，再接再厉！'
+      }
+      return subtitles[resultGrade.value]
+    })
+
+    const resultIcon = computed(() => {
+      const icons = {
+        'grade-immortal': '🏆',
+        'grade-master': '👑',
+        'grade-expert': '⭐',
+        'grade-talent': '🌟',
+        'grade-rookie': '✨'
+      }
+      return icons[resultGrade.value]
+    })
+
+    // ===== 背景装饰 =====
+    const floatingChars = ref([])
+    const chars = ['诗', '词', '风', '月', '云', '山', '水', '花', '春', '秋', '雨', '雪', '鸟', '酒', '茶', '琴', '棋', '书', '画', '鹤', '松', '竹', '梅', '兰', '柳']
+
+    const getPetalStyle = (i) => ({
+      left: `${Math.random() * 100}%`,
+      animationDelay: `${Math.random() * 10}s`,
+      animationDuration: `${8 + Math.random() * 8}s`,
+      fontSize: `${10 + Math.random() * 12}px`,
+      opacity: 0.15 + Math.random() * 0.25
+    })
+
+    const getParticleStyle = (n) => {
+      const random = (min, max) => Math.random() * (max - min) + min
+      return {
+        left: random(0, 100) + '%',
+        top: random(0, 100) + '%',
+        animationDelay: random(0, 8) + 's',
+        animationDuration: random(6, 16) + 's',
+        width: random(3, 8) + 'px',
+        height: random(3, 8) + 'px',
+        opacity: random(0.08, 0.35),
+      }
+    }
+
+    const initFloatingChars = () => {
+      for (let i = 0; i < 15; i++) {
+        floatingChars.value.push({
+          text: chars[Math.floor(Math.random() * chars.length)],
+          style: {
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            fontSize: `${12 + Math.random() * 16}px`,
+            opacity: 0.03 + Math.random() * 0.05,
+            animationDelay: `${Math.random() * 10}s`,
+            animationDuration: `${15 + Math.random() * 15}s`
+          }
+        })
+      }
+    }
+
+    // ===== 卡片交互 =====
+    const handleCardMouseMove = (e) => {
+      const card = e.currentTarget
+      if (!card) return
+      const rect = card.getBoundingClientRect()
+      const x = ((e.clientX - rect.left) / rect.width) * 100
+      const y = ((e.clientY - rect.top) / rect.height) * 100
+      card.style.setProperty('--mouse-x', `${x}%`)
+      card.style.setProperty('--mouse-y', `${y}%`)
+    }
+
+    const setupCardHover = () => {
+      document.querySelectorAll('.ios26-card').forEach(card => {
+        card.addEventListener('mousemove', handleCardMouseMove)
+      })
+    }
+
+    const cleanupCardHover = () => {
+      document.querySelectorAll('.ios26-card').forEach(card => {
+        card.removeEventListener('mousemove', handleCardMouseMove)
+      })
+    }
+
+    // ===== 游戏方法 =====
+    const selectKeyword = (char) => {
+      selectedKeyword.value = char
+    }
+
+    const randomKeyword = () => {
+      const keys = getAvailableKeywords()
+      const random = keys[Math.floor(Math.random() * keys.length)]
+      selectedKeyword.value = random
+    }
+
+    const goToSetup = () => {
+      // 如果选择在线对战，跳转到联机页面
+      if (selectedMode.value === 'online') {
+        router.push('/feihualing/online')
+        return
+      }
+      inSetup.value = true
+    }
+
+    const backToMode = () => {
+      inSetup.value = false
+    }
+
+    const startGame = () => {
+      if (!selectedKeyword.value) return
+      
+      const limits = { single: 60, online: 45, challenge: 45, master: 30 }
+      timeLimit.value = limits[selectedMode.value] || 60
+      
+      gameStarted.value = true
+      gameOver.value = false
+      inSetup.value = false
+      score.value = 0
+      roundNumber.value = 1
+      timeLeft.value = timeLimit.value
+      poemHistory.value = []
+      usedPoems.value = []
+      userInput.value = ''
+      historyIdCounter = 0
+      
+      updateHint()
+      startTimer()
+      nextTick(() => {
+        inputRef.value?.focus()
+        setupCardHover()
+      })
+    }
+
+    const startTimer = () => {
+      stopTimer()
+      timerInterval.value = setInterval(() => {
+        timeLeft.value--
+        if (timeLeft.value <= 0) {
+          handleTimeout()
+        }
+      }, 1000)
+    }
+
+    const stopTimer = () => {
+      if (timerInterval.value) {
+        clearInterval(timerInterval.value)
+        timerInterval.value = null
+      }
+    }
+
+    const pauseTimer = () => {
+      stopTimer()
+    }
+
+    const resumeTimer = () => {
+      if (timeLeft.value > 0 && !gameOver.value && gameStarted.value) {
+        timerInterval.value = setInterval(() => {
+          timeLeft.value--
+          if (timeLeft.value <= 0) {
+            handleTimeout()
+          }
+        }, 1000)
+      }
+    }
+
+    const handleTimeout = () => {
+      stopTimer()
+      poemHistory.value.push({
+        id: ++historyIdCounter,
+        player: 'user',
+        poem: '（超时未答）',
+        result: 'wrong',
+        resultText: '超时未答',
+        scoreGained: 0,
+        analysis: null
+      })
+      endGame('timeout')
+    }
+
+    const submitPoem = async () => {
+      const poem = userInput.value.trim()
+      if (!poem || isThinking.value) return
+
+      isThinking.value = true
+      pauseTimer() // 验证期间暂停倒计时
+
+      // 先用本地数据库快速验证（同步，立即返回）
+      const localResult = validatePoem(poem, currentKeyword.value, usedPoems.value)
+
+      let validation
+      if (localResult.valid) {
+        // 数据库命中 → 直接使用，无需等待
+        validation = localResult
+      } else if (localResult.needsAIValidation) {
+        // 数据库未命中 → 调用 AI（这步才需要等待）
+        const aiResult = await validatePoemByAI(poem, currentKeyword.value)
+        if (aiResult.valid && aiResult.poem) {
+          validation = { valid: true, poem: aiResult.poem, fromAI: true }
+        } else {
+          validation = { valid: false, message: aiResult.message || '诗句不在我们的诗词库中，请换一首试试' }
+        }
+      } else {
+        // 数据库明确返回错误（非 notfound 类型）
+        validation = localResult
+      }
+
+      isThinking.value = false
+      resumeTimer() // 验证完毕，恢复计时
+
+      if (!validation.valid) {
+        showToast(validation.message, 'error')
+
+        poemHistory.value.push({
+          id: ++historyIdCounter,
+          player: 'user',
+          poem: poem,
+          result: 'wrong',
+          resultText: validation.message,
+          scoreGained: 0,
+          analysis: null
+        })
+
+        userInput.value = ''
+        return
+      }
+
+      // 验证通过
+      usedPoems.value.push(validation.poem.poem)
+
+      const baseScore = selectedMode.value === 'master' ? 30 : selectedMode.value === 'challenge' ? 20 : 10
+      score.value += baseScore
+
+      poemHistory.value.push({
+        id: ++historyIdCounter,
+        player: 'user',
+        poem: validation.poem.poem,
+        result: 'correct',
+        resultText: '正确！',
+        scoreGained: baseScore,
+        analysis: {
+          author: validation.poem.author || '未知',
+          dynasty: validation.poem.dynasty || '未知',
+          title: validation.poem.title || '未知'
+        }
+      })
+
+      showToast(`✓ 正确！+${baseScore}分`, 'success')
+
+      userInput.value = ''
+      roundNumber.value++
+      timeLeft.value = timeLimit.value
+
+      // 系统回复（短暂等待，模拟AI思考）
+      setTimeout(() => {
+        generateSystemPoem()
+      }, 800)
+    }
+
+    const generateSystemPoem = () => {
+      const available = feihuaPoems[currentKeyword.value] || []
+      const unused = available.filter(p => !usedPoems.value.includes(p.poem))
+
+      if (unused.length === 0) {
+        endGame('win')
+        return
+      }
+
+      const selected = unused[Math.floor(Math.random() * unused.length)]
+      usedPoems.value.push(selected.poem)
+
+      poemHistory.value.push({
+        id: ++historyIdCounter,
+        player: 'system',
+        poem: selected.poem,
+        result: 'correct',
+        resultText: '系统回复',
+        scoreGained: 0,
+        analysis: {
+          author: selected.author,
+          dynasty: selected.dynasty,
+          title: selected.title
+        }
+      })
+
+      roundNumber.value++
+      timeLeft.value = timeLimit.value
+      updateHint()
+      inputRef.value?.focus()
+    }
+
+    const endGame = (reason = 'manual') => {
+      stopTimer()
+      gameOver.value = true
+      gameStarted.value = false
+      
+      if (reason === 'win') {
+        score.value += 50
+        showToast('🎉 系统诗句用尽，通关奖励 +50分！', 'success')
+      } else if (reason === 'timeout') {
+        showToast('⏱ 时间耗尽，挑战结束', 'warning')
+      }
+      
+      cleanupCardHover()
+    }
+
+    const restartGame = () => {
+      gameOver.value = false
+      inSetup.value = true
+    }
+
+    const changeKeyword = () => {
+      selectedKeyword.value = ''
+      gameOver.value = false
+      inSetup.value = true
+    }
+
+    const quitGame = () => {
+      if (confirm('确定要结束挑战吗？')) {
+        endGame('quit')
+      }
+    }
+
+    const goHome = () => {
+      router.push('/')
+    }
+
+    // ===== 生命周期 =====
+    onMounted(() => {
+      bgLoaded.value = true
+      initFloatingChars()
+    })
+
+    onUnmounted(() => {
+      stopTimer()
+      if (toastTimer) clearTimeout(toastTimer)
+      cleanupCardHover()
+    })
+
+    return {
+      bgLoaded,
+      gameStarted,
+      gameOver,
+      inSetup,
+      selectedMode,
+      selectedKeyword,
+      userInput,
+      isThinking,
+      score,
+      roundNumber,
+      timeLeft,
+      timeLimit,
+      poemHistory,
+      gameModes,
+      hotKeywords,
+      moreKeywords,
+      currentKeyword,
+      currentHint,
+      currentHintAuthor,
+      currentHintDynasty,
+      currentHintTitle,
+      timerColor,
+      correctCount,
+      wrongCount,
+      resultGrade,
+      resultTitle,
+      resultSubtitle,
+      resultIcon,
+      inputRef,
+      floatingChars,
+      toast,
+      toastIcon,
+      getPetalStyle,
+      getParticleStyle,
+      selectKeyword,
+      randomKeyword,
+      goToSetup,
+      backToMode,
+      startGame,
+      submitPoem,
+      restartGame,
+      changeKeyword,
+      quitGame,
+      goHome
+    }
   }
 }
 </script>
 
 <style scoped>
-.feihua-game {
-  padding: 20px 0;
-  min-height: 80vh;
+/* ===== iOS26 液态玻璃核心样式（与Profile.vue一致） ===== */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-bg-hover: rgba(255, 255, 255, 0.13);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --glass-border-hover: rgba(255, 255, 255, 0.28);
+  --glass-blur: 24px;
+  --glass-shadow: 0 8px 40px rgba(0, 0, 0, 0.25), 0 2px 12px rgba(0, 0, 0, 0.15);
+  --glass-shadow-hover: 0 16px 60px rgba(0, 0, 0, 0.35), 0 4px 20px rgba(0, 0, 0, 0.2);
+  --liquid-ease: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 0 20px;
-}
-
-/* 导航 tabs */
-.nav-tabs {
-  display: flex;
-  background: var(--glass-background);
+.ios26-card {
+  position: relative;
+  background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  margin-bottom: 30px;
+  border-radius: 24px;
+  box-shadow: var(--glass-shadow);
+  overflow: hidden;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              background 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: cardEntrance 0.8s var(--liquid-ease) both;
+}
+
+.ios26-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 50%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.ios26-card::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  left: -30%;
+  width: 160%;
+  height: 160%;
+  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255,255,255,0.35) 0%,
+    rgba(255,255,255,0.15) 15%,
+    rgba(168,85,247,0.1) 25%,
+    transparent 35%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 4;
+  mix-blend-mode: overlay;
+}
+
+.ios26-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  background: var(--glass-bg-hover);
+  box-shadow: var(--glass-shadow-hover), 0 0 40px rgba(168,85,247,0.15);
+  border-color: var(--glass-border-hover);
+}
+
+.ios26-card:hover::before { opacity: 1; }
+.ios26-card:hover::after { opacity: 1; }
+.ios26-card:hover .card-liquid-shine { animation-duration: 3s; }
+
+@keyframes cardEntrance {
+  from { opacity: 0; transform: translateY(24px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.card-liquid-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg,
+    rgba(255,255,255,0.3) 0%,
+    rgba(255,255,255,0.05) 30%,
+    rgba(255,255,255,0.05) 70%,
+    rgba(255,255,255,0.15) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.card-liquid-shine {
+  position: absolute;
+  top: -60%;
+  left: -60%;
+  width: 220%;
+  height: 220%;
+  background: conic-gradient(from 0deg at 50% 50%,
+    transparent 0deg, rgba(255,255,255,0.04) 60deg,
+    transparent 120deg, rgba(255,255,255,0.03) 180deg,
+    transparent 240deg, rgba(255,255,255,0.04) 300deg,
+    transparent 360deg);
+  animation: liquidShimmer 8s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes liquidShimmer {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ===== 通用按钮 ===== */
+.ios26-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 28px;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  backdrop-filter: blur(12px);
+  font-family: 'Noto Serif SC', serif;
   overflow: hidden;
 }
 
-.tab {
-  flex: 1;
-  text-align: center;
-  padding: 15px;
-  cursor: pointer;
-  transition: all 0.3s ease;
+.ios26-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
-.tab:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
+.ios26-btn:hover::before { opacity: 1; }
+.ios26-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3); }
+.ios26-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
 
-.tab.active {
-  background: #4caf50;
-}
-
-.tab.active a {
+.ios26-btn.primary-btn {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.6), rgba(139, 92, 246, 0.6));
+  border-color: rgba(168, 85, 247, 0.5);
   color: white;
+  box-shadow: 0 4px 20px rgba(168, 85, 247, 0.3);
 }
-
-.tab a {
-  text-decoration: none;
-  color: #333;
-  font-size: 16px;
-  font-weight: 500;
-  transition: color 0.3s ease;
+.ios26-btn.primary-btn:hover {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(139, 92, 246, 0.8));
+  box-shadow: 0 8px 30px rgba(168, 85, 247, 0.5);
 }
-
-.game-title {
-  text-align: center;
-  font-size: 36px;
-  color: #333;
-  margin-bottom: 30px;
-  font-weight: bold;
+.ios26-btn.secondary-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
 }
-
-.rules-entry {
-  text-align: center;
-  margin-bottom: 30px;
+.ios26-btn.danger-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
 }
+.ios26-btn.danger-btn:hover { background: rgba(239, 68, 68, 0.3); }
+.btn-icon { font-size: 18px; z-index: 1; }
 
-.rules-btn {
-  padding: 10px 20px;
-  background: rgba(33, 150, 243, 0.2);
-  color: var(--secondary-color);
-  border: 1px solid rgba(33, 150, 243, 0.3);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 14px;
-  transition: var(--transition);
-}
-
-.rules-btn:hover {
-  background: rgba(33, 150, 243, 0.3);
-  border-color: rgba(33, 150, 243, 0.5);
-  transform: translateY(-2px);
-}
-
-/* 模态框 */
-.newbie-guide-modal,
-.rules-modal {
+/* ===== 页面基础 ===== */
+.feihua-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100vw;
+  min-width: 100vw;
   position: fixed;
   top: 0;
   left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 50%, #0a1a2a 100%);
+  z-index: 999;
+}
+
+/* ===== 背景效果 ===== */
+.feihua-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bg-gradient {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.5);
+  background: 
+    radial-gradient(ellipse at 20% 20%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(236, 72, 153, 0.08) 0%, transparent 60%);
+}
+
+.bg-particles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200,180,255,0.4), transparent);
+  animation: floatParticle linear infinite;
+}
+
+@keyframes floatParticle {
+  0% { transform: translateY(0) translateX(0) scale(1); opacity: 0; }
+  10% { opacity: 1; }
+  50% { transform: translateY(-30vh) translateX(15vw) scale(1.3); opacity: 0.6; }
+  90% { opacity: 0.3; }
+  100% { transform: translateY(-60vh) translateX(-10vw) scale(0.8); opacity: 0; }
+}
+
+.floating-petals { 
+  position: absolute; 
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.petal {
+  position: absolute;
+  animation: petalFall linear infinite;
+}
+
+@keyframes petalFall {
+  0% { transform: translateY(-20px) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+}
+
+.floating-chars { 
+  position: absolute; 
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.float-char {
+  position: absolute;
+  font-family: 'SimSun', 'STSong', serif;
+  color: #f0d78c;
+  animation: floatChar linear infinite;
+}
+
+@keyframes floatChar {
+  0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.03; }
+  50% { transform: translateY(-30px) rotate(10deg); opacity: 0.06; }
+}
+
+/* ===== 主容器 ===== */
+.feihua-container {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: min(96vw, 1320px);
+  min-height: 100vh;
+  margin: 0 auto;
+  /* 与 App 置顶导航栏（z-index 高于本页）对齐，避免标题/令字区被遮挡 */
+  padding: calc(var(--app-sticky-nav-offset, 124px) + 20px) clamp(16px, 3vw, 40px) 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 32px;
+  box-sizing: border-box;
+}
+
+/* ===== 标题区 ===== */
+.hero-section {
+  text-align: center;
+  padding: 40px 0;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 24px;
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 50px;
+  margin-bottom: 20px;
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); }
+}
+
+.badge-star { color: #a855f7; font-size: 14px; }
+.badge-text {
+  color: #a855f7;
+  font-size: 13px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+.hero-title { margin: 0 0 16px; }
+
+.title-cn {
+  display: block;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', serif;
+  font-size: 56px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #f4d03f 0%, #fff 50%, #f4d03f 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: titleShine 3s linear infinite;
+  letter-spacing: 12px;
+}
+
+@keyframes titleShine {
+  to { background-position: 200% center; }
+}
+
+.title-en {
+  display: block;
+  font-size: 14px;
+  color: rgba(168, 85, 247, 0.6);
+  letter-spacing: 8px;
+  margin-top: 8px;
+  font-weight: 400;
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ===== 区块通用 ===== */
+.section-header {
   display: flex;
   align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.section-icon { font-size: 24px; }
+
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0;
+  font-family: 'Noto Serif SC', serif;
+}
+
+/* ===== 模式选择 ===== */
+.mode-section { 
+  width: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.mode-grid {
+  display: flex;
+  flex-wrap: nowrap;
   justify-content: center;
-  z-index: 1000;
+  align-items: stretch;
+  gap: 20px;
+  margin-bottom: 32px;
+  overflow-x: auto;
+  padding: 10px 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-.modal-content {
-  background: white;
-  padding: 30px;
-  border-radius: var(--border-radius);
-  max-width: 600px;
-  width: 90%;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+.mode-card {
+  flex: 0 0 calc(25% - 15px);
+  min-width: 200px;
+  max-width: 280px;
+  padding: 28px 24px;
+  text-align: center;
+  cursor: pointer;
 }
 
-.modal-content h2 {
-  margin-bottom: 20px;
-  color: #333;
+.mode-card.active {
+  border-color: rgba(168, 85, 247, 0.6);
+  background: rgba(168, 85, 247, 0.15);
 }
 
-.modal-content h3 {
-  margin-top: 20px;
-  margin-bottom: 10px;
-  color: #555;
+.mode-card .card-content {
+  position: relative;
+  z-index: 2;
 }
 
-.modal-content ul {
-  padding-left: 20px;
-  margin-bottom: 20px;
+.mode-icon-wrap {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 16px;
 }
 
-.modal-content li {
-  margin-bottom: 8px;
+.mode-icon { font-size: 48px; position: relative; z-index: 1; }
+
+.mode-icon-glow {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168,85,247,0.3), transparent 70%);
+  opacity: 0.5;
+  z-index: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mode-card:hover .mode-icon-glow { opacity: 1; transform: scale(1.2); }
+
+.mode-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: white;
+  margin: 0 0 8px;
+}
+
+.mode-desc {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 16px;
   line-height: 1.5;
 }
 
-.example {
-  background: #f0f0f0;
-  padding: 10px;
-  border-radius: 8px;
-  margin: 10px 0;
-  font-style: italic;
-}
-
-.close-btn,
-.guide-btn {
-  padding: 10px 20px;
-  background: #4caf50;
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  margin-top: 20px;
-}
-
-.close-btn:hover,
-.guide-btn:hover {
-  background: #45a049;
-}
-
-/* 难度选择 */
-.difficulty-select {
-  background: var(--glass-background);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  padding: 30px;
-  margin-bottom: 30px;
-  box-shadow: var(--glass-shadow);
-}
-
-.difficulty-select h2 {
-  text-align: center;
-  margin-bottom: 30px;
-  color: #333;
-}
-
-.difficulty-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
-}
-
-.difficulty-card {
-  background: rgba(255, 252, 240, 0.3);
-  border: 2px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  padding: 20px;
-  cursor: pointer;
-  transition: var(--transition);
-  text-align: center;
-}
-
-.difficulty-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-}
-
-.difficulty-card.active {
-  border-color: #4caf50;
-  background: rgba(76, 175, 80, 0.1);
-}
-
-.difficulty-card h3 {
-  margin-bottom: 10px;
-  color: #333;
-}
-
-.difficulty-card p {
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #666;
-}
-
-.time-limit {
-  font-weight: bold;
-  color: #ff9800;
-}
-
-.next-btn {
-  display: block;
-  width: 100%;
-  padding: 15px;
-  background: #4caf50;
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 16px;
-  transition: var(--transition);
-}
-
-.next-btn:hover {
-  background: #45a049;
-  transform: translateY(-2px);
-}
-
-/* 令字设置 */
-.keyword-setup {
-  background: var(--glass-background);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  padding: 30px;
-  margin-bottom: 30px;
-  box-shadow: var(--glass-shadow);
-}
-
-.keyword-setup h2 {
-  text-align: center;
-  margin-bottom: 30px;
-  color: #333;
-}
-
-.recommended-keywords {
+.mode-stats {
   display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.mode-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.stat-icon-sm { font-size: 12px; }
+
+.stat-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mode-section .action-row {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.next-step-btn { margin: 0; display: flex; }
+
+/* ===== 令字选择 ===== */
+.keyword-section {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.back-btn { margin-bottom: 24px; }
+
+.keyword-section .section-header {
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 30px;
+  gap: 8px 12px;
+}
+
+.keyword-hint {
+  margin-left: auto;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+@media (min-width: 720px) {
+  .keyword-hint {
+    flex-basis: auto;
+    margin-left: auto;
+  }
+}
+
+.keyword-category { margin-bottom: 28px; }
+
+.category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0 0 16px;
+}
+
+.category-icon { font-size: 20px; }
+
+.category-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.keyword-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .keyword-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  .keyword-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .keyword-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 .keyword-btn {
-  padding: 10px 20px;
-  background: rgba(255, 252, 240, 0.3);
-  border: 1px solid var(--glass-border);
-  border-radius: 20px;
+  padding: 16px;
+  text-align: center;
   cursor: pointer;
-  transition: var(--transition);
 }
 
-.keyword-btn:hover {
-  background: rgba(76, 175, 80, 0.1);
-  border-color: #4caf50;
+.keyword-btn .card-content {
+  position: relative;
+  z-index: 2;
 }
 
 .keyword-btn.active {
-  background: #4caf50;
+  border-color: rgba(168, 85, 247, 0.6);
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.keyword-btn.small { padding: 12px; }
+
+.kw-char {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
   color: white;
-  border-color: #4caf50;
+  margin-bottom: 4px;
+  font-family: 'Noto Serif SC', serif;
 }
 
-.custom-keyword {
-  margin-bottom: 30px;
+.keyword-btn.small .kw-char { font-size: 22px; }
+
+.kw-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
 }
 
-.custom-keyword h3 {
-  margin-bottom: 10px;
-  color: #555;
+.kw-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(244,208,63,0.2), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
-.keyword-input-container {
+.keyword-btn:hover .kw-glow,
+.keyword-btn.active .kw-glow { opacity: 1; }
+
+.keyword-section .action-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
+  justify-content: center;
+  width: 100%;
 }
 
-.random-keyword-btn {
-  padding: 12px 20px;
-  background: rgba(33, 150, 243, 0.2);
-  color: var(--secondary-color);
-  border: 1px solid rgba(33, 150, 243, 0.3);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 14px;
-  transition: var(--transition);
-  white-space: nowrap;
-}
+.random-btn { margin: 24px 0; display: flex; }
+.start-game-btn { margin: 0; display: flex; }
 
-.random-keyword-btn:hover {
-  background: rgba(33, 150, 243, 0.3);
-  border-color: rgba(33, 150, 243, 0.5);
-  transform: translateY(-2px);
-}
-
-.custom-input {
-  flex: 1;
-  padding: 12px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  background: rgba(255, 252, 240, 0.3);
-  font-size: 16px;
-}
-
-.error-message {
-  color: #f44336;
-  font-size: 14px;
-  margin-top: 10px;
-}
-
-.warning-message {
-  color: #ff9800;
-  font-size: 14px;
-  margin-top: 10px;
-}
-
-.setup-actions {
+/* ===== 游戏界面 ===== */
+.game-section {
   display: flex;
+  flex-direction: column;
   gap: 20px;
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.setup-actions button {
-  flex: 1;
-  padding: 12px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 16px;
-  transition: var(--transition);
-}
-
-.back-btn {
-  background: rgba(33, 150, 243, 0.2);
-  color: var(--secondary-color);
-  border-color: rgba(33, 150, 243, 0.3);
-}
-
-.back-btn:hover {
-  background: rgba(33, 150, 243, 0.3);
-  border-color: rgba(33, 150, 243, 0.5);
-}
-
-.start-btn {
-  background: #4caf50;
-  color: white;
-  border-color: #4caf50;
-}
-
-.start-btn:hover:not(:disabled) {
-  background: #45a049;
-  transform: translateY(-2px);
-}
-
-.start-btn:disabled {
-  background: #cccccc;
-  border-color: #cccccc;
-  cursor: not-allowed;
-}
-
-/* 游戏界面 */
-.game-play {
-  background: var(--glass-background);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  padding: 30px;
-  margin-bottom: 30px;
-  box-shadow: var(--glass-shadow);
-}
-
-.game-info {
+.game-hud {
   display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  margin-bottom: 30px;
-  padding: 20px;
-  background: rgba(255, 252, 240, 0.3);
-  border-radius: var(--border-radius);
-  border: 1px solid var(--glass-border);
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 20px;
+  backdrop-filter: blur(20px);
 }
 
-.info-item {
+.hud-left, .hud-right { display: flex; align-items: center; gap: 16px; }
+
+.hud-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 30px;
+}
+
+.badge-icon { font-size: 20px; }
+
+.badge-keyword {
+  font-size: 24px;
+  font-weight: 700;
+  color: #f4d03f;
+}
+
+.hud-round {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.round-label { font-size: 14px; color: rgba(255, 255, 255, 0.5); }
+
+.round-num {
+  font-size: 28px;
+  font-weight: 700;
+  color: #a855f7;
+}
+
+.score-display {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.label {
-  font-weight: bold;
-  color: #555;
+.score-icon { font-size: 24px; }
+
+.score-content { display: flex; flex-direction: column; align-items: center; }
+
+.score-value {
+  font-size: 32px;
+  font-weight: 800;
+  color: #fbbf24;
+  line-height: 1;
 }
 
-.value {
-  color: #333;
+.score-label { font-size: 12px; color: rgba(255, 255, 255, 0.5); }
+
+.timer-ring {
+  position: relative;
+  width: 50px;
+  height: 50px;
 }
 
-.keyword {
-  font-size: 20px;
-  font-weight: bold;
-  color: #e91e63;
+.timer-ring svg { transform: rotate(-90deg); }
+
+.timer-ring .ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 4;
 }
 
-.position {
-  font-size: 18px;
-  font-weight: bold;
-  color: #2196f3;
+.timer-ring .ring-progress {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s ease;
 }
 
-.score {
-  font-size: 20px;
-  font-weight: bold;
-  color: #4caf50;
+.timer-ring .ring-progress.warning { stroke: #f87171; }
+
+.timer-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
 }
 
-.timer {
-  font-size: 20px;
-  font-weight: bold;
-  color: #ff9800;
+.timer-text.warning {
+  color: #f87171;
+  animation: timerPulse 0.5s ease-in-out infinite;
 }
 
-.timer.time-warning {
-  color: #f44336;
-  animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-  0% { transform: scale(1); }
+@keyframes timerPulse {
+  0%, 100% { transform: scale(1); }
   50% { transform: scale(1.1); }
-  100% { transform: scale(1); }
 }
 
-.poem-input-section {
-  margin-bottom: 30px;
+/* 题目卡片 */
+.question-card { padding: 32px; text-align: center; }
+
+.question-card .card-content {
+  position: relative;
+  z-index: 2;
 }
 
-.poem-input-section h3 {
-  margin-bottom: 15px;
-  color: #333;
+.question-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 12px;
+}
+
+.prompt-icon { font-size: 28px; }
+
+.prompt-keyword {
+  font-size: 36px;
+  font-weight: 700;
+  color: #f4d03f;
+  text-shadow: 0 0 20px rgba(244, 208, 63, 0.5);
+}
+
+.question-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.hint-icon { font-size: 18px; }
+
+/* 快捷提示卡片 */
+.hint-card { padding: 20px; }
+
+.hint-card .card-content { position: relative; z-index: 2; }
+
+.hint-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.hint-icon-lg { font-size: 20px; }
+
+.hint-title {
+  font-size: 14px;
+  color: #a855f7;
+  font-weight: 600;
+}
+
+.hint-text {
+  font-size: 18px;
+  font-family: 'Noto Serif SC', serif;
+  color: white;
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+
+.hint-meta {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 0;
+}
+
+/* 输入区域 */
+.input-section {}
+
+.input-card { padding: 24px; }
+
+.input-card .card-content {
+  position: relative;
+  z-index: 2;
 }
 
 .poem-input {
   width: 100%;
-  padding: 15px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  background: rgba(255, 252, 240, 0.3);
-  font-size: 16px;
-  margin-bottom: 15px;
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: white;
+  font-size: 18px;
+  font-family: 'Noto Serif SC', serif;
+  outline: none;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  box-sizing: border-box;
+  margin-bottom: 16px;
 }
 
 .poem-input:focus {
-  outline: none;
-  border-color: #4caf50;
-  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.2);
 }
 
-.input-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+.poem-input::placeholder { color: rgba(255, 255, 255, 0.3); }
+.poem-input:disabled { opacity: 0.5; }
 
 .submit-btn {
-  padding: 12px 24px;
-  background: #4caf50;
-  color: white;
+  width: 100%;
+  padding: 14px;
   border: none;
-  border-radius: var(--border-radius);
-  cursor: pointer;
+  border-radius: 16px;
+  color: white;
   font-size: 16px;
-  transition: var(--transition);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: #45a049;
   transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(168, 85, 247, 0.4);
 }
 
-.submit-btn:disabled {
-  background: #cccccc;
-  cursor: not-allowed;
-}
-
-.hint-buttons {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.hint-btn {
-  padding: 8px 16px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 14px;
-  transition: var(--transition);
-}
-
-.hint-btn.level-1 {
-  background: rgba(33, 150, 243, 0.2);
-  color: var(--secondary-color);
-}
-
-.hint-btn.level-2 {
-  background: rgba(255, 152, 0, 0.2);
-  color: #ff9800;
-}
-
-.hint-btn.level-3 {
-  background: rgba(244, 67, 54, 0.2);
-  color: #f44336;
-}
-
-.hint-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-}
-
-.hint-btn:disabled {
-  background: #cccccc;
-  cursor: not-allowed;
-}
-
-.system-thinking {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 40px;
-  background: rgba(255, 252, 240, 0.3);
-  border-radius: var(--border-radius);
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #4caf50;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 20px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 历史记录 */
-.history-section {
-  margin-bottom: 30px;
-}
+.history-section { width: 100%; padding: 0; box-sizing: border-box; }
 
-.history-section h3 {
-  margin-bottom: 15px;
-  color: #333;
+.history-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .history-list {
-  max-height: 400px;
+  max-height: 350px;
   overflow-y: auto;
-  padding: 20px;
-  background: rgba(255, 252, 240, 0.3);
-  border-radius: var(--border-radius);
-  border: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 8px;
 }
 
-.history-item {
-  margin-bottom: 20px;
-  padding: 15px;
-  border-radius: var(--border-radius);
-  transition: var(--transition);
+.history-list::-webkit-scrollbar { width: 4px; }
+.history-list::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); border-radius: 4px; }
+.history-list::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.4); border-radius: 4px; }
+
+.history-item { padding: 16px 20px; }
+
+.history-item .card-content { position: relative; z-index: 2; }
+
+.history-item.user { border-left: 3px solid #4ade80; }
+.history-item.system { border-left: 3px solid #60a5fa; }
+.history-item.correct { border-left-color: #4ade80; }
+.history-item.wrong { border-left-color: #f87171; }
+
+.item-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
-.history-item.user-poem {
-  background: rgba(139, 69, 19, 0.1);
-  border-left: 4px solid #8b4513;
+.player-tag {
+  padding: 4px 12px;
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 20px;
+  font-size: 12px;
+  color: #a855f7;
 }
 
-.history-item.system-poem {
-  background: rgba(76, 175, 80, 0.1);
-  border-left: 4px solid #4caf50;
+.item-round { font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+
+.item-score {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4ade80;
 }
 
-.history-number {
-  font-weight: bold;
-  margin-right: 15px;
-  color: #666;
-  min-width: 30px;
-}
-
-.history-content {
-  flex: 1;
-  line-height: 1.6;
-  font-size: 16px;
-}
-
-.char {
-  position: relative;
-}
-
-.char.keyword {
-  color: #e91e63;
-  font-weight: bold;
-}
-
-.position-mark {
-  position: absolute;
-  top: -12px;
-  right: -12px;
-  font-size: 10px;
-  background: #2196f3;
+.poem-text {
+  font-size: 20px;
+  font-family: 'Noto Serif SC', serif;
   color: white;
-  width: 16px;
-  height: 16px;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.poem-char {
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.poem-char.highlight {
+  color: #f4d03f;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(244, 208, 63, 0.5);
+  animation: charGlow 1s ease-in-out infinite alternate;
+}
+
+@keyframes charGlow {
+  from { text-shadow: 0 0 10px rgba(244, 208, 63, 0.3); }
+  to { text-shadow: 0 0 20px rgba(244, 208, 63, 0.8); }
+}
+
+.poem-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 8px;
+}
+
+.meta-sep { opacity: 0.5; }
+
+.poem-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.result-icon { font-size: 16px; }
+
+.history-item.correct .result-icon,
+.history-item.correct .result-text { color: #4ade80; }
+
+.history-item.wrong .result-icon,
+.history-item.wrong .result-text { color: #f87171; }
+
+.quit-btn { align-self: center; margin-top: 16px; }
+
+/* 过渡动画 */
+.fade-scale-enter-active,
+.fade-scale-leave-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-scale-enter-from { opacity: 0; transform: scale(0.95); }
+.fade-scale-leave-to { opacity: 0; transform: scale(1.05); }
+
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-slide-enter-from { opacity: 0; transform: translateX(20px); }
+.fade-slide-leave-to { opacity: 0; transform: translateX(-20px); }
+
+.poem-slide-enter-active { animation: slideIn 0.5s ease; }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.history-empty {
+  text-align: center;
+  padding: 48px;
+  color: rgba(255,255,255,0.3);
+}
+
+.empty-icon {
+  font-size: 40px;
+  display: block;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+/* ===== 结果界面 ===== */
+.result-section {
+  width: 100%;
+  padding: 24px 0 40px;
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.result-card { padding: 48px; text-align: center; max-width: 500px; width: 100%; }
+
+.result-card .card-content { position: relative; z-index: 2; }
+
+.result-animation { margin-bottom: 24px; }
+
+.result-orb {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  animation: orbAppear 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.poem-analysis {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #eee;
-  font-size: 14px;
-  color: #666;
+@keyframes orbAppear {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
-.analysis-author {
-  font-weight: bold;
-  margin-bottom: 5px;
+.orb-icon { font-size: 48px; z-index: 1; }
+
+.orb-ring {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 4px solid;
+  animation: ringRotate 3s linear infinite;
 }
 
-.analysis-title {
-  margin-bottom: 5px;
+@keyframes ringRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-.analysis-translation {
-  font-style: italic;
+.orb-glow {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  animation: orbGlow 2s ease-in-out infinite;
 }
 
-.stop-btn {
-  padding: 12px 24px;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 16px;
-  transition: var(--transition);
-  display: block;
-  margin: 0 auto;
+@keyframes orbGlow {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
 }
 
-.stop-btn:hover {
-  background: #da190b;
-  transform: translateY(-2px);
-}
+.grade-immortal { background: radial-gradient(circle, rgba(251,191,36,0.4), rgba(245,158,11,0.2)); }
+.grade-immortal .orb-ring { border-color: #fbbf24; box-shadow: 0 0 30px rgba(251,191,36,0.5); }
+.grade-immortal .orb-glow { background: radial-gradient(circle, rgba(251,191,36,0.2), transparent); }
 
-/* 游戏结束 */
-.game-over {
-  background: var(--glass-background);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  padding: 40px;
-  text-align: center;
-  box-shadow: var(--glass-shadow);
-}
+.grade-master { background: radial-gradient(circle, rgba(168,85,247,0.4), rgba(139,92,246,0.2)); }
+.grade-master .orb-ring { border-color: #a855f7; box-shadow: 0 0 30px rgba(168,85,247,0.5); }
+.grade-master .orb-glow { background: radial-gradient(circle, rgba(168,85,247,0.2), transparent); }
 
-.game-over h2 {
+.grade-expert { background: radial-gradient(circle, rgba(96,165,250,0.4), rgba(59,130,246,0.2)); }
+.grade-expert .orb-ring { border-color: #60a5fa; box-shadow: 0 0 30px rgba(96,165,250,0.5); }
+.grade-expert .orb-glow { background: radial-gradient(circle, rgba(96,165,250,0.2), transparent); }
+
+.grade-talent { background: radial-gradient(circle, rgba(34,197,94,0.4), rgba(22,163,74,0.2)); }
+.grade-talent .orb-ring { border-color: #4ade80; box-shadow: 0 0 30px rgba(34,197,94,0.5); }
+.grade-talent .orb-glow { background: radial-gradient(circle, rgba(34,197,94,0.2), transparent); }
+
+.grade-rookie { background: radial-gradient(circle, rgba(148,163,184,0.4), rgba(100,116,139,0.2)); }
+.grade-rookie .orb-ring { border-color: #94a3b8; box-shadow: 0 0 20px rgba(148,163,184,0.3); }
+.grade-rookie .orb-glow { background: radial-gradient(circle, rgba(148,163,184,0.2), transparent); }
+
+.result-title {
   font-size: 32px;
-  color: #333;
-  margin-bottom: 30px;
-  font-weight: bold;
+  font-weight: 700;
+  color: white;
+  margin: 0 0 8px;
+  font-family: 'ZCOOL XiaoWei', serif;
 }
 
-.game-result {
-  margin-bottom: 40px;
+.result-subtitle {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 32px;
 }
 
-.game-result p {
-  margin-bottom: 15px;
-  font-size: 18px;
-}
+.result-stats { margin-bottom: 32px; }
 
-.final-score {
-  font-size: 48px;
-  font-weight: bold;
-  color: #4caf50;
-}
-
-.game-actions {
+.main-stat {
   display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 40px;
+  gap: 16px;
+  padding: 20px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 20px;
+  margin-bottom: 16px;
 }
 
-.action-btn {
-  padding: 12px 24px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 16px;
-  transition: var(--transition);
-  min-width: 120px;
+.stat-icon { font-size: 36px; }
+
+.stat-content { display: flex; flex-direction: column; align-items: center; }
+
+.stat-number {
+  font-size: 48px;
+  font-weight: 800;
+  color: #fbbf24;
 }
 
-.action-btn.restart {
-  background: #4caf50;
-  color: white;
-  border-color: #4caf50;
+.stat-label { font-size: 14px; color: rgba(255, 255, 255, 0.5); }
+
+.stats-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
 }
 
-.action-btn.change-keyword {
-  background: #2196f3;
-  color: white;
-  border-color: #2196f3;
+.stat-item {
+  flex: 1;
+  max-width: 120px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
-.action-btn.change-difficulty {
-  background: #ff9800;
-  color: white;
-  border-color: #ff9800;
+.item-icon { font-size: 24px; }
+.item-value { font-size: 24px; font-weight: 700; color: white; }
+.stat-item.correct .item-value { color: #4ade80; }
+.stat-item.wrong .item-value { color: #f87171; }
+.item-label { font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+
+.result-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.action-btn.back-home {
-  background: #9e9e9e;
-  color: white;
-  border-color: #9e9e9e;
+.result-actions .ios26-btn { width: 100%; }
+
+/* ===== Toast通知 ===== */
+.toast {
+  position: fixed;
+  top: calc(var(--app-sticky-nav-offset, 124px) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-radius: 50px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: 'Noto Sans SC', sans-serif;
+  animation: toastAppear 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+@keyframes toastAppear {
+  from { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.9); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
-.learning-section {
-  text-align: left;
-  margin-top: 40px;
-  padding-top: 30px;
-  border-top: 1px solid var(--glass-border);
+.toast.success {
+  background: rgba(74, 222, 128, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  color: #4ade80;
 }
 
-.learning-section h3 {
-  margin-bottom: 20px;
-  color: #333;
-  text-align: center;
+.toast.error {
+  background: rgba(248, 113, 113, 0.2);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #f87171;
 }
 
-.learning-content {
-  max-height: 400px;
-  overflow-y: auto;
+.toast.info {
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #a855f7;
 }
 
-.learning-item {
-  margin-bottom: 20px;
-  padding: 15px;
-  background: rgba(255, 252, 240, 0.3);
-  border-radius: var(--border-radius);
+.toast.warning {
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  color: #fbbf24;
 }
 
-.learning-item h4 {
-  margin-bottom: 10px;
-  color: #333;
+.toast-icon { font-size: 18px; }
+
+.toast-slide-enter-active { animation: toastEnter 0.4s ease; }
+.toast-slide-leave-active { animation: toastLeave 0.3s ease; }
+
+@keyframes toastEnter {
+  from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-.learning-item p {
-  margin-bottom: 10px;
-  color: #666;
-  font-size: 14px;
+@keyframes toastLeave {
+  from { opacity: 1; transform: translateX(-50%) translateY(0); }
+  to { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 }
 
-.error-analysis {
-  color: #f44336 !important;
-  font-weight: bold;
-}
-
-.collect-btn {
-  padding: 8px 16px;
-  background: #2196f3;
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 14px;
-  transition: var(--transition);
-}
-
-.collect-btn:hover {
-  background: #1976d2;
-}
-
-/* 响应式设计 */
+/* ===== 响应式 ===== */
 @media (max-width: 768px) {
-  .game-title {
-    font-size: 28px;
+  .feihua-page {
+    width: 100vw;
+    min-width: 100vw;
   }
-  
-  .difficulty-options {
-    grid-template-columns: 1fr;
+  .feihua-bg {
+    width: 100vw;
+    height: 100vh;
   }
-  
-  .game-info {
-    flex-direction: column;
-    align-items: flex-start;
+  .mode-grid {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+  .mode-card {
+    flex: 0 0 calc(50% - 6px);
+    min-width: 150px;
+  }
+  .title-cn { font-size: 42px; letter-spacing: 6px; }
+  .game-hud { flex-direction: column; gap: 16px; }
+  .hud-left, .hud-right { width: 100%; justify-content: center; }
+  .result-card { padding: 32px 24px; }
+  .keyword-hint { display: none; }
+}
+
+@media (max-width: 480px) {
+  .feihua-page {
+    width: 100vw;
+    min-width: 100vw;
+  }
+  .feihua-bg {
+    width: 100vw;
+    height: 100vh;
+  }
+  .mode-grid {
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 10px;
   }
+  .mode-card {
+    flex: 0 0 calc(50% - 5px);
+    min-width: 140px;
+    padding: 20px 16px;
+  }
+  .mode-icon { font-size: 36px; }
+  .mode-name { font-size: 16px; }
+  .mode-desc { font-size: 12px; }
 }
 </style>

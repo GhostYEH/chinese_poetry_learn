@@ -1,116 +1,327 @@
 <template>
-  <div class="poetry-parkour-wrapper">
-    <!-- 顶部题目 HUD -->
-    <div class="game-hud" v-if="gameState !== 'MENU'">
-      <div class="hud-left">
-        <span class="lives-display">
-          <span
-            v-for="i in 5"
-            :key="i"
-            :class="['heart', { 'heart-lost': i > currentLives }]"
-          >❤️</span>
-        </span>
-      </div>
-      <div class="hud-center">
-        <div class="current-question" v-if="currentQuestion">
-          <span class="q-label">题目：</span>
-          <span class="q-text">
-            <span class="q-part">{{ currentQuestion.beforeBlank }}</span>
-            <span class="blank-slot"></span>
-            <span class="q-part">{{ currentQuestion.afterBlank }}</span>
-          </span>
-        </div>
-      </div>
-      <div class="hud-right">
-        <span class="score-display">
-          <span class="score-icon">📜</span>
-          <span class="score-num">{{ score }}</span>
-        </span>
-      </div>
-    </div>
+  <div class="parkour-wrapper">
+    <!-- 全屏背景图 -->
+    <div class="parkour-bg"></div>
 
     <!-- Canvas 游戏区 -->
     <div class="canvas-container" ref="containerRef">
       <canvas ref="canvasRef" class="game-canvas" />
     </div>
 
-    <!-- 开始菜单 -->
-    <div v-if="gameState === 'MENU'" class="overlay-screen menu-screen">
-      <div class="menu-card glass-card">
-        <div class="menu-badge">🎮 新模块</div>
-        <h1 class="menu-title">诗词跑酷</h1>
-        <p class="menu-subtitle">穿越文字方块塔，检验你的诗词功底</p>
-        <div class="menu-rules">
-          <div class="rule-row"><span class="rule-key">W / ↑</span><span>按住向上飞行</span></div>
-          <div class="rule-row"><span class="rule-key">S / ↓</span><span>按住向下飞行</span></div>
-          <div class="rule-row"><span class="rule-key">A D / ← →</span><span>按住左右移动</span></div>
-          <div class="rule-row"><span class="rule-key">题目</span><span>障碍塔中心移到小人左侧时切换下一句</span></div>
-          <div class="rule-row"><span class="rule-key">撞击</span><span>撞上正确单字 +1分</span></div>
-          <div class="rule-row"><span class="rule-key">失误</span><span>错字 -1❤️（未撞墙不扣分）</span></div>
+    <!-- 顶部游戏 HUD -->
+    <div class="game-hud" v-if="gameState !== 'MENU'">
+      <!-- 左侧：生命值 -->
+      <div class="hud-section hud-lives">
+        <div class="lives-container">
+          <div
+            v-for="i in 5"
+            :key="i"
+            class="life-orb"
+            :class="{ 'life-lost': i > currentLives, 'life-losing': i === currentLives + 1 }"
+          >
+            <span class="life-icon">气</span>
+          </div>
         </div>
-        <div class="menu-difficulty">
-          <span class="diff-label">难度：</span>
-          <button
-            v-for="d in difficulties"
-            :key="d.value"
-            :class="['diff-btn', { active: selectedDifficulty === d.value }]"
-            @click="selectedDifficulty = d.value"
-          >{{ d.label }}</button>
+        <span class="hud-label">元气</span>
+      </div>
+
+      <!-- 中间：当前题目 -->
+      <div class="hud-section hud-question">
+        <div class="question-scroll" v-if="currentQuestion">
+          <span class="scroll-deco left">〰</span>
+          <span class="q-text">
+            <span class="q-part">{{ currentQuestion.beforeBlank }}</span>
+            <span class="blank-gap">
+              <span class="blank-inner"></span>
+            </span>
+            <span class="q-part">{{ currentQuestion.afterBlank }}</span>
+          </span>
+          <span class="scroll-deco right">〰</span>
         </div>
-        <button class="start-btn glass-btn-primary" @click="startGame">开始游戏</button>
-        <button class="back-btn glass-btn-secondary" @click="goBack">返回首页</button>
+        <div class="no-question" v-else>
+          <span class="hint-text">穿越诗词方阵，收集正确答案</span>
+        </div>
+      </div>
+
+      <!-- 右侧：分数和进度 -->
+      <div class="hud-section hud-score">
+        <div class="score-ring">
+          <svg class="score-ring-svg" viewBox="0 0 60 60">
+            <defs>
+              <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style="stop-color:#60a5fa"/>
+                <stop offset="50%" style="stop-color:#a855f7"/>
+                <stop offset="100%" style="stop-color:#f472b6"/>
+              </linearGradient>
+            </defs>
+            <circle class="ring-bg" cx="30" cy="30" r="26" />
+            <circle
+              class="ring-progress"
+              cx="30" cy="30" r="26"
+              :stroke-dasharray="`${Math.min(score / 50 * 163.36, 163.36)} 163.36`"
+            />
+          </svg>
+          <span class="score-inner">{{ score }}</span>
+        </div>
+        <span class="hud-label">得分</span>
       </div>
     </div>
+
+    <!-- 开始菜单 -->
+    <transition name="panel-fade">
+      <div v-if="gameState === 'MENU'" class="overlay-screen menu-screen">
+        <!-- 装饰性卷轴 -->
+        <div class="menu-scroll-ornament top"></div>
+        <div class="menu-scroll-ornament bottom"></div>
+
+        <div class="menu-card glass-panel">
+          <!-- 标题区域 -->
+          <div class="menu-header">
+            <div class="title-badge">
+              <span class="badge-icon">🎮</span>
+              <span class="badge-text">全新挑战</span>
+            </div>
+            <h1 class="menu-title">
+              <span class="title-chinese">诗词跑酷</span>
+              <span class="title-english">POETRY PARKOUR</span>
+            </h1>
+            <p class="menu-subtitle">穿越千年诗词，邂逅文人墨客</p>
+          </div>
+
+          <!-- 左右布局内容 -->
+          <div class="menu-content">
+            <!-- 左侧：操作指南 -->
+            <div class="menu-left">
+              <div class="controls-showcase">
+                <h3 class="section-title">操作指南</h3>
+                <div class="control-keys">
+                  <div class="key-group">
+                    <div class="key-cluster">
+                      <span class="key-btn">W</span>
+                    </div>
+                    <div class="key-cluster">
+                      <span class="key-btn">A</span>
+                      <span class="key-btn">S</span>
+                      <span class="key-btn">D</span>
+                    </div>
+                  </div>
+                  <div class="key-desc">
+                    <span class="desc-arrow">↑</span>
+                    <span class="desc-arrow">←</span>
+                    <span class="desc-arrow">↓</span>
+                    <span class="desc-arrow">→</span>
+                  </div>
+                  <div class="control-text">
+                    <span>控制飞行方向</span>
+                    <span>或使用方向键</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右侧：游戏规则 -->
+            <div class="menu-right">
+              <div class="rules-box">
+                <div class="rule-item">
+                  <span class="rule-icon correct-icon">✓</span>
+                  <span class="rule-text">撞击<strong>正确</strong>汉字 +1 分</span>
+                </div>
+                <div class="rule-item">
+                  <span class="rule-icon wrong-icon">✗</span>
+                  <span class="rule-text">撞击<strong>错误</strong>汉字 -1 元气</span>
+                </div>
+                <div class="rule-item">
+                  <span class="rule-icon pass-icon">→</span>
+                  <span class="rule-text">穿越方阵时注意辨别汉字</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 难度选择 -->
+          <div class="difficulty-section">
+            <h3 class="section-title">选择难度</h3>
+            <div class="diff-tabs">
+              <button
+                v-for="d in difficulties"
+                :key="d.value"
+                :class="['diff-tab', { active: selectedDifficulty === d.value, [d.value]: true }]"
+                @click="selectedDifficulty = d.value"
+              >
+                <span class="diff-icon">{{ d.icon }}</span>
+                <span class="diff-name">{{ d.label }}</span>
+                <span class="diff-desc">{{ d.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 开始按钮 -->
+          <div class="menu-actions">
+            <button class="start-btn primary-action" @click="startGame">
+              <span class="btn-icon">▶</span>
+              <span class="btn-text">开始挑战</span>
+              <span class="btn-shine"></span>
+            </button>
+            <button class="back-btn secondary-action" @click="goBack">
+              <span class="btn-icon">↩</span>
+              <span class="btn-text">返回首页</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- 暂停遮罩 -->
-    <div v-if="gameState === 'PAUSED'" class="overlay-screen pause-screen">
-      <div class="pause-card glass-card">
-        <h2 class="pause-title">⏸ 游戏暂停</h2>
-        <div class="pause-stats">
-          <div class="stat-row"><span>分数</span><span class="stat-val">{{ score }}</span></div>
-          <div class="stat-row"><span>剩余生命</span><span class="stat-val">{{ currentLives }} ❤️</span></div>
-          <div class="stat-row"><span>已飞行</span><span class="stat-val">{{ Math.floor(distance / 60) }} 米</span></div>
+    <transition name="panel-fade">
+      <div v-if="gameState === 'PAUSED'" class="overlay-screen pause-screen">
+        <div class="pause-card glass-panel">
+          <div class="modal-header">
+            <span class="modal-icon">⏸</span>
+            <h2 class="modal-title">游戏暂停</h2>
+          </div>
+
+          <div class="pause-stats">
+            <div class="stat-card">
+              <span class="stat-icon">📊</span>
+              <span class="stat-value">{{ score }}</span>
+              <span class="stat-label">当前得分</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-icon">💨</span>
+              <span class="stat-value">{{ Math.floor(distance / 60) }}m</span>
+              <span class="stat-label">飞行距离</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-icon">❤️</span>
+              <span class="stat-value">{{ currentLives }}</span>
+              <span class="stat-label">剩余元气</span>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="action-btn primary-action" @click="resumeGame">
+              <span class="btn-icon">▶</span>
+              <span class="btn-text">继续游戏</span>
+            </button>
+            <button class="action-btn danger-action" @click="quitGame">
+              <span class="btn-icon">✕</span>
+              <span class="btn-text">退出游戏</span>
+            </button>
+          </div>
         </div>
-        <button class="glass-btn-primary" @click="resumeGame">继续游戏</button>
-        <button class="glass-btn-danger" @click="quitGame">退出游戏</button>
       </div>
-    </div>
+    </transition>
 
     <!-- 游戏结束遮罩 -->
-    <div v-if="gameState === 'GAME_OVER'" class="overlay-screen gameover-screen">
-      <div class="gameover-card glass-card">
-        <div class="gameover-badge">💀</div>
-        <h2 class="gameover-title">游戏结束</h2>
-        <div class="gameover-stats">
-          <div class="go-row">
-            <span class="go-label">最终得分</span>
-            <span class="go-val score-val">{{ score }}</span>
+    <transition name="panel-fade">
+      <div v-if="gameState === 'GAME_OVER'" class="overlay-screen gameover-screen">
+        <div class="gameover-card glass-panel">
+          <!-- 结束动画 -->
+          <div class="result-animation">
+            <div class="result-ring" :class="gradeClass">
+              <span class="ring-grade">{{ gradeText }}</span>
+            </div>
           </div>
-          <div class="go-row">
-            <span class="go-label">飞行距离</span>
-            <span class="go-val">{{ Math.floor(distance / 60) }} 米</span>
+
+          <!-- 结果展示 -->
+          <div class="result-header">
+            <h2 class="result-title">本轮挑战结束</h2>
+            <p class="result-subtitle">你的诗词之旅暂时告一段落</p>
           </div>
-          <div class="go-row">
-            <span class="go-label">正确撞击</span>
-            <span class="go-val correct-val">{{ correctHits }}</span>
+
+          <!-- 统计数据 -->
+          <div class="result-stats">
+            <div class="result-stat main-stat">
+              <span class="stat-icon-large">🏆</span>
+              <div class="stat-content">
+                <span class="stat-number">{{ score }}</span>
+                <span class="stat-name">最终得分</span>
+              </div>
+            </div>
+
+            <div class="result-stats-row">
+              <div class="result-stat">
+                <span class="stat-icon">📜</span>
+                <span class="stat-value">{{ Math.floor(distance / 60) }}</span>
+                <span class="stat-name">飞行距离</span>
+              </div>
+              <div class="result-stat correct">
+                <span class="stat-icon">✓</span>
+                <span class="stat-value">{{ correctHits }}</span>
+                <span class="stat-name">正确撞击</span>
+              </div>
+              <div class="result-stat wrong">
+                <span class="stat-icon">✗</span>
+                <span class="stat-value">{{ wrongHits }}</span>
+                <span class="stat-name">失误次数</span>
+              </div>
+            </div>
           </div>
-          <div class="go-row">
-            <span class="go-label">失误次数</span>
-            <span class="go-val wrong-val">{{ wrongHits }}</span>
+
+          <!-- 错题汇总 (有错题时显示) -->
+          <div class="wrong-summary" v-if="wrongHits > 0 && wrongQuestions.length > 0">
+            <div class="summary-header">
+              <span class="summary-icon">📝</span>
+              <span class="summary-title">本次失误题目</span>
+            </div>
+            <div class="wrong-list">
+              <div
+                v-for="(wq, idx) in wrongQuestions.slice(0, 5)"
+                :key="idx"
+                class="wrong-item"
+              >
+                <span class="wrong-num">{{ idx + 1 }}</span>
+                <span class="wrong-content">
+                  {{ wq.beforeBlank }}【{{ wq.wrongChar }}】{{ wq.afterBlank }}
+                </span>
+                <span class="correct-answer">正确答案：{{ wq.correctChar }}</span>
+              </div>
+              <div v-if="wrongQuestions.length > 5" class="wrong-more">
+                还有 {{ wrongQuestions.length - 5 }} 道错题...
+              </div>
+            </div>
           </div>
+
+          <!-- 操作按钮 -->
+          <div class="modal-actions">
+            <button
+              class="action-btn primary-action"
+              @click="addAllToErrorBook"
+              :disabled="isAddingToErrorBook || wrongQuestions.length === 0"
+              :class="{ 'btn-loading': isAddingToErrorBook }"
+            >
+              <span class="btn-icon">{{ isAddingToErrorBook ? '⏳' : '📚' }}</span>
+              <span class="btn-text">
+                {{ isAddingToErrorBook ? '添加中...' : '一键加入错题本' }}
+              </span>
+            </button>
+            <button class="action-btn success-action" @click="restartGame">
+              <span class="btn-icon">🔄</span>
+              <span class="btn-text">再来一局</span>
+            </button>
+            <button class="action-btn secondary-action" @click="quitGame">
+              <span class="btn-icon">🏠</span>
+              <span class="btn-text">返回首页</span>
+            </button>
+          </div>
+
+          <!-- 添加成功提示 -->
+          <transition name="success-pop">
+            <div v-if="addedToErrorBook" class="success-notification">
+              <span class="success-icon">✓</span>
+              <span class="success-text">已成功加入错题本！</span>
+            </div>
+          </transition>
         </div>
-        <div class="gameover-grade">
-          <span>评级：</span>
-          <span :class="['grade-badge', gradeClass]">{{ gradeText }}</span>
-        </div>
-        <button class="glass-btn-primary" @click="restartGame">再来一局</button>
-        <button class="glass-btn-secondary" @click="quitGame">返回首页</button>
       </div>
-    </div>
+    </transition>
 
     <!-- Toast 通知 -->
-    <transition name="toast-fade">
-      <div v-if="toast.show" :class="['game-toast', toast.type]">{{ toast.text }}</div>
+    <transition name="toast-pop">
+      <div v-if="toast.show" :class="['game-toast', toast.type]">
+        <span class="toast-icon">{{ toast.type === 'success' ? '✓' : toast.type === 'error' ? '✗' : 'ℹ' }}</span>
+        <span class="toast-text">{{ toast.text }}</span>
+      </div>
     </transition>
   </div>
 </template>
@@ -119,24 +330,24 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import questionsData from '@/data/poetryQuestions.json';
+import api from '../services/api';
 
 const FPS = 60;
 const PLAYER_ACCEL = 0.32;
 const PLAYER_MAX_VY = 4.5;
 const PLAYER_MAX_VX = 4.5;
 const PLAYER_FRICTION = 0.88;
-const BASE_SPEED = 1.65;
-const PLAYER_W = 40;
-const PLAYER_H = 40;
-/** 单字方块宽度（跑酷为单字挖空） */
+const BASE_SPEED = 3.2;
+const PLAYER_W = 44;
+const PLAYER_H = 44;
 const BLOCK_W_CHAR = 64;
 const BLOCK_H = 56;
 const BLOCK_GAP = 10;
 const TOWER_MIN_BLOCKS = 3;
 const TOWER_MAX_BLOCKS = 5;
 const INITIAL_LIVES = 5;
-const SPAWN_INTERVAL_BASE = 215;
-const DIFFICULTY_SPEEDS = { easy: 0.72, medium: 0.92, hard: 1.22 };
+const SPAWN_INTERVAL_BASE = 180;
+const DIFFICULTY_SPEEDS = { easy: 0.85, medium: 1.15, hard: 1.5 };
 
 export default {
   name: 'PoetryParkour',
@@ -146,7 +357,7 @@ export default {
     const containerRef = ref(null);
 
     // 游戏状态
-    const gameState = ref('MENU'); // MENU | PLAYING | PAUSED | GAME_OVER
+    const gameState = ref('MENU');
     const score = ref(0);
     const currentLives = ref(INITIAL_LIVES);
     const distance = ref(0);
@@ -155,10 +366,18 @@ export default {
     const currentQuestion = ref(null);
     const usedQuestionIndices = ref([]);
     const selectedDifficulty = ref('medium');
+    // 去重窗口：最近 30 秒内出现过的诗题目标题（title -> 到期时间戳）
+    const recentPoemTitles = ref({});
+
+    // 错题记录
+    const wrongQuestions = ref([]);
+    const isAddingToErrorBook = ref(false);
+    const addedToErrorBook = ref(false);
+
     const difficulties = [
-      { value: 'easy', label: '入门' },
-      { value: 'medium', label: '进阶' },
-      { value: 'hard', label: '专业' }
+      { value: 'easy', label: '入门', icon: '🌱', desc: '初学者' },
+      { value: 'medium', label: '进阶', icon: '🌿', desc: '有基础' },
+      { value: 'hard', label: '专业', icon: '🌳', desc: '诗词达人' }
     ];
 
     // Canvas 上下文
@@ -176,22 +395,24 @@ export default {
       x: 0, y: 0, vx: 0, vy: 0,
       wingAngle: 0, wingDir: 1,
       trail: [], trailTimer: 0,
-      flash: 0, flashColor: ''
+      flash: 0, flashColor: '',
+      pulsePhase: 0
     };
 
     // 障碍物数组
     let towers = [];
-    /** 每座塔独立题目：预生成队列，避免多座塔共用同一题 */
     const QUESTION_QUEUE_MIN = 16;
     let questionQueue = [];
 
     // 背景装饰
     const bgElements = [];
     const BG_COLORS = ['#f9f3e9', '#f5eedf', '#fff8f0', '#f0e8d5'];
-    const DECOR_CHARS = ['诗', '词', '风', '月', '云', '山', '水', '花', '春', '秋', '雨', '雪', '鸟', '酒', '茶', '琴', '棋', '书', '画'];
+    const DECOR_CHARS = ['诗', '词', '风', '月', '云', '山', '水', '花', '春', '秋', '雨', '雪', '鸟', '酒', '茶', '琴', '棋', '书', '画', '鹤', '松', '竹', '梅', '兰', '菊', '柳', '桃', '桂', '枫', '泉', '石', '亭', '楼', '台', '阁'];
 
     // 粒子效果
     let particles = [];
+    // 墨迹粒子
+    let inkParticles = [];
 
     // 按键状态
     const keys = { up: false, down: false, left: false, right: false };
@@ -203,24 +424,27 @@ export default {
     const showToast = (text, type = 'info') => {
       toast.value = { show: true, text, type };
       if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toast.value.show = false; }, 1800);
+      toastTimer = setTimeout(() => { toast.value.show = false; }, 2000);
     };
 
     // 评级
     const gradeText = computed(() => {
       const s = score.value;
-      if (s >= 50) return '诗仙下凡';
-      if (s >= 35) return '诗词达人';
-      if (s >= 20) return '初露锋芒';
-      if (s >= 10) return '诗海初探';
-      return '还需修炼';
+      if (s >= 50) return '诗仙';
+      if (s >= 35) return '诗圣';
+      if (s >= 20) return '诗豪';
+      if (s >= 10) return '诗杰';
+      if (s >= 5) return '诗人';
+      return '初学者';
     });
+
     const gradeClass = computed(() => {
       const s = score.value;
       if (s >= 50) return 'grade-god';
-      if (s >= 35) return 'grade-master';
-      if (s >= 20) return 'grade-senior';
-      if (s >= 10) return 'grade-junior';
+      if (s >= 35) return 'grade-sage';
+      if (s >= 20) return 'grade-hero';
+      if (s >= 10) return 'grade-elite';
+      if (s >= 5) return 'grade-poet';
       return 'grade-novice';
     });
 
@@ -230,7 +454,6 @@ export default {
       canvas = canvasRef.value;
       if (!canvas) return;
       ctx = canvas.getContext('2d');
-      // roundRect polyfill
       if (!ctx.roundRect) {
         ctx.roundRect = function(x, y, w, h, r) {
           if (typeof r === 'number') r = [r, r, r, r];
@@ -263,39 +486,60 @@ export default {
       canvas.style.width = `${containerW}px`;
       canvas.style.height = `${containerH}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      player.x = Math.round(containerW * 0.15);
-      player.y = Math.round(containerH / 2);
+      player.x = Math.round(containerW * 0.12);
+      player.y = Math.round((containerH + 60) / 2);
     };
 
     const initBackground = () => {
       bgElements.length = 0;
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 40; i++) {
         bgElements.push({
           x: Math.random() * containerW,
           y: Math.random() * containerH,
           char: DECOR_CHARS[Math.floor(Math.random() * DECOR_CHARS.length)],
-          size: 12 + Math.random() * 10,
-          alpha: 0.04 + Math.random() * 0.06,
-          speed: 0.3 + Math.random() * 0.5,
+          size: 14 + Math.random() * 14,
+          alpha: 0.03 + Math.random() * 0.06,
+          speed: 0.2 + Math.random() * 0.4,
           rotate: Math.random() * Math.PI * 2,
-          rotSpeed: (Math.random() - 0.5) * 0.01
+          rotSpeed: (Math.random() - 0.5) * 0.008,
+          depth: 0.3 + Math.random() * 0.7
         });
       }
     };
 
     // ==================== 题目系统 ====================
 
+    // 清理已过期的诗题目标题
+    const cleanupRecentPoems = () => {
+      const now = Date.now();
+      const keys = Object.keys(recentPoemTitles.value);
+      for (const k of keys) {
+        if (now >= recentPoemTitles.value[k]) {
+          delete recentPoemTitles.value[k];
+        }
+      }
+    };
+
     const getNextQuestion = () => {
       const available = [];
       for (let i = 0; i < questionsData.length; i++) {
-        if (!usedQuestionIndices.value.includes(i)) available.push(i);
+        if (usedQuestionIndices.value.includes(i)) continue;
+        // 跳过 30 秒内出现过的诗
+        const title = questionsData[i].title || questionsData[i].poem || '';
+        if (recentPoemTitles.value[title] && Date.now() < recentPoemTitles.value[title]) continue;
+        available.push(i);
       }
       if (available.length === 0) {
+        // 如果所有题都用过了，清空所有窗口后重试
         usedQuestionIndices.value = [];
+        recentPoemTitles.value = {};
         for (let i = 0; i < questionsData.length; i++) available.push(i);
       }
       const idx = available[Math.floor(Math.random() * available.length)];
       usedQuestionIndices.value.push(idx);
+      const title = questionsData[idx].title || questionsData[idx].poem || '';
+      // 设置 30 秒后过期
+      recentPoemTitles.value[title] = Date.now() + 30000;
       return questionsData[idx];
     };
 
@@ -307,7 +551,6 @@ export default {
       return a;
     };
 
-    /** 单字挖空：预生成塔载荷，包含题目题干拆分为前后两段及漏字 */
     const buildTowerPayload = (q) => {
       const answer = (q.answer || '').trim();
       if (!answer) return null;
@@ -342,7 +585,7 @@ export default {
         wrongPool = [...FALLBACK].filter((c) => c !== correctChar);
       }
       shuffleInPlace(wrongPool);
-      /** 题干展示：仅挖答案中的单字，前缀/后缀仍取自原 question 中 _____ 两侧文案 */
+
       const rawQ = (q.question || '');
       let prefix = '';
       let suffix = '';
@@ -366,7 +609,6 @@ export default {
       }
     };
 
-    /** 题目切换：优先显示「塔中心已在小人中心左侧」的塔中最靠右的一座；否则显示最靠前（最左）的未决塔 */
     const syncHudQuestion = () => {
       const pending = towers.filter((t) => !t.passed && !t.scored);
       pending.sort((a, b) => a.x - b.x);
@@ -421,14 +663,16 @@ export default {
           isCorrect,
           h: BLOCK_H,
           w: BLOCK_W_CHAR,
-          hit: false
+          hit: false,
+          glow: 0
         });
       }
 
       const totalH = blocks.reduce((s, b) => s + b.h + BLOCK_GAP, -BLOCK_GAP);
-      const margin = 60;
-      const minY = margin;
-      const maxY = containerH - totalH - margin;
+      const topMargin = 180;
+      const bottomMargin = 15;
+      const minY = topMargin;
+      const maxY = containerH - totalH - bottomMargin;
       const baseY = minY + Math.random() * Math.max(0, maxY - minY);
 
       let curY = baseY;
@@ -451,7 +695,9 @@ export default {
         scored: false,
         correctChar: payload.correctChar,
         beforeBlank: payload.beforeBlank,
-        afterBlank: payload.afterBlank
+        afterBlank: payload.afterBlank,
+        // 保存原始题库题目信息用于错题本
+        originalQuestion: payload.q
       });
       refillQuestionQueue();
     };
@@ -463,8 +709,8 @@ export default {
     };
 
     const processCollisions = () => {
-      const pcx = player.x + PLAYER_W / 2; // 玩家几何中心 X
-      const pcy = player.y + PLAYER_H / 2; // 玩家几何中心 Y
+      const pcx = player.x + PLAYER_W / 2;
+      const pcy = player.y + PLAYER_H / 2;
 
       for (const tower of towers) {
         for (const block of tower.blocks) {
@@ -474,33 +720,45 @@ export default {
           const bw = block.w;
           const bh = block.h;
 
-          // 用玩家几何中心点判断落在哪个 block 内
           const inside = pcx >= bx && pcx <= bx + bw && pcy >= by && pcy <= by + bh;
           if (!inside) continue;
 
           block.hit = true;
+          block.glow = 1;
+
           if (block.isCorrect) {
             if (!tower.scored) {
               tower.scored = true;
               score.value++;
               correctHits.value++;
               player.flash = 15;
-              player.flashColor = 'rgba(76, 175, 80, 0.6)';
-              spawnParticles(block.x + block.w / 2, block.y + block.h / 2, '#4CAF50', 12);
-              showToast('+1 正确！', 'success');
+              player.flashColor = 'rgba(34, 197, 94, 0.7)';
+              spawnParticles(block.x + block.w / 2, block.y + block.h / 2, '#22c55e', 15);
+              spawnInkSplatter(block.x + block.w / 2, block.y + block.h / 2);
+              showToast('+1 诗句通达！', 'success');
             }
           } else {
             wrongHits.value++;
             currentLives.value--;
+
+            // 记录错题
+            wrongQuestions.value.push({
+              beforeBlank: tower.beforeBlank,
+              afterBlank: tower.afterBlank,
+              correctChar: tower.correctChar,
+              wrongChar: block.text,
+              originalQuestion: tower.originalQuestion
+            });
+
             player.flash = 20;
-            player.flashColor = 'rgba(244, 67, 54, 0.6)';
-            spawnParticles(block.x + block.w / 2, block.y + block.h / 2, '#f44336', 8);
-            showToast('-1 生命！', 'error');
+            player.flashColor = 'rgba(239, 68, 68, 0.7)';
+            spawnParticles(block.x + block.w / 2, block.y + block.h / 2, '#ef4444', 10);
+            showToast('-1 元气流失！', 'error');
+
             if (currentLives.value <= 0) {
               endGame();
             }
           }
-          // 一个中心点最多只触发一个 block，退出塔内循环
           break;
         }
       }
@@ -511,15 +769,29 @@ export default {
     const spawnParticles = (x, y, color, count) => {
       for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = 1.5 + Math.random() * 3;
+        const speed = 1.5 + Math.random() * 3.5;
         particles.push({
           x, y,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed - 2,
           life: 1,
-          decay: 0.025 + Math.random() * 0.02,
-          size: 3 + Math.random() * 4,
-          color
+          decay: 0.02 + Math.random() * 0.025,
+          size: 3 + Math.random() * 5,
+          color,
+          rotation: Math.random() * Math.PI * 2
+        });
+      }
+    };
+
+    const spawnInkSplatter = (x, y) => {
+      for (let i = 0; i < 5; i++) {
+        inkParticles.push({
+          x: x + (Math.random() - 0.5) * 60,
+          y: y + (Math.random() - 0.5) * 60,
+          size: 8 + Math.random() * 20,
+          alpha: 0.15 + Math.random() * 0.2,
+          life: 1,
+          decay: 0.008 + Math.random() * 0.01
         });
       }
     };
@@ -529,31 +801,23 @@ export default {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
-        p.vy += 0.08;
+        p.vy += 0.1;
         p.life -= p.decay;
+        p.rotation += 0.1;
         if (p.life <= 0) particles.splice(i, 1);
+      }
+      for (let i = inkParticles.length - 1; i >= 0; i--) {
+        const p = inkParticles[i];
+        p.life -= p.decay;
+        if (p.life <= 0) inkParticles.splice(i, 1);
       }
     };
 
     // ==================== 绘制函数 ====================
 
     const drawBackground = () => {
-      // 渐变底色
-      const grad = ctx.createLinearGradient(0, 0, 0, containerH);
-      grad.addColorStop(0, '#f9f3e9');
-      grad.addColorStop(1, '#f0e0c8');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = 'rgba(10, 10, 30, 0.35)';
       ctx.fillRect(0, 0, containerW, containerH);
-
-      // 古风山水纹理（横线条）
-      ctx.strokeStyle = 'rgba(139, 69, 19, 0.04)';
-      ctx.lineWidth = 1;
-      for (let y = 0; y < containerH; y += 28) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(containerW, y);
-        ctx.stroke();
-      }
 
       // 飘浮装饰字符
       ctx.font = `bold ${16}px 'STSong', 'SimSun', serif`;
@@ -567,14 +831,28 @@ export default {
         ctx.save();
         ctx.translate(el.x, el.y);
         ctx.rotate(el.rotate);
-        ctx.globalAlpha = el.alpha;
-        ctx.fillStyle = '#8b4513';
+        ctx.globalAlpha = el.alpha * el.depth;
+        ctx.fillStyle = '#f0d78c';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(el.char, 0, 0);
         ctx.restore();
       }
       ctx.globalAlpha = 1;
+
+      // 墨迹粒子
+      for (const p of inkParticles) {
+        ctx.save();
+        ctx.globalAlpha = p.alpha * p.life;
+        const inkGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+        inkGrad.addColorStop(0, 'rgba(30, 30, 60, 0.8)');
+        inkGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = inkGrad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     };
 
     const drawPlayer = () => {
@@ -583,21 +861,23 @@ export default {
       const w = PLAYER_W;
       const h = PLAYER_H;
 
+      player.pulsePhase += 0.05;
+
       // 拖尾
       player.trailTimer++;
-      if (player.trailTimer % 3 === 0) {
+      if (player.trailTimer % 2 === 0) {
         player.trail.push({ x: x + w / 2, y: y + h / 2, life: 1 });
-        if (player.trail.length > 12) player.trail.shift();
+        if (player.trail.length > 18) player.trail.shift();
       }
       for (let i = player.trail.length - 1; i >= 0; i--) {
         const t = player.trail[i];
-        t.life -= 0.08;
+        t.life -= 0.05;
         if (t.life <= 0) { player.trail.splice(i, 1); continue; }
         ctx.save();
-        ctx.globalAlpha = t.life * 0.25;
-        const r = 8 * t.life;
+        ctx.globalAlpha = t.life * 0.3;
+        const r = 10 * t.life;
         const grd = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r);
-        grd.addColorStop(0, '#cd853f');
+        grd.addColorStop(0, '#60a5fa');
         grd.addColorStop(1, 'transparent');
         ctx.fillStyle = grd;
         ctx.beginPath();
@@ -609,66 +889,102 @@ export default {
       ctx.save();
       ctx.translate(x + w / 2, y + h / 2);
 
-      // 飞行翅膀动画
-      player.wingAngle += 0.18 * player.wingDir;
-      if (Math.abs(player.wingAngle) > 0.35) player.wingDir *= -1;
+      // 玩家光晕
+      const glowSize = 1 + Math.sin(player.pulsePhase) * 0.1;
+      const haloGrad = ctx.createRadialGradient(0, 0, w * 0.2, 0, 0, w * 0.8 * glowSize);
+      haloGrad.addColorStop(0, 'rgba(96, 165, 250, 0.15)');
+      haloGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = haloGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, w * 0.8 * glowSize, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 翅膀动画
+      player.wingAngle += 0.2 * player.wingDir;
+      if (Math.abs(player.wingAngle) > 0.4) player.wingDir *= -1;
 
       // 受击闪烁
       if (player.flash > 0) {
         player.flash--;
-        ctx.globalAlpha = player.flash % 4 < 2 ? 1 : 0.4;
+        ctx.globalAlpha = player.flash % 4 < 2 ? 1 : 0.3;
         ctx.shadowColor = player.flashColor;
-        ctx.shadowBlur = 25;
+        ctx.shadowBlur = 35;
       }
 
-      // 翅膀
-      ctx.fillStyle = 'rgba(205, 133, 63, 0.7)';
+      // 翅膀 - 霓虹风格
       ctx.save();
       ctx.rotate(player.wingAngle);
+      const wingGradL = ctx.createLinearGradient(-w * 0.5, 0, 0, 0);
+      wingGradL.addColorStop(0, 'rgba(147, 197, 253, 0.0)');
+      wingGradL.addColorStop(1, 'rgba(147, 197, 253, 0.8)');
+      ctx.fillStyle = wingGradL;
       ctx.beginPath();
-      ctx.ellipse(-w * 0.35, -h * 0.1, w * 0.38, h * 0.18, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.save();
-      ctx.rotate(-player.wingAngle);
-      ctx.beginPath();
-      ctx.ellipse(w * 0.35, -h * 0.1, w * 0.38, h * 0.18, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(-w * 0.35, -h * 0.05, w * 0.4, h * 0.2, -0.25, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // 身体（圆形书生）
-      const bodyGrd = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.42);
-      bodyGrd.addColorStop(0, '#fff8f0');
-      bodyGrd.addColorStop(1, '#e8d5b5');
-      ctx.fillStyle = bodyGrd;
+      ctx.save();
+      ctx.rotate(-player.wingAngle);
+      const wingGradR = ctx.createLinearGradient(0, 0, w * 0.5, 0);
+      wingGradR.addColorStop(0, 'rgba(147, 197, 253, 0.8)');
+      wingGradR.addColorStop(1, 'rgba(147, 197, 253, 0.0)');
+      ctx.fillStyle = wingGradR;
+      ctx.beginPath();
+      ctx.ellipse(w * 0.35, -h * 0.05, w * 0.4, h * 0.2, 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 身体（发光圆形）
+      const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.42);
+      bodyGrad.addColorStop(0, '#ffffff');
+      bodyGrad.addColorStop(0.5, '#e0f2fe');
+      bodyGrad.addColorStop(1, '#93c5fd');
+      ctx.fillStyle = bodyGrad;
+      ctx.shadowColor = '#60a5fa';
+      ctx.shadowBlur = 15;
       ctx.beginPath();
       ctx.arc(0, 0, w * 0.38, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#cd853f';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      // 书生帽子
-      ctx.fillStyle = '#8b4513';
+      // 发光书生帽子
+      const hatGrad = ctx.createLinearGradient(0, -h * 0.5, 0, -h * 0.2);
+      hatGrad.addColorStop(0, '#1e3a8a');
+      hatGrad.addColorStop(1, '#3b82f6');
+      ctx.fillStyle = hatGrad;
+      ctx.shadowColor = '#60a5fa';
+      ctx.shadowBlur = 10;
       ctx.beginPath();
-      ctx.ellipse(0, -h * 0.25, w * 0.28, h * 0.08, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -h * 0.22, w * 0.32, h * 0.08, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillRect(-w * 0.12, -h * 0.38, w * 0.24, h * 0.14);
-      ctx.fillStyle = '#a0522d';
+      ctx.fillRect(-w * 0.14, -h * 0.38, w * 0.28, h * 0.16);
+      ctx.fillStyle = '#1d4ed8';
       ctx.beginPath();
-      ctx.arc(0, -h * 0.38, w * 0.1, Math.PI, 0);
+      ctx.arc(0, -h * 0.38, w * 0.12, Math.PI, 0);
       ctx.fill();
+      ctx.shadowBlur = 0;
 
       // 脸
-      ctx.fillStyle = '#5d4037';
+      ctx.fillStyle = '#1e3a8a';
       // 眼睛
       ctx.beginPath();
       ctx.arc(-w * 0.12, -h * 0.05, 3.5, 0, Math.PI * 2);
       ctx.arc(w * 0.12, -h * 0.05, 3.5, 0, Math.PI * 2);
       ctx.fill();
-      // 嘴
+      // 眼睛光点
+      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(0, h * 0.08, 5, 0.1, Math.PI - 0.1);
+      ctx.arc(-w * 0.1, -h * 0.07, 1.5, 0, Math.PI * 2);
+      ctx.arc(w * 0.14, -h * 0.07, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      // 微笑
+      ctx.beginPath();
+      ctx.arc(0, h * 0.06, 4, 0.2, Math.PI - 0.2);
+      ctx.strokeStyle = '#1e3a8a';
+      ctx.lineWidth = 2;
       ctx.stroke();
 
       ctx.restore();
@@ -676,31 +992,44 @@ export default {
 
     const drawTower = (tower) => {
       for (const block of tower.blocks) {
-        const { x, y, w, h, text, isCorrect, hit } = block;
+        const { x, y, w, h, text, hit } = block;
 
         ctx.save();
 
-        // 阴影
-        ctx.shadowColor = 'rgba(0,0,0,0.15)';
-        ctx.shadowBlur = 8;
-        ctx.shadowOffsetY = 4;
+        // 方块光晕 - 统一样式
+        if (!hit) {
+          const blockGlow = ctx.createRadialGradient(x + w / 2, y + h / 2, 0, x + w / 2, y + h / 2, w);
+          blockGlow.addColorStop(0, 'rgba(96, 165, 250, 0.15)');
+          blockGlow.addColorStop(1, 'transparent');
+          ctx.fillStyle = blockGlow;
+          ctx.fillRect(x - 10, y - 10, w + 20, h + 20);
+        }
 
-        // 方块背景（正误外观统一，反馈靠粒子与生命）
-        let bg;
-        let border;
+        // 方块阴影
+        ctx.shadowColor = 'rgba(0,0,0,0.3)';
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 6;
+
+        // 方块背景 - 统一样式
+        let bg, border, textColor;
         if (hit) {
-          bg = 'rgba(205, 133, 63, 0.28)';
-          border = '#a0522d';
+          bg = 'rgba(96, 165, 250, 0.25)';
+          border = '#60a5fa';
+          textColor = '#3b82f6';
         } else {
-          bg = 'rgba(255, 248, 220, 0.97)';
-          border = '#cd853f';
+          const bgGrad = ctx.createLinearGradient(x, y, x, y + h);
+          bgGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+          bgGrad.addColorStop(1, 'rgba(241, 245, 249, 0.95)');
+          bg = bgGrad;
+          border = '#94a3b8';
+          textColor = '#1e293b';
         }
 
         ctx.fillStyle = bg;
         ctx.strokeStyle = border;
         ctx.lineWidth = 2.5;
 
-        const radius = 10;
+        const radius = 12;
         ctx.beginPath();
         ctx.roundRect(x, y, w, h, radius);
         ctx.fill();
@@ -710,11 +1039,19 @@ export default {
         ctx.shadowOffsetY = 0;
 
         // 文字
-        ctx.fillStyle = '#5d4037';
+        ctx.fillStyle = textColor;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `bold ${Math.min(28, Math.max(20, h * 0.52))}px 'STSong', 'SimSun', 'Noto Serif SC', serif`;
+        const fontSize = Math.min(28, Math.max(20, h * 0.52));
+        ctx.font = `bold ${fontSize}px 'STSong', 'SimSun', 'Noto Serif SC', serif`;
+
+        // 文字光晕
+        if (!hit) {
+          ctx.shadowColor = '#60a5fa';
+          ctx.shadowBlur = 8;
+        }
         ctx.fillText(text, x + w / 2, y + h / 2, w - 18);
+        ctx.shadowBlur = 0;
 
         ctx.restore();
       }
@@ -724,9 +1061,19 @@ export default {
       for (const p of particles) {
         ctx.save();
         ctx.globalAlpha = p.life;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
         ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        // 菱形粒子
+        const s = p.size * p.life;
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s, 0);
+        ctx.lineTo(0, s);
+        ctx.lineTo(-s, 0);
+        ctx.closePath();
         ctx.fill();
         ctx.restore();
       }
@@ -742,7 +1089,7 @@ export default {
 
       const speed = BASE_SPEED * speedMultiplier * DIFFICULTY_SPEEDS[selectedDifficulty.value];
 
-      // 角色速度更新（完全由按键控制，无重力）
+      // 角色速度更新
       if (keys.up) {
         player.vy -= PLAYER_ACCEL;
       } else if (keys.down) {
@@ -765,10 +1112,11 @@ export default {
       if (Math.abs(player.vx) < 0.05) player.vx = 0;
       player.x += player.vx;
 
-      // 边界（软反弹）
+      // 边界
+      const topMargin = 60;
       const margin = 8;
-      if (player.y < margin) {
-        player.y = margin;
+      if (player.y < topMargin) {
+        player.y = topMargin;
         player.vy = Math.abs(player.vy) * 0.4;
       }
       if (player.y + PLAYER_H > containerH - margin) {
@@ -815,13 +1163,15 @@ export default {
       // 粒子
       updateParticles();
 
-      // 距离/难度递增（按真实时间，不受速度影响）
+      // 距离递增
       distance.value += dt * 60;
       speedMultiplier = 1 + distance.value / 5000;
       if (speedMultiplier > 1.55) speedMultiplier = 1.55;
 
+      // 清理已过期的诗题目标题（每帧最多清理一次）
+      cleanupRecentPoems();
+
       // 绘制
-      ctx.clearRect(0, 0, containerW, containerH);
       drawBackground();
 
       for (const tower of towers) drawTower(tower);
@@ -841,13 +1191,17 @@ export default {
       correctHits.value = 0;
       wrongHits.value = 0;
       usedQuestionIndices.value = [];
+      recentPoemTitles.value = {};
+      wrongQuestions.value = [];
+      addedToErrorBook.value = false;
       speedMultiplier = 1;
       spawnTimer = 0;
       towers = [];
       particles = [];
+      inkParticles = [];
       questionQueue = [];
       player.trail = [];
-      player.y = containerH / 2;
+      player.y = (containerH + 60) / 2;
       player.vx = 0;
       player.vy = 0;
       player.flash = 0;
@@ -877,8 +1231,6 @@ export default {
     const endGame = () => {
       gameState.value = 'GAME_OVER';
       cancelAnimationFrame(animFrameId);
-      // 绘制最终画面
-      ctx.clearRect(0, 0, containerW, containerH);
       drawBackground();
       for (const tower of towers) drawTower(tower);
       drawPlayer();
@@ -893,14 +1245,74 @@ export default {
       cancelAnimationFrame(animFrameId);
       towers = [];
       particles = [];
+      inkParticles = [];
       questionQueue = [];
-      ctx.clearRect(0, 0, containerW, containerH);
       drawBackground();
     };
 
     const goBack = () => {
       cancelAnimationFrame(animFrameId);
       router.push('/');
+    };
+
+    // ==================== 错题本功能 ====================
+
+    const addAllToErrorBook = async () => {
+      if (wrongQuestions.value.length === 0) {
+        showToast('没有错题需要添加', 'info');
+        return;
+      }
+
+      isAddingToErrorBook.value = true;
+
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          showToast('请先登录后再添加错题', 'error');
+          return;
+        }
+
+        const apiBaseUrl = 'http://localhost:3000/api';
+
+        for (const wq of wrongQuestions.value) {
+          const questionContent = `${wq.beforeBlank}【${wq.correctChar}】${wq.afterBlank}`;
+
+          try {
+            await fetch(`${apiBaseUrl}/wrong-questions/add`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                question_id: wq.originalQuestion?.id || 0,
+                question: questionContent,
+                answer: wq.correctChar,
+                user_answer: wq.wrongChar,
+                level: 1,
+                full_poem: wq.originalQuestion?.answer || '',
+                author: wq.originalQuestion?.author || '',
+                title: wq.originalQuestion?.title || ''
+              })
+            });
+          } catch (e) {
+            console.error('添加错题失败:', e);
+          }
+        }
+
+        addedToErrorBook.value = true;
+        showToast(`已成功添加 ${wrongQuestions.value.length} 道错题到错题本！`, 'success');
+
+        setTimeout(() => {
+          addedToErrorBook.value = false;
+        }, 3000);
+
+      } catch (error) {
+        console.error('添加错题失败:', error);
+        showToast('添加错题失败，请重试', 'error');
+      } finally {
+        isAddingToErrorBook.value = false;
+      }
     };
 
     // ==================== 键盘事件 ====================
@@ -945,393 +1357,1042 @@ export default {
       distance, correctHits, wrongHits,
       selectedDifficulty, difficulties,
       toast, gradeText, gradeClass,
-      startGame, resumeGame, restartGame, quitGame, goBack
+      wrongQuestions, isAddingToErrorBook, addedToErrorBook,
+      startGame, resumeGame, restartGame, quitGame, goBack,
+      addAllToErrorBook
     };
   }
 };
 </script>
 
 <style scoped>
-.poetry-parkour-wrapper {
-  width: 100%;
-  min-height: 100vh;
-  max-height: 100vh;
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700;900&family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&display=swap');
+
+/* ==================== 基础布局 ==================== */
+.parkour-wrapper {
+  width: 100vw;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: #f9f3e9;
   position: relative;
-  overflow: hidden;
-  font-family: 'SimSun', 'STSong', 'Noto Serif SC', serif;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
   box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
 }
 
-/* ===== HUD ===== */
-.game-hud {
-  position: absolute;
+/* ==================== 全屏背景图 ==================== */
+.parkour-bg {
+  position: fixed;
   top: 0;
   left: 0;
-  right: 0;
-  z-index: 10;
+  width: 100%;
+  height: 100%;
+  background-image: url('/run.jpg');
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  z-index: 0;
+}
+
+/* ==================== 游戏 HUD ==================== */
+.game-hud {
+  position: fixed;
+  top: 100px;
+  left: 10px;
+  right: 10px;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
-  background: rgba(249, 243, 233, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(205, 133, 63, 0.2);
-  box-shadow: 0 4px 20px rgba(139, 69, 19, 0.08);
+  padding: 8px 16px;
+  background: linear-gradient(180deg, rgba(15, 15, 35, 0.8) 0%, rgba(15, 15, 35, 0.6) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 16px;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
-.hud-left { flex: 0 0 auto; }
-.lives-display { display: flex; gap: 4px; align-items: center; }
-.heart { font-size: 22px; transition: all 0.3s; }
-.heart-lost { opacity: 0.2; transform: scale(0.8); }
-
-.hud-center { flex: 1; text-align: center; padding: 0 16px; }
-.current-question {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(255, 248, 220, 0.9);
-  border: 1px solid rgba(205, 133, 63, 0.3);
-  border-radius: 12px;
-  padding: 8px 20px;
-  max-width: 600px;
-}
-.q-label {
-  color: #cd853f;
-  font-size: 13px;
-  font-weight: bold;
-  white-space: nowrap;
-}
-.q-text {
-  color: #5d4037;
-  font-size: 15px;
-  white-space: nowrap;
-  display: inline-flex;
+.hud-section {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 4px;
 }
-.q-part {
-  color: #5d4037;
-  font-size: 15px;
-}
-.blank-slot {
-  display: inline-block;
-  vertical-align: bottom;
-  /* 单字挖空：约一字宽 */
-  width: 1.1em;
-  min-width: 1.1em;
-  border-bottom: 3px solid rgba(244, 67, 54, 0.85);
-  margin: 0 1px;
-  animation: blank-pulse 1.4s ease-in-out infinite;
-  height: calc(15px + 4px); /* 文字高度 + border宽度 */
-  box-sizing: border-box;
-}
-@keyframes blank-pulse {
-  0%, 100% { border-bottom-color: rgba(244, 67, 54, 0.6); }
-  50% { border-bottom-color: rgba(244, 67, 54, 1); box-shadow: 0 2px 6px rgba(244, 67, 54, 0.3); }
+
+.hud-label {
+  font-size: 11px;
+  color: rgba(200, 220, 255, 0.95);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 500;
 }
 
-.hud-right { flex: 0 0 auto; }
-.score-display {
+/* 生命值 */
+.hud-lives {
+  align-items: flex-start;
+  min-width: 150px;
+}
+
+.lives-container {
+  display: flex;
+  gap: 6px;
+}
+
+.life-orb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #60a5fa, #3b82f6, #1d4ed8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(96, 165, 250, 0.5), inset 0 -2px 4px rgba(0,0,0,0.3);
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: lifePulse 2s ease-in-out infinite;
+}
+
+.life-orb:nth-child(2) { animation-delay: 0.2s; }
+.life-orb:nth-child(3) { animation-delay: 0.4s; }
+.life-orb:nth-child(4) { animation-delay: 0.6s; }
+.life-orb:nth-child(5) { animation-delay: 0.8s; }
+
+@keyframes lifePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.life-orb.life-lost {
+  background: radial-gradient(circle at 30% 30%, rgba(100, 100, 120, 0.3), rgba(60, 60, 80, 0.3));
+  box-shadow: none;
+  animation: none;
+  opacity: 0.3;
+  transform: scale(0.85);
+}
+
+.life-orb.life-losing {
+  animation: lifeLose 0.5s ease-out;
+}
+
+@keyframes lifeLose {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); background: radial-gradient(circle at 30% 30%, #ef4444, #dc2626); }
+  100% { transform: scale(0.85); opacity: 0.3; }
+}
+
+.life-icon {
+  font-size: 14px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.life-lost .life-icon { color: rgba(255, 255, 255, 0.3); }
+
+/* 当前题目 */
+.hud-question {
+  flex: 1;
+  align-items: center;
+  max-width: 600px;
+}
+
+.question-scroll {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 40px;
+  padding: 8px 18px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.scroll-deco {
+  color: rgba(200, 220, 255, 0.8);
+  font-size: 16px;
+  animation: scrollWave 1.5s ease-in-out infinite;
+}
+
+.scroll-deco.left { animation-delay: 0s; }
+.scroll-deco.right { animation-delay: 0.75s; }
+
+@keyframes scrollWave {
+  0%, 100% { opacity: 0.4; transform: translateX(0); }
+  50% { opacity: 0.8; transform: translateX(2px); }
+}
+
+.q-text {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 20px;
-  font-weight: bold;
-  color: #8b4513;
+  font-size: 18px;
+  color: #ffffff;
 }
-.score-num { font-size: 26px; }
 
-/* ===== Canvas ===== */
-.canvas-container {
-  flex: 1 1 auto;
-  position: relative;
-  margin-top: 68px;
-  width: 100%;
-  max-width: 1560px;
-  padding: 0 12px;
-  box-sizing: border-box;
-  min-height: 0;
-  height: clamp(400px, calc(100vh - 150px), 780px);
-  max-height: 780px;
+.q-part {
+  color: rgba(240, 248, 255, 0.98);
+  font-weight: 500;
+  letter-spacing: 1px;
 }
+
+.blank-gap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5em;
+  position: relative;
+}
+
+.blank-inner {
+  width: 2em;
+  height: 1.4em;
+  border-bottom: 3px solid #60a5fa;
+  animation: blankGlow 1.5s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
+}
+
+@keyframes blankGlow {
+  0%, 100% { border-color: rgba(96, 165, 250, 0.6); box-shadow: 0 0 6px rgba(96, 165, 250, 0.3); }
+  50% { border-color: #60a5fa; box-shadow: 0 0 12px rgba(96, 165, 250, 0.6); }
+}
+
+.no-question {
+  padding: 10px 24px;
+}
+
+.hint-text {
+  color: rgba(200, 220, 255, 0.85);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* 分数环 */
+.hud-score {
+  min-width: 80px;
+  align-items: center;
+}
+
+.score-ring {
+  position: relative;
+  width: 44px;
+  height: 44px;
+}
+
+.score-ring-svg {
+  transform: rotate(-90deg);
+}
+
+.score-ring-svg .ring-bg {
+  fill: none;
+  stroke: rgba(96, 165, 250, 0.15);
+  stroke-width: 4;
+}
+
+.score-ring-svg .ring-progress {
+  fill: none;
+  stroke: url(#scoreGradient);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s ease-out;
+}
+
+.score-inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(200, 220, 255, 0.95);
+  text-shadow: 0 0 10px rgba(150, 180, 220, 0.5);
+}
+
+/* ==================== Canvas ==================== */
+.canvas-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
 .game-canvas {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 12px;
-  box-shadow: 0 4px 24px rgba(139, 69, 19, 0.12);
 }
 
-/* ===== 通用玻璃卡片 ===== */
-.glass-card {
-  background: rgba(255, 252, 240, 0.95);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(205, 133, 63, 0.3);
-  border-radius: 28px;
-  box-shadow: 0 12px 48px rgba(139, 69, 19, 0.18);
-}
-.glass-btn-primary {
-  display: block;
-  width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, #4CAF50, #388E3C);
-  border: none;
-  border-radius: 18px;
-  color: white;
-  font-family: 'SimSun', 'STSong', 'Noto Serif SC', serif;
-  font-size: 18px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.3);
-  margin-bottom: 12px;
-}
-.glass-btn-primary:hover {
-  background: linear-gradient(135deg, #66BB6A, #43A047);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(76, 175, 80, 0.4);
-}
-.glass-btn-secondary {
-  display: block;
-  width: 100%;
-  padding: 14px;
-  background: rgba(255, 248, 220, 0.9);
-  border: 2px solid rgba(205, 133, 63, 0.4);
-  border-radius: 18px;
-  color: #8b4513;
-  font-family: 'SimSun', 'STSong', 'Noto Serif SC', serif;
-  font-size: 18px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s;
-  margin-bottom: 12px;
-}
-.glass-btn-secondary:hover {
-  background: rgba(255, 248, 220, 1);
-  border-color: rgba(205, 133, 63, 0.7);
-  transform: translateY(-2px);
-}
-.glass-btn-danger {
-  display: block;
-  width: 100%;
-  padding: 14px;
-  background: rgba(244, 67, 54, 0.15);
-  border: 2px solid rgba(244, 67, 54, 0.4);
-  border-radius: 18px;
-  color: #c62828;
-  font-family: 'SimSun', 'STSong', 'Noto Serif SC', serif;
-  font-size: 18px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s;
-  margin-bottom: 12px;
-}
-.glass-btn-danger:hover {
-  background: rgba(244, 67, 54, 0.25);
-  transform: translateY(-2px);
+/* ==================== 通用玻璃面板 ==================== */
+.glass-panel {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 32px;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 40px rgba(96, 165, 250, 0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+  position: relative;
+  overflow: hidden;
 }
 
-/* ===== 遮罩层 ===== */
-.overlay-screen {
+.glass-panel::before {
+  content: '';
   position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(96, 165, 250, 0.4), transparent);
+}
+
+/* ==================== 遮罩层 ==================== */
+.overlay-screen {
+  position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 50;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(139, 69, 19, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: radial-gradient(ellipse at center, rgba(15, 15, 35, 0.88) 0%, rgba(10, 10, 25, 0.95) 100%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 20px;
 }
 
-/* ===== 开始菜单 ===== */
+/* ==================== 过渡动画 ==================== */
+.panel-fade-enter-active {
+  animation: panelIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.panel-fade-leave-active {
+  animation: panelOut 0.3s ease-in;
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: scale(0.9) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes panelOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+/* ==================== 开始菜单 ==================== */
 .menu-card {
-  padding: 44px 48px;
-  max-width: 460px;
-  width: 90%;
+  padding: 40px 48px;
+  max-width: 90vw;
+  width: 100%;
+  max-width: 800px;
   text-align: center;
+  box-sizing: border-box;
 }
-.menu-badge {
-  display: inline-block;
-  padding: 5px 16px;
-  background: linear-gradient(135deg, #cd853f, #8b4513);
-  color: white;
-  border-radius: 20px;
-  font-size: 13px;
-  margin-bottom: 16px;
+
+/* 左右布局内容 */
+.menu-content {
+  display: flex;
+  gap: 30px;
+  margin: 20px 0 10px 0;
+  align-items: center;
 }
+
+.menu-left,
+.menu-right {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .menu-content {
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .menu-card {
+    max-width: 95vw;
+    padding: 30px 24px;
+  }
+}
+
+.menu-scroll-ornament {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(96, 165, 250, 0.4), transparent);
+}
+
+.menu-scroll-ornament.top { top: 20px; }
+.menu-scroll-ornament.bottom { bottom: 20px; }
+
+.menu-header {
+  margin-bottom: 20px;
+}
+
+.title-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(59, 130, 246, 0.1));
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: 30px;
+  margin-bottom: 20px;
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(96, 165, 250, 0); }
+}
+
+.badge-icon { font-size: 16px; }
+.badge-text { font-size: 12px; color: rgba(200, 220, 255, 0.95); font-weight: 500; letter-spacing: 2px; text-transform: uppercase; }
+
 .menu-title {
-  font-size: 42px;
-  color: #8b4513;
-  margin: 0 0 8px;
-  text-shadow: 2px 2px 4px rgba(139, 69, 19, 0.15);
-  font-weight: bold;
+  margin: 0 0 12px;
 }
+
+.title-chinese {
+  display: block;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', serif;
+  font-size: 52px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #f1f5f9 0%, #93c5fd 50%, #f1f5f9 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: titleShine 3s linear infinite;
+  letter-spacing: 8px;
+}
+
+@keyframes titleShine {
+  to { background-position: 200% center; }
+}
+
+.title-english {
+  display: block;
+  font-size: 12px;
+  color: rgba(200, 220, 255, 0.75);
+  letter-spacing: 6px;
+  margin-top: 8px;
+  font-weight: 400;
+}
+
 .menu-subtitle {
-  color: #a0522d;
+  color: rgba(200, 220, 255, 0.9);
   font-size: 15px;
-  margin: 0 0 28px;
+  margin: 0;
+  font-style: italic;
 }
-.menu-rules {
-  background: rgba(255, 248, 220, 0.7);
-  border: 1px solid rgba(205, 133, 63, 0.25);
-  border-radius: 16px;
-  padding: 16px 20px;
+
+/* 操作展示 */
+.controls-showcase {
   margin-bottom: 24px;
-  text-align: left;
 }
-.rule-row {
+
+.section-title {
+  font-size: 13px;
+  color: rgba(200, 220, 255, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+
+.control-keys {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.key-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-cluster {
+  display: flex;
+  gap: 6px;
+}
+
+.key-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, rgba(80, 100, 130, 0.8), rgba(60, 80, 110, 0.9));
+  border: 1px solid rgba(150, 180, 220, 0.3);
+  border-radius: 8px;
+  color: rgba(200, 220, 255, 0.9);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+  transition: all 0.2s;
+}
+
+.key-btn:hover {
+  background: linear-gradient(145deg, rgba(100, 120, 150, 0.85), rgba(80, 100, 130, 0.95));
+  border-color: rgba(180, 200, 240, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.key-desc {
+  display: flex;
+  gap: 8px;
+}
+
+.desc-arrow {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(100, 140, 200, 0.25);
+  border: 1px solid rgba(150, 180, 220, 0.35);
+  border-radius: 6px;
+  color: rgba(200, 220, 255, 0.9);
+  font-size: 12px;
+}
+
+.control-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: rgba(200, 220, 255, 0.85);
+  font-size: 12px;
+}
+
+/* 游戏规则 */
+.rules-box {
+  background: rgba(50, 70, 100, 0.5);
+  border: 1px solid rgba(150, 180, 220, 0.2);
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rule-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 10px;
   font-size: 14px;
-  color: #5d4037;
+  color: rgba(200, 220, 255, 0.9);
 }
-.rule-row:last-child { margin-bottom: 0; }
-.rule-key {
-  min-width: 90px;
-  padding: 4px 10px;
-  background: rgba(205, 133, 63, 0.2);
-  border-radius: 8px;
+
+.rule-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
   font-weight: bold;
-  color: #8b4513;
-  font-size: 13px;
 }
-.menu-difficulty {
+
+.correct-icon { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.wrong-icon { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.pass-icon { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
+
+.rule-text { text-align: left; }
+.rule-text strong { color: #e2e8f0; font-weight: 600; }
+
+/* 难度选择 */
+.difficulty-section { margin-bottom: 32px; }
+
+.diff-tabs {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.diff-tab {
+  flex: 1;
+  max-width: 140px;
+  padding: 14px 12px;
+  background: rgba(50, 70, 100, 0.5);
+  border: 2px solid rgba(150, 180, 220, 0.2);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: rgba(180, 200, 230, 0.85);
+}
+
+.diff-tab:hover {
+  background: rgba(80, 100, 130, 0.7);
+  border-color: rgba(150, 180, 220, 0.35);
+  transform: translateY(-3px);
+}
+
+.diff-tab.active { color: #f1f5f9; }
+
+.diff-tab.active.easy { background: rgba(34, 197, 94, 0.15); border-color: #22c55e; }
+.diff-tab.active.medium { background: rgba(96, 165, 250, 0.15); border-color: #60a5fa; }
+.diff-tab.active.hard { background: rgba(168, 85, 247, 0.15); border-color: #a855f7; }
+
+.diff-icon { font-size: 22px; }
+.diff-name { font-size: 15px; font-weight: 600; color: rgba(200, 220, 255, 0.95); }
+.diff-desc { font-size: 11px; color: rgba(180, 200, 230, 0.7); }
+
+/* 菜单按钮 */
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.action-btn, .start-btn, .back-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  margin-bottom: 24px;
-}
-.diff-label { color: #8b4513; font-size: 15px; font-weight: bold; }
-.diff-btn {
-  padding: 8px 20px;
-  border: 2px solid rgba(205, 133, 63, 0.35);
-  border-radius: 14px;
-  background: rgba(255, 248, 220, 0.7);
-  color: #8b4513;
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.25s;
-}
-.diff-btn:hover { border-color: rgba(205, 133, 63, 0.7); }
-.diff-btn.active {
-  background: linear-gradient(135deg, #cd853f, #8b4513);
-  color: white;
-  border-color: transparent;
-}
-
-/* ===== 暂停 ===== */
-.pause-card {
-  padding: 36px 44px;
-  max-width: 380px;
-  width: 90%;
-  text-align: center;
-}
-.pause-title {
-  font-size: 30px;
-  color: #8b4513;
-  margin: 0 0 24px;
-}
-.pause-stats {
-  background: rgba(255, 248, 220, 0.7);
-  border-radius: 14px;
   padding: 16px;
-  margin-bottom: 24px;
+  border-radius: 16px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+  border: none;
 }
-.stat-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-  font-size: 15px;
-  color: #5d4037;
-  border-bottom: 1px solid rgba(205, 133, 63, 0.15);
-}
-.stat-row:last-child { border-bottom: none; }
-.stat-val { font-weight: bold; color: #8b4513; }
 
-/* ===== 游戏结束 ===== */
-.gameover-card {
-  padding: 36px 44px;
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn-icon { font-size: 18px; }
+.btn-text { letter-spacing: 2px; }
+.btn-shine {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: btnShine 2s ease-in-out infinite;
+}
+
+@keyframes btnShine {
+  0% { left: -100%; }
+  50%, 100% { left: 100%; }
+}
+
+.primary-action {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  box-shadow: 0 8px 30px rgba(59, 130, 246, 0.4);
+}
+
+.primary-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(59, 130, 246, 0.5);
+}
+
+.success-action {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+  box-shadow: 0 8px 30px rgba(34, 197, 94, 0.3);
+}
+
+.success-action:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(34, 197, 94, 0.4);
+}
+
+.secondary-action {
+  background: rgba(80, 100, 130, 0.5);
+  color: rgba(200, 220, 255, 0.9);
+  border: 1px solid rgba(150, 180, 220, 0.3);
+}
+
+.secondary-action:hover:not(:disabled) {
+  background: rgba(100, 120, 150, 0.6);
+  color: rgba(230, 240, 255, 1);
+  border-color: rgba(180, 200, 240, 0.5);
+  transform: translateY(-3px);
+}
+
+.danger-action {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.danger-action:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.5);
+  transform: translateY(-3px);
+}
+
+.btn-loading { pointer-events: none; }
+.btn-loading .btn-icon { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ==================== 暂停面板 ==================== */
+.pause-card {
+  padding: 40px 44px;
   max-width: 420px;
   width: 90%;
   text-align: center;
 }
-.gameover-badge { font-size: 48px; margin-bottom: 8px; }
-.gameover-title {
-  font-size: 32px;
-  color: #c62828;
-  margin: 0 0 24px;
-}
-.gameover-stats {
-  background: rgba(255, 248, 220, 0.7);
-  border-radius: 16px;
-  padding: 16px 20px;
-  margin-bottom: 20px;
-}
-.go-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 9px 0;
-  font-size: 15px;
-  color: #5d4037;
-  border-bottom: 1px solid rgba(205, 133, 63, 0.12);
-}
-.go-row:last-child { border-bottom: none; }
-.go-val { font-weight: bold; font-size: 17px; }
-.score-val { color: #8b4513; font-size: 22px; }
-.correct-val { color: #4CAF50; }
-.wrong-val { color: #f44336; }
-.gameover-grade {
+
+.modal-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  margin-bottom: 24px;
-  font-size: 16px;
-  color: #8b4513;
+  gap: 14px;
+  margin-bottom: 28px;
 }
-.grade-badge {
-  padding: 5px 18px;
-  border-radius: 14px;
-  font-size: 15px;
-  font-weight: bold;
-}
-.grade-god { background: linear-gradient(135deg, #ffd700, #ff8c00); color: white; }
-.grade-master { background: linear-gradient(135deg, #cd853f, #8b4513); color: white; }
-.grade-senior { background: rgba(76, 175, 80, 0.2); color: #2e7d32; border: 1px solid rgba(76,175,80,0.4); }
-.grade-junior { background: rgba(33, 150, 243, 0.15); color: #1565c0; border: 1px solid rgba(33,150,243,0.3); }
-.grade-novice { background: rgba(158, 158, 158, 0.15); color: #757575; border: 1px solid rgba(158,158,158,0.3); }
 
-/* ===== Toast ===== */
-.game-toast {
-  position: fixed;
-  top: 80px;
+.modal-icon { font-size: 36px; }
+.modal-title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 28px;
+  color: #f1f5f9;
+  margin: 0;
+  font-weight: 700;
+}
+
+.pause-stats {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.stat-card {
+  flex: 1;
+  max-width: 110px;
+  background: rgba(50, 70, 100, 0.6);
+  border: 1px solid rgba(150, 180, 220, 0.2);
+  border-radius: 16px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-icon { font-size: 20px; }
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(200, 220, 255, 0.95);
+}
+.stat-label { font-size: 11px; color: rgba(200, 220, 255, 0.85); }
+
+.modal-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* ==================== 游戏结束面板 ==================== */
+.gameover-card {
+  padding: 24px 32px;
+  max-width: 480px;
+  width: 90%;
+  text-align: center;
+  position: relative;
+}
+
+/* 结果动画环 */
+.result-animation {
+  margin-bottom: 24px;
+}
+
+.result-ring {
+  width: 90px;
+  height: 90px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  animation: ringAppear 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes ringAppear {
+  from { transform: scale(0); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.result-ring::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 4px solid;
+  animation: ringRotate 3s linear infinite;
+}
+
+.result-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  backdrop-filter: blur(10px);
+}
+
+.grade-god { background: radial-gradient(circle, rgba(251, 191, 36, 0.3), rgba(245, 158, 11, 0.1)); }
+.grade-god::before { border-color: #fbbf24; box-shadow: 0 0 20px rgba(251, 191, 36, 0.5); }
+.grade-sage { background: radial-gradient(circle, rgba(168, 85, 247, 0.3), rgba(139, 92, 246, 0.1)); }
+.grade-sage::before { border-color: #a855f7; box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
+.grade-hero { background: radial-gradient(circle, rgba(96, 165, 250, 0.3), rgba(59, 130, 246, 0.1)); }
+.grade-hero::before { border-color: #60a5fa; box-shadow: 0 0 20px rgba(96, 165, 250, 0.5); }
+.grade-elite { background: radial-gradient(circle, rgba(34, 197, 94, 0.3), rgba(22, 163, 74, 0.1)); }
+.grade-elite::before { border-color: #22c55e; box-shadow: 0 0 20px rgba(34, 197, 94, 0.5); }
+.grade-poet { background: radial-gradient(circle, rgba(251, 146, 60, 0.3), rgba(249, 115, 22, 0.1)); }
+.grade-poet::before { border-color: #fb923c; box-shadow: 0 0 20px rgba(251, 146, 60, 0.5); }
+.grade-novice { background: radial-gradient(circle, rgba(180, 195, 215, 0.35), rgba(150, 165, 185, 0.15)); }
+.grade-novice::before { border-color: rgba(200, 215, 235, 0.8); box-shadow: 0 0 20px rgba(180, 195, 215, 0.4); }
+
+@keyframes ringRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ring-grade {
+  font-size: 22px;
+  font-weight: 900;
+  color: white;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  z-index: 1;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', serif;
+}
+
+.result-header { margin-bottom: 24px; }
+
+.result-title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 20px;
+  color: #f1f5f9;
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.result-subtitle {
+  color: rgba(200, 220, 255, 0.85);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* 统计 */
+.result-stats {
+  margin-bottom: 16px;
+}
+
+.result-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(50, 70, 100, 0.5);
+  border: 1px solid rgba(150, 180, 220, 0.15);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+
+.result-stat.main-stat {
+  justify-content: center;
+  background: rgba(100, 140, 200, 0.2);
+  border-color: rgba(180, 200, 240, 0.3);
+  margin-bottom: 12px;
+}
+
+.stat-icon-large { font-size: 24px; }
+
+.stat-content { display: flex; flex-direction: column; align-items: center; }
+.stat-number { font-size: 28px; font-weight: 800; color: rgba(200, 220, 255, 0.95); line-height: 1; }
+.stat-name { font-size: 10px; color: rgba(200, 220, 255, 0.75); margin-top: 2px; }
+
+.result-stats-row {
+  display: flex;
+  gap: 10px;
+}
+
+.result-stats-row .result-stat {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.result-stats-row .stat-icon { font-size: 16px; }
+.result-stats-row .stat-value { font-size: 20px; font-weight: 700; color: rgba(200, 220, 255, 0.95); }
+.result-stats-row .stat-name { font-size: 10px; color: rgba(200, 220, 255, 0.85); }
+
+.result-stat.correct .stat-value { color: #22c55e; }
+.result-stat.wrong .stat-value { color: #ef4444; }
+
+/* 错题汇总 */
+.wrong-summary {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.summary-icon { font-size: 14px; }
+.summary-title { font-size: 12px; color: rgba(250, 180, 180, 0.95); font-weight: 600; }
+
+.wrong-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.wrong-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(50, 70, 100, 0.5);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.wrong-num {
+  width: 18px;
+  height: 18px;
+  background: rgba(239, 68, 68, 0.5);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: rgba(255, 220, 220, 0.95);
+  flex-shrink: 0;
+}
+
+.wrong-content { flex: 1; color: rgba(220, 235, 255, 0.95); }
+.correct-answer { color: rgba(180, 255, 200, 0.95); font-size: 11px; flex-shrink: 0; }
+.wrong-more { text-align: center; color: rgba(200, 220, 255, 0.7); font-size: 11px; padding: 4px; }
+
+/* 成功通知 */
+.success-notification {
+  position: absolute;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 10px 28px;
-  border-radius: 20px;
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 15px;
-  font-weight: bold;
-  z-index: 200;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  border-radius: 50px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 30px rgba(34, 197, 94, 0.4);
+  animation: successBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.game-toast.success { background: rgba(76, 175, 80, 0.92); color: white; }
-.game-toast.error { background: rgba(244, 67, 54, 0.92); color: white; }
-.game-toast.info { background: rgba(139, 69, 19, 0.88); color: white; }
 
-.toast-fade-enter-active, .toast-fade-leave-active { transition: all 0.3s; }
-.toast-fade-enter-from { opacity: 0; transform: translateX(-50%) translateY(-16px); }
-.toast-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+@keyframes successBounce {
+  from { transform: translateX(-50%) scale(0); opacity: 0; }
+  to { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+.success-icon { font-size: 18px; }
+
+.success-pop-enter-active { animation: successBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.success-pop-leave-active { animation: successFade 0.3s ease-in forwards; }
+@keyframes successFade { to { opacity: 0; transform: translateX(-50%) translateY(10px); } }
+
+/* ==================== Toast ==================== */
+.game-toast {
+  position: fixed;
+  top: 190px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 28px;
+  border-radius: 50px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+.game-toast.success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(22, 163, 74, 0.95));
+  color: white;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+}
+.game-toast.error {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.95));
+  color: white;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+.game-toast.info {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.95), rgba(59, 130, 246, 0.95));
+  color: white;
+  border: 1px solid rgba(96, 165, 250, 0.5);
+}
+
+.toast-icon { font-size: 16px; }
+.toast-text { letter-spacing: 1px; }
+
+.toast-pop-enter-active { animation: toastIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.toast-pop-leave-active { animation: toastOut 0.3s ease-in; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.8); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+@keyframes toastOut {
+  to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 600px) {
+  .menu-card { padding: 32px 24px; }
+  .title-chinese { font-size: 38px; letter-spacing: 4px; }
+  .diff-tabs { flex-direction: column; align-items: center; }
+  .diff-tab { max-width: 200px; width: 100%; }
+  .pause-stats { flex-direction: column; }
+  .stat-card { max-width: none; }
+  .result-stats-row { flex-direction: column; }
+  .gameover-card { padding: 28px 20px; }
+  .game-hud { padding: 12px 16px; }
+  .question-scroll { padding: 8px 16px; }
+  .q-text { font-size: 15px; }
+  .lives-container { gap: 4px; }
+  .life-orb { width: 26px; height: 26px; }
+  .life-icon { font-size: 11px; }
+  .score-ring { width: 44px; height: 44px; }
+  .score-inner { font-size: 16px; }
+}
 </style>

@@ -7,7 +7,6 @@ const config = require('./config/config');
 const JWT_SECRET = config.jwt.secret;
 
 const roomTimers = new Map();
-const duelTimers = new Map();
 
 function setupSocket(io) {
   io.on('connection', (socket) => {
@@ -171,91 +170,96 @@ function setupSocket(io) {
 
     // 提交诗句（使用AI评判）
     socket.on('submit-poem', async (data) => {
-      const { roomId, poem } = data;
+      try {
+        const { roomId, poem } = data;
 
-      const submitResult = feihualingService.submitAnswer(roomId, currentUserId, poem);
+        const submitResult = feihualingService.submitAnswer(roomId, currentUserId, poem);
 
-      if (!submitResult.success) {
-        socket.emit('error', { error: submitResult.error, isDuplicate: submitResult.isDuplicate });
-        return;
-      }
+        if (!submitResult.success) {
+          socket.emit('error', { error: submitResult.error, isDuplicate: submitResult.isDuplicate });
+          return;
+        }
 
-      const { room, currentPlayer, normalizedPoem } = submitResult;
+        const { room, currentPlayer, normalizedPoem } = submitResult;
 
-      // 获取已用诗句的原始格式列表（用于AI判断重复）
-      const usedPoemTexts = room.usedPoems.map(p => p.original || p.normalized);
+        // 获取已用诗句的原始格式列表（用于AI判断重复）
+        const usedPoemTexts = room.usedPoems.map(p => p.original || p.normalized);
 
-      // 向双方发送正在验证中的状态
-      room.players.forEach(player => {
-        if (player.socketId) {
-          io.to(player.socketId).emit('validating', {
-            poem,
-            submittedBy: currentPlayer.username,
-            round: room.currentRound
+        // 向双方发送正在验证中的状态
+        room.players.forEach(player => {
+          if (player.socketId) {
+            io.to(player.socketId).emit('validating', {
+              poem,
+              submittedBy: currentPlayer.username,
+              round: room.currentRound
+            });
+          }
+        });
+
+        // 调用AI评判诗句
+        let aiResult = await evaluateFeihuaPoem(
+          poem,
+          room.keyword,
+          room.difficulty || 'medium',
+          usedPoemTexts
+        );
+
+        // 服务端强制校验令字，避免模型误判导致错误放行
+        const keywordOk = normalizedPoem.includes(room.keyword);
+        if (!keywordOk) {
+          aiResult = {
+            isValid: false,
+            score: 0,
+            reason: `诗句中未包含令字「${room.keyword}」`,
+            poemInfo: { title: null, author: null }
+          };
+        }
+
+        clearTurnTimer(roomId);
+
+        const verifyResult = feihualingService.verifyAnswer(roomId, currentUserId, poem, aiResult, normalizedPoem);
+
+        if (!verifyResult) {
+          socket.emit('error', { error: '验证失败' });
+          return;
+        }
+
+        if (verifyResult.isCorrect) {
+          // 诗句有效，继续游戏
+          room.players.forEach(player => {
+            if (player.socketId) {
+              io.to(player.socketId).emit('poem-submitted', {
+                ...verifyResult,
+                submittedBy: currentPlayer.username,
+                poem,
+                aiResult,
+                isValid: true
+              });
+            }
+          });
+
+          // 重新启动回合计时器
+          startTurnTimer(roomId, io);
+        } else {
+          // 诗句无效，游戏结束
+          room.players.forEach(player => {
+            if (player.socketId) {
+              io.to(player.socketId).emit('game-result', {
+                winner: verifyResult.winner,
+                loser: verifyResult.loser,
+                reason: verifyResult.reason,
+                totalRounds: verifyResult.totalRounds,
+                usedPoems: verifyResult.usedPoems,
+                players: verifyResult.players,
+                aiResult,
+                poem
+              });
+            }
           });
         }
-      });
-
-      // 调用AI评判诗句
-      let aiResult = await evaluateFeihuaPoem(
-        poem,
-        room.keyword,
-        room.difficulty || 'medium',
-        usedPoemTexts
-      );
-
-      // 服务端强制校验令字，避免模型误判导致错误放行
-      const keywordOk = normalizedPoem.includes(room.keyword);
-      if (!keywordOk) {
-        aiResult = {
-          isValid: false,
-          score: 0,
-          reason: `诗句中未包含令字「${room.keyword}」`,
-          poemInfo: { title: null, author: null }
-        };
-      }
-
-      clearTurnTimer(roomId);
-
-      const verifyResult = feihualingService.verifyAnswer(roomId, currentUserId, poem, aiResult, normalizedPoem);
-
-      if (!verifyResult) {
-        socket.emit('error', { error: '验证失败' });
-        return;
-      }
-
-      if (verifyResult.isCorrect) {
-        // 诗句有效，继续游戏
-        room.players.forEach(player => {
-          if (player.socketId) {
-            io.to(player.socketId).emit('poem-submitted', {
-              ...verifyResult,
-              submittedBy: currentPlayer.username,
-              poem,
-              aiResult,
-              isValid: true
-            });
-          }
-        });
-
-        // 重新启动回合计时器
-        startTurnTimer(roomId, io);
-      } else {
-        // 诗句无效，游戏结束
-        room.players.forEach(player => {
-          if (player.socketId) {
-            io.to(player.socketId).emit('game-result', {
-              winner: verifyResult.winner,
-              loser: verifyResult.loser,
-              reason: verifyResult.reason,
-              totalRounds: verifyResult.totalRounds,
-              usedPoems: verifyResult.usedPoems,
-              players: verifyResult.players,
-              aiResult,
-              poem
-            });
-          }
-        });
+      } catch (err) {
+        console.error('[Feihua] 提交诗句失败:', err);
+        socket.emit('error', { error: '提交诗句失败，请重试' });
       }
     });
 
@@ -352,34 +356,6 @@ function setupSocket(io) {
           }
         }
 
-        // 处理闯关对战断线
-        const challengeUsers = challengeBattleService.removeUser(socket.id);
-        io.emit('challenge-online-users', challengeUsers);
-
-        const challengeUser = challengeBattleService.getUser(currentUserId);
-        if (challengeUser && challengeUser.inGame) {
-          const roomId = challengeUser.inGame;
-          const room = challengeBattleService.getRoom(roomId);
-          if (room && room.status === 'playing') {
-            clearDuelTimer(roomId);
-            const result = challengeBattleService.handleDisconnect(roomId, currentUserId);
-            if (result) {
-              room.players.forEach(p => {
-                if (p.socketId && p.id !== currentUserId) {
-                  io.to(p.socketId).emit('challenge-result', {
-                    type: 'finished',
-                    winner: { id: result.winner.id, username: result.winner.username, correct: result.winner.correct, wrong: result.winner.wrong },
-                    loser: { id: result.loser.id, username: result.loser.username, correct: result.loser.correct, wrong: result.loser.wrong },
-                    reason: 'disconnected',
-                    totalQuestions: room.questions.length,
-                    players: room.players.map(p2 => ({ id: p2.id, username: p2.username, correct: p2.correct, wrong: p2.wrong })),
-                    questions: room.questions
-                  });
-                }
-              });
-            }
-          }
-        }
       }
     });
 
@@ -388,232 +364,135 @@ function setupSocket(io) {
     });
 
     // ==============================================================
-    // 诗词闯关对战 - Socket事件
+    // 诗词闯关对战 - 简化为单人练习模式（本地出题，无AI）
     // ==============================================================
 
-    // 加入闯关对战在线列表
-    socket.on('challenge-auth', (data) => {
+    // 开始闯关对战
+    socket.on('challenge-start', async (data) => {
       try {
-        const token = data.token;
-        if (!token) { socket.emit('error', { error: '未提供token' }); return; }
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (!decoded || !decoded.userId) { socket.emit('error', { error: 'token无效' }); return; }
-        currentUserId = decoded.userId.toString();
-        const onlineUsers = challengeBattleService.addUser(currentUserId, decoded.username, socket.id);
-        socket.emit('challenge-authenticated', { userId: currentUserId, username: decoded.username });
-        socket.emit('challenge-online-users', onlineUsers);
-        console.log(`[Challenge] 用户 ${decoded.username} 加入闯关对战在线列表`);
-      } catch (error) {
-        console.error('[Challenge] 认证失败:', error);
-        socket.emit('error', { error: '登录失败，请重新登录' });
-      }
-    });
-
-    // 获取在线用户
-    socket.on('challenge-get-users', () => {
-      const users = challengeBattleService.getOnlineUsers();
-      socket.emit('challenge-online-users', users);
-    });
-
-    // 发送闯关对战邀请
-    socket.on('challenge-invite', (data) => {
-      const targetUserId = data.targetUserId.toString();
-      const result = challengeBattleService.sendInvitation(currentUserId, targetUserId);
-      if (!result.success) {
-        socket.emit('error', { error: result.error });
-        return;
-      }
-      if (result.toSocketId) {
-        io.to(result.toSocketId).emit('challenge-receive-invite', {
-          inviteId: result.invitationId,
-          from: result.from
-        });
-      }
-      socket.emit('challenge-invite-sent', { success: true });
-    });
-
-    // 接受闯关对战邀请
-    socket.on('challenge-accept', async (data) => {
-      const { inviteId, inviterId } = data;
-      const result = await challengeBattleService.acceptInvitation(currentUserId, inviteId, inviterId);
-      if (!result.success) {
-        socket.emit('error', { error: result.error });
-        return;
-      }
-
-      const { room, fromSocketId, toSocketId } = result;
-
-      const startPayload = {
-        room: buildDuelRoomPayload(room)
-      };
-
-      if (fromSocketId) io.to(fromSocketId).emit('challenge-start', startPayload);
-      if (toSocketId) io.to(toSocketId).emit('challenge-start', startPayload);
-
-      startDuelTimer(room.id, io);
-
-      const onlineUsers = challengeBattleService.getOnlineUsers();
-      io.emit('challenge-online-users', onlineUsers);
-    });
-
-    // 拒绝闯关对战邀请
-    socket.on('challenge-reject', (data) => {
-      const { inviteId, inviterId } = data;
-      const result = challengeBattleService.rejectInvitation(currentUserId, inviteId, inviterId);
-      if (!result.success) return;
-      if (result.fromSocketId) {
-        io.to(result.fromSocketId).emit('challenge-invite-rejected', { inviteId });
-      }
-    });
-
-    // 取消邀请
-    socket.on('challenge-cancel-invite', () => {
-      // 清除待处理邀请
-    });
-
-    // 提交闯关对战答案
-    socket.on('challenge-answer', async (data) => {
-      const { roomId, answer } = data;
-
-      const submitResult = await challengeBattleService.submitAnswer(roomId, currentUserId, answer);
-      if (!submitResult.success) {
-        socket.emit('error', { error: submitResult.error });
-        return;
-      }
-
-      const { room, currentQuestion, isCorrect, submittedAnswer, submitter, opponent } = submitResult;
-
-      // 向双方发送验证中状态
-      room.players.forEach(p => {
-        if (p.socketId) {
-          io.to(p.socketId).emit('challenge-validating', {
-            answer,
-            submittedBy: submitter.username,
-            round: room.currentRound
-          });
+        if (!currentUserId) {
+          socket.emit('error', { error: '未登录' });
+          return;
         }
-      });
 
-      // 处理答题结果
-      const processResult = await challengeBattleService.processAnswerResult(roomId, currentUserId, submitResult);
-
-      clearDuelTimer(roomId);
-
-      if (processResult.type === 'correct') {
-        // 正确：向双方广播下一题
-        const payload = {
-          type: 'correct',
-          submittedAnswer,
-          currentQuestion: processResult.currentQuestion,
-          currentRound: processResult.currentRound,
-          players: processResult.players,
-          currentTurn: processResult.currentTurn,
-          nextPlayer: processResult.nextPlayer
-        };
-        room.players.forEach(p => {
-          if (p.socketId) io.to(p.socketId).emit('challenge-next', payload);
+        const room = await challengeBattleService.startGame(currentUserId, data.username || '玩家');
+        socket.emit('challenge-started', {
+          roomId: room.id,
+          currentQuestion: room.questions[0],
+          currentRound: 1
         });
-        startDuelTimer(roomId, io);
-      } else {
-        // 结束：向双方广播结果
-        const resultPayload = {
-          type: 'finished',
-          winner: processResult.winner,
-          loser: processResult.loser,
-          reason: processResult.reason,
-          totalQuestions: processResult.totalQuestions,
-          players: processResult.players,
-          questions: processResult.questions
-        };
-        room.players.forEach(p => {
-          if (p.socketId) io.to(p.socketId).emit('challenge-result', resultPayload);
+      } catch (err) {
+        console.error('[Challenge] 开始游戏失败:', err);
+        socket.emit('error', { error: '开始游戏失败' });
+      }
+    });
+
+    // 提交答案
+    socket.on('challenge-answer', async (data) => {
+      try {
+        const { roomId, answer } = data;
+        const submitResult = challengeBattleService.submitAnswer(roomId, currentUserId, answer);
+
+        if (!submitResult.success) {
+          socket.emit('error', { error: submitResult.error });
+          return;
+        }
+
+        const { isCorrect, correctAnswer, question, room } = submitResult;
+
+        socket.emit('challenge-answer-result', {
+          isCorrect,
+          submittedAnswer: answer,
+          correctAnswer: correctAnswer,
+          question: question
         });
+
+        setTimeout(async () => {
+          const nextResult = await challengeBattleService.nextQuestion(roomId);
+
+          if (nextResult.type === 'finished') {
+            const finishedRoom = challengeBattleService.getRoom(roomId);
+            if (finishedRoom) {
+              challengeBattleService.saveBattleRecord(finishedRoom);
+            }
+
+            socket.emit('challenge-finished', {
+              type: 'finished',
+              reason: nextResult.reason,
+              totalQuestions: nextResult.totalQuestions,
+              correctCount: nextResult.correctCount,
+              wrongCount: nextResult.wrongCount,
+              questions: nextResult.questions,
+              wrongQuestions: nextResult.wrongQuestions,
+              players: nextResult.resultPlayers
+            });
+          } else if (nextResult.success) {
+            socket.emit('challenge-next', {
+              question: nextResult.question,
+              currentRound: nextResult.currentRound,
+              correctCount: nextResult.correctCount,
+              wrongCount: nextResult.wrongCount
+            });
+          }
+        }, 800);
+      } catch (err) {
+        console.error('[Challenge] 提交答案失败:', err);
+        socket.emit('error', { error: '提交答案失败' });
+      }
+    });
+
+    // 超时处理
+    socket.on('challenge-timeout', async (data) => {
+      try {
+        const { roomId } = data;
+        const room = challengeBattleService.getRoom(roomId);
+        if (!room || room.status !== 'playing') return;
+
+        const submitResult = challengeBattleService.submitAnswer(roomId, currentUserId, '__TIMEOUT__');
+
+        if (submitResult.isCorrect === false) {
+          const nextResult = await challengeBattleService.nextQuestion(roomId);
+
+          if (nextResult.type === 'finished') {
+            challengeBattleService.saveBattleRecord(room);
+            socket.emit('challenge-finished', {
+              type: 'finished',
+              reason: 'timeout',
+              totalQuestions: nextResult.totalQuestions,
+              correctCount: nextResult.correctCount,
+              wrongCount: nextResult.wrongCount,
+              questions: nextResult.questions,
+              wrongQuestions: nextResult.wrongQuestions,
+              players: nextResult.resultPlayers
+            });
+          } else if (nextResult.success) {
+            socket.emit('challenge-timeouted', {
+              correctAnswer: submitResult.correctAnswer,
+              question: nextResult.question,
+              currentRound: nextResult.currentRound,
+              correctCount: nextResult.correctCount,
+              wrongCount: nextResult.wrongCount
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[Challenge] 超时处理失败:', err);
+      }
+    });
+
+    // 获取对战历史
+    socket.on('challenge-history', async (data) => {
+      try {
+        if (!currentUserId) return;
+        const history = await challengeBattleService.getBattleHistory(parseInt(currentUserId));
+        socket.emit('challenge-history-result', { history });
+      } catch (err) {
+        console.error('[Challenge] 获取历史失败:', err);
       }
     });
   });
 
   return io;
-}
-
-function buildDuelRoomPayload(room) {
-  return {
-    id: room.id,
-    players: room.players.map(p => ({
-      id: p.id,
-      username: p.username,
-      correct: p.correct,
-      wrong: p.wrong
-    })),
-    currentTurn: room.currentTurn,
-    currentRound: room.currentRound,
-    currentQuestion: room.questions[room.questions.length - 1],
-    turnTimeLimit: room.turnTimeLimit
-  };
-}
-
-function startDuelTimer(roomId, io) {
-  clearDuelTimer(roomId);
-
-  const room = challengeBattleService.getRoom(roomId);
-  if (!room) return;
-
-  const timer = setInterval(() => {
-    const currentRoom = challengeBattleService.getRoom(roomId);
-    if (!currentRoom || currentRoom.status !== 'playing') {
-      clearDuelTimer(roomId);
-      return;
-    }
-
-    const elapsed = Math.floor((Date.now() - currentRoom.turnStartTime) / 1000);
-    const remaining = currentRoom.turnTimeLimit - elapsed;
-
-    currentRoom.players.forEach(player => {
-      if (player.socketId) {
-        io.to(player.socketId).emit('challenge-timer-tick', {
-          remaining,
-          total: currentRoom.turnTimeLimit,
-          currentPlayerId: currentRoom.players[currentRoom.currentTurn].id,
-          currentTurn: currentRoom.currentTurn,
-          currentRound: currentRoom.currentRound,
-          players: currentRoom.players.map(p => ({
-            id: p.id,
-            username: p.username,
-            correct: p.correct,
-            wrong: p.wrong
-          }))
-        });
-      }
-    });
-
-    if (remaining <= 0) {
-      clearDuelTimer(roomId);
-      const result = challengeBattleService.handleTimeout(roomId);
-      if (result) {
-        currentRoom.players.forEach(p => {
-          if (p.socketId) {
-            io.to(p.socketId).emit('challenge-result', {
-              type: 'finished',
-              winner: result.winner,
-              loser: result.loser,
-              reason: result.reason,
-              totalQuestions: result.totalQuestions,
-              players: result.players,
-              questions: result.questions
-            });
-          }
-        });
-      }
-    }
-  }, 1000);
-
-  duelTimers.set(roomId, timer);
-}
-
-function clearDuelTimer(roomId) {
-  if (duelTimers.has(roomId)) {
-    clearInterval(duelTimers.get(roomId));
-    duelTimers.delete(roomId);
-  }
 }
 
 function startTurnTimer(roomId, io) {

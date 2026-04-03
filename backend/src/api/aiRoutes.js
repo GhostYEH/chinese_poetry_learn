@@ -100,6 +100,107 @@ router.post('/explainPoem/batch', async (req, res) => {
   }
 });
 
+// AI 诗词创作背景
+router.post('/poem/background', async (req, res) => {
+  try {
+    const { title, author, dynasty, content } = req.body;
+    if (!content) {
+      return res.status(400).json({ message: '缺少诗词内容' });
+    }
+    const result = await aiService.getPoemBackground(title, author, dynasty, content);
+    res.json(result);
+  } catch (error) {
+    console.error('获取诗词创作背景失败:', error);
+    res.status(500).json({ message: '获取诗词创作背景失败' });
+  }
+});
+
+// AI 诗词趣味故事
+router.post('/poem/story', async (req, res) => {
+  try {
+    const { title, author, content } = req.body;
+    if (!content) {
+      return res.status(400).json({ message: '缺少诗词内容' });
+    }
+    const result = await aiService.getPoemStory(title, author, content);
+    res.json(result);
+  } catch (error) {
+    console.error('获取诗词趣味故事失败:', error);
+    res.status(500).json({ message: '获取诗词趣味故事失败' });
+  }
+});
+
+// AI 诵读技巧指南
+router.post('/poem/recitation-guide', async (req, res) => {
+  try {
+    const { title, author, content, dynasty } = req.body;
+    if (!content) {
+      return res.status(400).json({ message: '缺少诗词内容' });
+    }
+    const result = await aiService.getRecitationGuide(title, author, content, dynasty);
+    res.json(result);
+  } catch (error) {
+    console.error('获取诵读技巧失败:', error);
+    res.status(500).json({ message: '获取诵读技巧失败' });
+  }
+});
+
+// AI 智能语义搜索（含情感/题材意向检测 + 搜索结果分析，一次调用返回所有数据）
+router.post('/search', async (req, res) => {
+  try {
+    const { query, limit = 50 } = req.body;
+    if (!query) {
+      return res.status(400).json({ message: '缺少搜索关键词' });
+    }
+
+    // 获取搜索结果（含情感/题材信息）
+    const result = await aiService.aiPoemSearch(query, limit);
+    const poems = result.poems || [];
+
+    // 同步计算搜索分析（AI或降级），不再单独发起请求
+    let analysis = { summary: '', tags: [], suggestions: [] };
+    if (poems.length > 0) {
+      try {
+        const emotionResult = result.emotion
+          ? { emotion: result.emotion, intent: result.intent }
+          : null;
+        analysis = await aiService.analyzeSearchResults(query, poems, emotionResult);
+      } catch {
+        analysis = { summary: '', tags: [], suggestions: [] };
+      }
+    }
+
+    res.json({
+      ...result,
+      analysis,
+    });
+  } catch (error) {
+    console.error('AI搜索失败:', error);
+    res.status(500).json({ message: '搜索失败' });
+  }
+});
+
+// AI 搜索结果分析（独立接口，供其他场景使用）
+router.post('/search-analysis', async (req, res) => {
+  try {
+    const { query, poems, emotion } = req.body;
+    if (!query || !poems || poems.length === 0) {
+      return res.json({ summary: '', tags: [], suggestions: [] });
+    }
+    const emotionResult = emotion
+      ? { emotion, intent: 'general' }
+      : (() => {
+          try { return aiService.detectSearchEmotion(query); }
+          catch { return { emotion: null, intent: 'general' }; }
+        })();
+    const result = await aiService.analyzeSearchResults(query, poems, emotionResult);
+    res.json(result);
+  } catch (error) {
+    console.error('AI搜索分析失败:', error);
+    res.json({ summary: '', tags: [], suggestions: [] });
+  }
+});
+
 // AI 背诵检测接口
 const authenticateToken = require('../middleware/auth');
 
@@ -796,6 +897,59 @@ router.post('/scene-image', async (req, res) => {
   } catch (error) {
     console.error('诗句意境图生成失败:', error);
     res.status(500).json({ message: '生成失败，请稍后重试' });
+  }
+});
+
+// 飞花令诗句AI验证接口
+router.post('/feihua-validate', async (req, res) => {
+  try {
+    const { poem, keyword } = req.body;
+
+    if (!poem || !keyword) {
+      return res.status(400).json({ message: '缺少必要参数' });
+    }
+
+    // 规范化输入
+    const normalizedPoem = poem.replace(/[，。！？；：、""''（）【】]/g, '').trim();
+
+    // 先检查数据库中是否有
+    const { feihuaPoems } = require('../data/feihuaPoems');
+    const poems = feihuaPoems[keyword] || [];
+    const found = poems.find(p => {
+      const pNorm = p.poem.replace(/[，。！？；：、""''（）【】]/g, '');
+      return pNorm === normalizedPoem || pNorm.includes(normalizedPoem) || normalizedPoem.includes(pNorm);
+    });
+
+    if (found) {
+      return res.json({
+        valid: true,
+        message: '诗句正确',
+        poem: found,
+        source: 'database'
+      });
+    }
+
+    // 数据库中没有，调用AI验证
+    const result = await aiService.validateFeihuaPoem(normalizedPoem, keyword);
+
+    if (result.valid && result.poem) {
+      return res.json({
+        valid: true,
+        message: '诗句正确（AI验证）',
+        poem: result.poem,
+        analysis: result.analysis,
+        source: 'ai'
+      });
+    } else {
+      return res.json({
+        valid: false,
+        message: result.message || '诗句不正确或不在诗词库中',
+        source: 'ai'
+      });
+    }
+  } catch (error) {
+    console.error('飞花令验证失败:', error);
+    res.status(500).json({ message: '验证失败，请稍后重试' });
   }
 });
 

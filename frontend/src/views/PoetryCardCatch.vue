@@ -1,219 +1,468 @@
 <template>
-  <div ref="rootRef" class="card-catch-wrapper" @keydown.prevent @keyup.prevent>
-    <!-- ===== 开始菜单 ===== -->
-    <div v-if="phase === 'MENU'" class="overlay menu-overlay">
-      <div class="menu-card glass-card">
-        <div class="card-decor">📜</div>
-        <h1 class="game-title">诗词卡片接取</h1>
-        <p class="game-subtitle">穿越诗意卷轴，检验你的诗词功底</p>
-
-        <div class="rules-box">
-          <div class="rule-row"><span class="rk">A / ←</span><span>向左移动</span></div>
-          <div class="rule-row"><span class="rk">D / →</span><span>向右移动</span></div>
-          <div class="rule-row"><span class="rk ok">✓</span><span>接正确诗句 +1分</span></div>
-          <div class="rule-row"><span class="rk err">✗</span><span>接错误诗句 失误+1</span></div>
-          <div class="rule-row"><span class="rk warn">✕</span><span>漏掉正确 扣1分</span></div>
-          <div class="rule-row"><span class="rk danger">❤</span><span>失误满5次 游戏结束</span></div>
+  <div ref="rootRef" class="poetry-mahjong-wrapper" @keydown.prevent @keyup.prevent>
+    <!-- ==================== 开始菜单 ==================== -->
+    <transition name="panel-fade">
+      <div v-if="phase === 'MENU'" class="overlay menu-overlay">
+        <!-- 背景装饰 -->
+        <div class="menu-bg-effects">
+          <div class="floating-petals">
+            <span v-for="i in 15" :key="i" class="petal" :style="getPetalStyle(i)">🌸</span>
+          </div>
+          <div class="mountain-silhouette"></div>
         </div>
 
-        <div class="difficulty-row">
-          <span class="diff-lbl">难度：</span>
-          <button
-            v-for="d in DIFFICULTIES"
-            :key="d.value"
-            :class="['diff-btn', { active: diff === d.value }]"
-            @click="diff = d.value"
-          >{{ d.label }}</button>
-        </div>
+        <div class="menu-card scroll-card">
+          <!-- 装饰卷轴头 -->
+          <div class="scroll-top-ornament">
+            <div class="ornament-left"></div>
+            <div class="ornament-center">
+              <span class="ornament-icon">📜</span>
+            </div>
+            <div class="ornament-right"></div>
+          </div>
 
-        <button class="primary-btn" @click="startGame">
-          <span>🎮 开始接取</span>
-        </button>
-        <button class="secondary-btn" @click="$router.push('/')">
-          返回首页
-        </button>
+          <!-- 标题区域 -->
+          <div class="title-section">
+            <div class="game-badge">
+              <span class="badge-star">✦</span>
+              <span class="badge-text">诗词大富翁</span>
+              <span class="badge-star">✦</span>
+            </div>
+            <h1 class="game-title">
+              <span class="title-cn">诗词大富翁</span>
+              <span class="title-en">Poetry Catcher</span>
+            </h1>
+            <p class="game-slogan">接住千古名句，对接诗词灵魂</p>
+          </div>
+
+          <!-- 操作指南 -->
+          <div class="controls-showcase">
+            <div class="control-keys">
+              <div class="key-group">
+                <span class="key-btn">A</span>
+                <span class="key-sep">/</span>
+                <span class="key-btn">←</span>
+              </div>
+              <div class="control-label">向左移动</div>
+            </div>
+            <div class="control-keys">
+              <div class="key-group">
+                <span class="key-btn">D</span>
+                <span class="key-sep">/</span>
+                <span class="key-btn">→</span>
+              </div>
+              <div class="control-label">向右移动</div>
+            </div>
+          </div>
+
+          <!-- 游戏规则 -->
+          <div class="rules-panel">
+            <div class="rules-header">
+              <span class="rules-icon">📖</span>
+              <span class="rules-title">游戏规则</span>
+            </div>
+            <div class="rules-grid">
+              <div class="rule-item correct">
+                <span class="rule-icon">✓</span>
+                <span class="rule-text">接<strong>正确</strong>诗句 <strong>+1分</strong></span>
+              </div>
+              <div class="rule-item wrong">
+                <span class="rule-icon">✗</span>
+                <span class="rule-text">接<strong>错误</strong>诗句 <strong>+1失误</strong></span>
+              </div>
+              <div class="rule-item miss">
+                <span class="rule-icon">◎</span>
+                <span class="rule-text">漏掉正确诗句 <strong>-1分</strong></span>
+              </div>
+              <div class="rule-item danger">
+                <span class="rule-icon">❤</span>
+                <span class="rule-text">失误<strong>满5次</strong> 游戏结束</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 难度选择 -->
+          <div class="difficulty-section">
+            <span class="diff-label">选择难度</span>
+            <div class="diff-tabs">
+              <button
+                v-for="d in DIFFICULTIES"
+                :key="d.value"
+                :class="['diff-tab', d.value, { active: diff === d.value }]"
+                @click="diff = d.value"
+              >
+                <span class="diff-icon">{{ d.icon }}</span>
+                <span class="diff-name">{{ d.label }}</span>
+                <span class="diff-desc">{{ d.desc }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 按钮组 -->
+          <div class="menu-actions">
+            <button class="start-btn primary-action" @click="startGame">
+              <span class="btn-icon">🎮</span>
+              <span class="btn-text">开始挑战</span>
+              <span class="btn-shimmer"></span>
+            </button>
+            <button class="start-btn secondary-action" @click="$router.push('/')">
+              <span class="btn-icon">🏠</span>
+              <span class="btn-text">返回首页</span>
+            </button>
+          </div>
+
+          <!-- 底部装饰 -->
+          <div class="scroll-bottom-ornament">
+            <div class="ornament-line"></div>
+            <div class="ornament-dot"></div>
+            <div class="ornament-line"></div>
+          </div>
+        </div>
       </div>
-    </div>
+    </transition>
 
-    <!-- ===== 游戏 HUD ===== -->
-    <div v-if="phase === 'PLAYING' || phase === 'PAUSED'" class="game-hud">
-      <div class="hud-item hud-left">
-        <span class="hud-label">失误</span>
-        <span class="hud-val" :class="{ 'danger': wrongCount >= 3 }">
-          <span v-for="i in 5" :key="i" :class="['miss-dot', { lost: i <= wrongCount }]">❤</span>
-        </span>
-      </div>
-      <div class="hud-item hud-center">
-        <div class="level-badge" :class="`level-${gameLevel}`">
-          {{ levelLabel }}
+    <!-- ==================== 游戏 HUD ==================== -->
+    <transition name="hud-slide">
+      <div v-if="phase === 'PLAYING' || phase === 'PAUSED'" class="game-hud">
+        <!-- 左侧：失误指示 -->
+        <div class="hud-left">
+          <div class="lives-container">
+            <div
+              v-for="i in 5"
+              :key="i"
+              class="life-orb"
+              :class="{ 'life-lost': i <= wrongCount, 'life-losing': i === wrongCount + 1 }"
+            >
+              <span class="life-icon">气</span>
+            </div>
+          </div>
+          <span class="hud-label">元气</span>
         </div>
-      </div>
-      <div class="hud-item hud-right">
-        <div class="score-block">
-          <span class="score-lbl">得分</span>
-          <span class="score-num" :class="{ bounce: scoreAnim }">{{ score }}</span>
-        </div>
-        <div class="time-block">
-          <span class="time-lbl">用时</span>
-          <span class="time-num">{{ formatTime(elapsed) }}</span>
-        </div>
-      </div>
-    </div>
 
-    <!-- ===== Canvas 游戏区 ===== -->
+        <!-- 中间：等级和连击 -->
+        <div class="hud-center">
+          <div class="level-badge" :class="`level-${gameLevel}`">
+            {{ levelLabel }}
+          </div>
+          <div class="combo-display" v-if="combo >= 3">
+            <span class="combo-label">连击</span>
+            <span class="combo-value">{{ combo }}x</span>
+          </div>
+        </div>
+
+        <!-- 右侧：分数和时间 -->
+        <div class="hud-right">
+          <div class="score-container">
+            <div class="score-ring">
+              <svg viewBox="0 0 50 50">
+                <circle class="ring-bg" cx="25" cy="25" r="22" />
+                <circle
+                  class="ring-fill"
+                  cx="25" cy="25" r="22"
+                  :stroke-dasharray="`${Math.min(score / 30 * 138, 138)} 138`"
+                />
+              </svg>
+              <span class="score-number" :class="{ 'score-bounce': scoreAnim }">{{ score }}</span>
+            </div>
+            <span class="hud-label">得分</span>
+          </div>
+          <div class="time-display">
+            <span class="time-icon">⏱</span>
+            <span class="time-value">{{ formatTime(elapsed) }}</span>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ==================== Canvas 游戏区 ==================== -->
     <div class="canvas-wrap" ref="wrapRef" tabindex="0">
       <canvas ref="canvasRef" class="game-canvas" />
     </div>
 
-    <!-- ===== 暂停遮罩 ===== -->
-    <div v-if="phase === 'PAUSED'" class="overlay pause-overlay">
-      <div class="pause-card glass-card">
-        <div class="pause-title">⏸ 游戏暂停</div>
-        <div class="pause-stats">
-          <div class="ps"><span>当前得分</span><span class="pv">{{ score }}</span></div>
-          <div class="ps"><span>已用时间</span><span class="pv">{{ formatTime(elapsed) }}</span></div>
-          <div class="ps"><span>失误次数</span><span class="pv danger">{{ wrongCount }}/5</span></div>
-        </div>
-        <button class="primary-btn" @click="resumeGame">继续游戏</button>
-        <button class="danger-btn" @click="quitGame">退出游戏</button>
-      </div>
-    </div>
+    <!-- ==================== 暂停遮罩 ==================== -->
+    <transition name="panel-fade">
+      <div v-if="phase === 'PAUSED'" class="overlay pause-overlay">
+        <div class="pause-card scroll-card">
+          <div class="pause-header">
+            <span class="pause-icon">⏸</span>
+            <h2 class="pause-title">游戏暂停</h2>
+          </div>
 
-    <!-- ===== 游戏结束遮罩 ===== -->
-    <div v-if="phase === 'GAME_OVER'" class="overlay gameover-overlay">
-      <div class="go-card glass-card">
-        <div class="go-badge">🎯</div>
-        <div class="go-title">本轮结束</div>
-        <div class="go-stats">
-          <div class="gs">
-            <span class="gl">最终得分</span>
-            <span class="gv score-val">{{ score }}</span>
+          <div class="pause-stats-grid">
+            <div class="pause-stat correct-stat">
+              <span class="stat-icon">✓</span>
+              <span class="stat-value">{{ correctCount }}</span>
+              <span class="stat-label">接正确</span>
+            </div>
+            <div class="pause-stat wrong-stat">
+              <span class="stat-icon">✗</span>
+              <span class="stat-value">{{ wrongCount }}</span>
+              <span class="stat-label">失误</span>
+            </div>
+            <div class="pause-stat miss-stat">
+              <span class="stat-icon">◎</span>
+              <span class="stat-value">{{ missedCount }}</span>
+              <span class="stat-label">漏掉</span>
+            </div>
+            <div class="pause-stat time-stat">
+              <span class="stat-icon">⏱</span>
+              <span class="stat-value">{{ formatTime(elapsed) }}</span>
+              <span class="stat-label">用时</span>
+            </div>
           </div>
-          <div class="gs">
-            <span class="gl">游戏时长</span>
-            <span class="gv">{{ formatTime(elapsed) }}</span>
+
+          <div class="pause-actions">
+            <button class="action-btn primary-btn" @click="resumeGame">
+              <span class="btn-icon">▶</span>
+              <span class="btn-text">继续游戏</span>
+            </button>
+            <button class="action-btn danger-btn" @click="quitGame">
+              <span class="btn-icon">✕</span>
+              <span class="btn-text">退出游戏</span>
+            </button>
           </div>
-          <div class="gs">
-            <span class="gl">接取正确</span>
-            <span class="gv correct-val">{{ correctCount }}</span>
-          </div>
-          <div class="gs">
-            <span class="gl">漏掉正确</span>
-            <span class="gv miss-val">{{ missedCount }}</span>
-          </div>
-          <div class="gs">
-            <span class="gl">失误次数</span>
-            <span class="gv danger-val">{{ wrongCount }}</span>
-          </div>
-        </div>
-        <div class="go-grade">
-          <span>评级：</span>
-          <span :class="['grade-chip', gradeClass]">{{ gradeText }}</span>
-        </div>
-        <div class="go-actions">
-          <button class="primary-btn" @click="showReview">📋 查看复盘</button>
-          <button class="secondary-btn" @click="restartGame">🔄 再来一局</button>
-          <button class="secondary-btn" @click="quitGame">🏠 返回首页</button>
         </div>
       </div>
-    </div>
+    </transition>
 
-    <!-- ===== 复盘界面 ===== -->
-    <div v-if="phase === 'REVIEW'" class="overlay review-overlay">
-      <div class="review-card glass-card">
-        <div class="review-header">
-          <button class="back-btn" @click="quitGame">← 返回</button>
-          <h2 class="review-title">📜 复盘讲解</h2>
-          <button class="secondary-btn sm" @click="restartGame">再来一局</button>
-        </div>
-
-        <!-- 加载状态 -->
-        <div v-if="reviewLoading" class="review-loading">
-          <div class="spinner"></div>
-          <p>AI 正在生成讲解...</p>
-        </div>
-
-        <!-- 无错误 -->
-        <div v-else-if="reviewErrors.length === 0" class="review-empty">
-          <div class="empty-icon">🎉</div>
-          <h3>太棒了！本轮没有错误！</h3>
-          <p>你的诗词功底非常扎实！</p>
-        </div>
-
-        <!-- 错误列表 -->
-        <div v-else class="review-list">
-          <div class="review-legend">
-            <span>共 <strong>{{ reviewErrors.length }}</strong> 条错误，正在加载 AI 讲解...</span>
+    <!-- ==================== 游戏结束遮罩 ==================== -->
+    <transition name="panel-fade">
+      <div v-if="phase === 'GAME_OVER'" class="overlay gameover-overlay">
+        <div class="gameover-card scroll-card">
+          <!-- 结果动画 -->
+          <div class="result-animation">
+            <div class="result-orb" :class="gradeClass">
+              <span class="orb-text">{{ gradeText }}</span>
+              <div class="orb-ring"></div>
+            </div>
           </div>
-          <div
-            v-for="(err, idx) in reviewErrors"
-            :key="idx"
-            class="review-item glass-card"
-          >
-            <div class="review-item-header">
-              <span class="review-num">{{ idx + 1 }}</span>
-              <span class="review-tag wrong">错误</span>
-              <button
-                class="add-review-btn"
-                :class="{ added: err.addedToReview }"
-                :disabled="err.addedToReview"
-                @click="addToReview(err)"
-              >
-                {{ err.addedToReview ? '✓ 已添加' : '+ 错题本' }}
-              </button>
+
+          <!-- 标题 -->
+          <div class="gameover-header">
+            <h2 class="gameover-title">本轮挑战结束</h2>
+            <p class="gameover-subtitle">你的诗词之旅暂时告一段落</p>
+          </div>
+
+          <!-- 统计 -->
+          <div class="gameover-stats">
+            <div class="main-stat">
+              <span class="main-icon">🏆</span>
+              <div class="main-content">
+                <span class="main-value">{{ score }}</span>
+                <span class="main-label">最终得分</span>
+              </div>
+            </div>
+            <div class="stats-row">
+              <div class="stat-box">
+                <span class="stat-icon correct-icon">✓</span>
+                <span class="stat-value">{{ correctCount }}</span>
+                <span class="stat-label">正确</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-icon wrong-icon">✗</span>
+                <span class="stat-value">{{ wrongCount }}</span>
+                <span class="stat-label">失误</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-icon miss-icon">◎</span>
+                <span class="stat-value">{{ missedCount }}</span>
+                <span class="stat-label">漏掉</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-icon time-icon">⏱</span>
+                <span class="stat-value">{{ formatTime(elapsed) }}</span>
+                <span class="stat-label">用时</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 最高连击 -->
+          <div class="max-combo" v-if="maxCombo >= 3">
+            <span class="combo-badge">🔥</span>
+            <span class="combo-text">最高连击：{{ maxCombo }}x</span>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="gameover-actions">
+            <button class="action-btn review-btn" @click="showReview">
+              <span class="btn-icon">📋</span>
+              <span class="btn-text">查看复盘</span>
+            </button>
+            <button class="action-btn primary-btn" @click="restartGame">
+              <span class="btn-icon">🔄</span>
+              <span class="btn-text">再来一局</span>
+            </button>
+            <button v-if="gameLevel < 200" class="action-btn primary-btn" @click="nextLevel">
+              <span class="btn-icon">▶</span>
+              <span class="btn-text">下一关</span>
+            </button>
+            <button class="action-btn secondary-btn" @click="quitGame">
+              <span class="btn-icon">🏠</span>
+              <span class="btn-text">返回首页</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ==================== 复盘界面 ==================== -->
+    <transition name="panel-fade">
+      <div v-if="phase === 'REVIEW'" class="overlay review-overlay">
+        <div class="review-panel scroll-card">
+          <!-- 头部 -->
+          <div class="review-header">
+            <button class="header-back-btn" @click="quitGame">
+              <span>返回</span>
+            </button>
+            <h2 class="review-title">
+              <span class="title-icon">📜</span>
+              复盘讲解
+            </h2>
+            <button class="header-restart-btn" @click="restartGame">
+              再来一局
+            </button>
+          </div>
+
+          <!-- 一键添加错题本按钮 -->
+          <div class="batch-actions" v-if="reviewErrors.length > 0">
+            <button
+              class="batch-add-btn"
+              :class="{ 'all-added': allAddedToReview }"
+              :disabled="isAddingAll || allAddedToReview"
+              @click="addAllToErrorBook"
+            >
+              <span class="btn-icon">{{ isAddingAll ? '⏳' : '📚' }}</span>
+              <span class="btn-text">
+                {{ isAddingAll ? '添加中...' : (allAddedToReview ? '已全部添加' : '一键加入错题本') }}
+              </span>
+              <span class="btn-count" v-if="!allAddedToReview">({{ reviewErrors.length }}条)</span>
+            </button>
+          </div>
+
+          <!-- 加载状态 -->
+          <div v-if="reviewLoading" class="review-loading">
+            <div class="loading-spinner">
+              <div class="spinner-ring"></div>
+            </div>
+            <p class="loading-text">AI 正在生成讲解...</p>
+          </div>
+
+          <!-- 无错误 -->
+          <div v-else-if="reviewErrors.length === 0" class="review-empty">
+            <div class="empty-illustration">🎉</div>
+            <h3 class="empty-title">太棒了！本轮没有错误！</h3>
+            <p class="empty-subtitle">你的诗词功底非常扎实，继续保持！</p>
+          </div>
+
+          <!-- 错误列表 -->
+          <div v-else class="review-list">
+            <div class="review-legend">
+              <span class="legend-icon">📝</span>
+              <span>共 <strong>{{ reviewErrors.length }}</strong> 条错误</span>
             </div>
 
-            <div class="poem-scroll">
-              <div class="scroll-upper">上句：{{ err.questionText }}</div>
-              <div class="scroll-sep">──────</div>
-              <div class="scroll-answer">
-                <div class="answer-row">
-                  <span class="answer-lbl">❌ 你接的：</span>
-                  <span class="answer-val wrong">{{ err.userAnswer }}</span>
-                </div>
-                <div class="answer-row" v-if="err.aiData">
-                  <span class="answer-lbl">💡 AI分析：</span>
-                  <span class="ai-tip">{{ err.aiData.reason }}</span>
-                </div>
-                <div class="answer-row">
-                  <span class="answer-lbl">✅ 正确下句：</span>
-                  <span class="answer-val correct">{{ err.correctAnswer }}</span>
-                </div>
+            <div
+              v-for="(err, idx) in reviewErrors"
+              :key="idx"
+              class="review-card-item"
+            >
+              <!-- 卡片头部 -->
+              <div class="card-item-header">
+                <span class="item-num">{{ idx + 1 }}</span>
+                <span class="item-badge error-badge">错误</span>
+                <button
+                  class="add-single-btn"
+                  :class="{ 'added': err.addedToReview }"
+                  :disabled="err.addedToReview"
+                  @click="addSingleToErrorBook(err)"
+                >
+                  {{ err.addedToReview ? '✓ 已添加' : '+ 错题本' }}
+                </button>
               </div>
-              <div class="scroll-bottom">
-                <div class="ai-section" v-if="err.aiData">
-                  <div class="ai-block">
-                    <div class="ai-label">📖 详细讲解</div>
-                    <div class="ai-content">{{ err.aiData.explanation }}</div>
+
+              <!-- 诗句卷轴 -->
+              <div class="poem-scroll-display">
+                <div class="scroll-roll left"></div>
+                <div class="scroll-content">
+                  <div class="scroll-upper">
+                    <span class="scroll-label">上句：</span>
+                    <span class="scroll-text">{{ err.questionText }}</span>
                   </div>
-                  <div class="ai-block">
-                    <div class="ai-label">🧠 记忆口诀</div>
-                    <div class="ai-content tip">{{ err.aiData.memory_tip }}</div>
+                  <div class="scroll-divider">
+                    <span>──────</span>
+                  </div>
+                  <div class="scroll-answer-section">
+                    <div class="answer-row user-wrong">
+                      <span class="answer-label">❌ 你接的：</span>
+                      <span class="answer-text wrong-text">{{ err.userAnswer }}</span>
+                    </div>
+                    <div class="answer-row ai-analysis" v-if="err.aiData">
+                      <span class="answer-label">💡 AI分析：</span>
+                      <span class="ai-reason">{{ err.aiData.reason }}</span>
+                    </div>
+                    <div class="answer-row correct-answer">
+                      <span class="answer-label">✅ 正确下句：</span>
+                      <span class="answer-text correct-text">{{ err.correctAnswer }}</span>
+                    </div>
                   </div>
                 </div>
-                <div class="ai-loading" v-else>
-                  <div class="spinner-sm"></div>
-                  <span>AI 讲解生成中...</span>
+                <div class="scroll-roll right"></div>
+              </div>
+
+              <!-- AI 讲解区域 -->
+              <div class="ai-explain-section" v-if="err.aiData">
+                <div class="ai-block explanation-block">
+                  <div class="ai-block-header">
+                    <span class="ai-icon">📖</span>
+                    <span class="ai-block-title">详细讲解</span>
+                  </div>
+                  <p class="ai-block-content">{{ err.aiData.explanation }}</p>
+                </div>
+                <div class="ai-block tip-block">
+                  <div class="ai-block-header">
+                    <span class="ai-icon">🧠</span>
+                    <span class="ai-block-title">记忆口诀</span>
+                  </div>
+                  <p class="ai-block-content tip-content">{{ err.aiData.memory_tip }}</p>
                 </div>
               </div>
-            </div>
+              <div class="ai-loading-state" v-else>
+                <div class="mini-spinner"></div>
+                <span>AI 讲解生成中...</span>
+              </div>
 
-            <!-- 填空练习 -->
-            <div class="fill-blank-section">
-              <div class="fill-q">
-                <span class="fill-label">✏️ 填空练习：</span>
-                <span class="fill-text">{{ err.questionText.replace('_____', '【    】') }}</span>
-                <span class="fill-answer">{{ err.correctAnswer }}</span>
+              <!-- 填空练习 -->
+              <div class="fill-practice-section">
+                <div class="fill-badge">
+                  <span class="fill-icon">✏️</span>
+                  <span class="fill-title">填空练习</span>
+                </div>
+                <div class="fill-display">
+                  <span class="fill-text">{{ err.questionText.replace('_____', '【    】') }}</span>
+                  <span class="fill-answer">{{ err.correctAnswer }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </transition>
 
-    <!-- Toast -->
-    <transition name="toast-slide">
-      <div v-if="toast.show" :class="['toast', toast.type]">{{ toast.text }}</div>
+    <!-- ==================== Toast 提示 ==================== -->
+    <transition name="toast-pop">
+      <div v-if="toast.show" :class="['game-toast', toast.type]">
+        <span class="toast-icon">{{ toast.type === 'success' ? '✓' : toast.type === 'error' ? '✗' : toast.type === 'warn' ? '!' : 'ℹ' }}</span>
+        <span class="toast-text">{{ toast.text }}</span>
+        <span v-if="toast.combo" class="toast-combo">×{{ toast.combo }}</span>
+      </div>
+    </transition>
+
+    <!-- ==================== 成功添加提示 ==================== -->
+    <transition name="success-pop">
+      <div v-if="addedSuccess" class="success-banner">
+        <span class="success-icon">✓</span>
+        <span class="success-text">已成功加入错题本！</span>
+      </div>
     </transition>
   </div>
 </template>
@@ -222,23 +471,47 @@
 import { ref, onMounted, onUnmounted, onActivated, computed, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import questionsData from '@/data/poetryQuestions.json';
+import levelsData from '@/data/poetryLevels.json';
 
 const API_BASE = 'http://localhost:3000/api/card-game';
 
 // ==================== 常量 ====================
-const CANVAS_W = 880;
-const CANVAS_H = 520;
-const PLAYER_W = 70;
-const PLAYER_H = 80;
-const CARD_W = 210;
-const CARD_H = 96;
-const CARD_SPEED_BASE = 1.22;
+const CANVAS_W = 1400;
+const CANVAS_H = 600;
+const PLAYER_W = 72;
+const PLAYER_H = 88;
+const CARD_W = 280;
+const CARD_H = 120;
+const CARD_SPEED_BASE = 2.4;
 const MAX_WRONG = 5;
+
 const DIFFICULTIES = [
-  { value: 'easy', label: '入门', color: '#4CAF50' },
-  { value: 'medium', label: '进阶', color: '#FF9800' },
-  { value: 'hard', label: '挑战', color: '#f44336' }
+  { value: 'easy', label: '入门', icon: '🌱', desc: '初学者', color: '#4CAF50' },
+  { value: 'medium', label: '进阶', icon: '🌿', desc: '有基础', color: '#FF9800' },
+  { value: 'hard', label: '挑战', icon: '🌳', desc: '诗词达人', color: '#f44336' }
 ];
+
+const getUserId = () => {
+  const userInfo = localStorage.getItem('userInfo');
+  if (userInfo) {
+    try {
+      const user = JSON.parse(userInfo);
+      return user.id || user.userId || 1;
+    } catch (e) {
+      return 1;
+    }
+  }
+  const user = localStorage.getItem('user');
+  if (user) {
+    try {
+      const userData = JSON.parse(user);
+      return userData.id || userData.userId || 1;
+    } catch (e) {
+      return 1;
+    }
+  }
+  return 1;
+};
 
 export default {
   name: 'PoetryCardCatch',
@@ -248,7 +521,7 @@ export default {
     const canvasRef = ref(null);
     const wrapRef = ref(null);
 
-    // 游戏阶段: MENU | PLAYING | PAUSED | GAME_OVER | REVIEW
+    // ==================== 游戏状态 ====================
     const phase = ref('MENU');
     const diff = ref('medium');
     const score = ref(0);
@@ -257,6 +530,9 @@ export default {
     const missedCount = ref(0);
     const elapsed = ref(0);
     const gameLevel = ref(1);
+    const combo = ref(0);
+    const maxCombo = ref(0);
+    const scoreAnim = ref(false);
 
     let ctx = null;
     let animId = null;
@@ -265,70 +541,79 @@ export default {
     let spawnTimer = 0;
     let gameStartTime = 0;
 
-    // 玩家
+    // ==================== 玩家 ====================
     const player = {
       x: CANVAS_W / 2 - PLAYER_W / 2,
-      y: CANVAS_H - PLAYER_H - 16,
+      y: CANVAS_H - PLAYER_H - 20,
       vx: 0,
       bounce: 0,
       trail: []
     };
 
-    // 角色移动
-    const ACCEL = 1.2;
-    const MAX_VX = 9;
-    const FRICTION = 0.82;
+    const ACCEL = 2.8;
+    const MAX_VX = 14;
+    const FRICTION = 0.84;
     const keys = { left: false, right: false };
 
-    // 卡片
+    // ==================== 卡片 ====================
     let cards = [];
     let cardIdCounter = 0;
     let spawnedThisRound = new Set();
     let wrongCardPool = [];
-    /** 接错快照（卡片移出画布后会从 cards 删除，复盘/保存依赖此列表） */
     let wrongCaughtLog = [];
 
-    // 粒子
+    // ==================== 粒子特效 ====================
     let particles = [];
+    let petals = [];
+    let confetti = [];
 
-    // 复盘
+    // ==================== 背景装饰 ====================
+    const bgDots = [];
+    const BG_CHARS = ['诗', '词', '风', '月', '云', '山', '水', '花', '春', '秋', '雨', '雪', '鸟', '酒', '茶'];
+
+    // ==================== 复盘 ====================
     const reviewErrors = ref([]);
     const reviewLoading = ref(false);
-    const scoreAnim = ref(false);
-    const toast = ref({ show: false, text: '', type: 'info' });
+    const isAddingAll = ref(false);
+    const addedSuccess = ref(false);
+    const toast = ref({ show: false, text: '', type: 'info', combo: 0 });
     let toastTimer = null;
 
-    // 背景装饰
-    const bgDots = [];
-    const BG_CHARS = ['诗', '词', '风', '月', '云', '山', '水', '花', '春', '秋', '雨', '雪'];
-
-    // 评级
+    // ==================== 计算属性 ====================
     const gradeText = computed(() => {
       const s = score.value;
-      if (s >= 30) return '诗仙';
-      if (s >= 20) return '诗词达人';
-      if (s >= 12) return '初露锋芒';
-      if (s >= 6) return '诗海初探';
-      return '还需修炼';
+      if (s >= 40) return '诗仙';
+      if (s >= 28) return '诗词大师';
+      if (s >= 18) return '诗词达人';
+      if (s >= 10) return '诗坛新秀';
+      if (s >= 5) return '初露锋芒';
+      return '诗海初探';
     });
+
     const gradeClass = computed(() => {
       const s = score.value;
-      if (s >= 30) return 'grade-god';
-      if (s >= 20) return 'grade-master';
-      if (s >= 12) return 'grade-senior';
-      if (s >= 6) return 'grade-junior';
+      if (s >= 40) return 'grade-immortal';
+      if (s >= 28) return 'grade-master';
+      if (s >= 18) return 'grade-expert';
+      if (s >= 10) return 'grade-talent';
+      if (s >= 5) return 'grade-rookie';
       return 'grade-novice';
     });
+
     const levelLabel = computed(() => {
-      const labels = ['入门', '进阶', '挑战', '诗词大师', '诗仙下凡'];
+      const labels = ['入门', '进阶', '挑战', '大师', '诗仙'];
       return labels[Math.min(gameLevel.value - 1, labels.length - 1)];
     });
 
-    const showToast = (text, type = 'info') => {
-      if (phase.value === 'GAME_OVER') return;
-      toast.value = { show: true, text, type };
+    const allAddedToReview = computed(() => {
+      return reviewErrors.value.length > 0 && reviewErrors.value.every(e => e.addedToReview);
+    });
+
+    // ==================== 方法 ====================
+    const showToast = (text, type = 'info', comboVal = 0) => {
+      toast.value = { show: true, text, type, combo: comboVal };
       if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toast.value.show = false; }, 1600);
+      toastTimer = setTimeout(() => { toast.value.show = false; }, 1800);
     };
 
     const formatTime = (s) => {
@@ -337,30 +622,38 @@ export default {
       return `${m}:${String(sec).padStart(2, '0')}`;
     };
 
+    const getPetalStyle = (i) => {
+      return {
+        left: `${Math.random() * 100}%`,
+        animationDelay: `${Math.random() * 5}s`,
+        animationDuration: `${8 + Math.random() * 6}s`,
+        fontSize: `${12 + Math.random() * 8}px`,
+        opacity: 0.3 + Math.random() * 0.4
+      };
+    };
+
     // ==================== 难度系统 ====================
     const getDifficultyParams = () => {
       const d = diff.value;
       const t = elapsed.value;
       const level = Math.min(Math.floor(t / 30) + 1, 5);
       gameLevel.value = level;
-      const mult = 1 + (level - 1) * 0.12;
-      const speedMap = { easy: 0.85, medium: 1.05, hard: 1.28 };
-      const spawnMap = { easy: 3200, medium: 2400, hard: 1900 };
-      const maxCards = { easy: 3, medium: 5, hard: 7 };
+      const mult = 1 + (level - 1) * 0.15;
+      const speedMap = { easy: 1.0, medium: 1.35, hard: 1.8 };
+      const spawnMap = { easy: 2500, medium: 1800, hard: 1300 };
+      const maxCards = { easy: 5, medium: 7, hard: 10 };
       return {
         speed: CARD_SPEED_BASE * speedMap[d] * mult,
-        spawnInterval: Math.max(1100, spawnMap[d] / mult),
-        maxCards: Math.min(maxCards[d] + level - 1, 9),
+        spawnInterval: Math.max(1200, spawnMap[d] / mult),
+        maxCards: Math.min(maxCards[d] + level - 1, 10),
         level
       };
     };
 
-    // ==================== 题目过滤（按难度） ====================
     const getQuestionsByLevel = () => {
       const level = gameLevel.value;
-      if (level === 1) return questionsData.slice(0, 60);
-      if (level === 2) return questionsData.slice(20, 120);
-      return questionsData;
+      const levelData = levelsData.find(l => l.level === level);
+      return levelData ? levelData.questions : questionsData;
     };
 
     // ==================== 卡片生成 ====================
@@ -381,7 +674,6 @@ export default {
 
       let isCorrect = forceCorrect;
       if (!isCorrect) {
-        // 正确:错误 ≈ 1:1
         const activeCards = cards.filter((c) => !c.collected);
         const correctActive = activeCards.filter((c) => c.isCorrect).length;
         const wrongActive = activeCards.filter((c) => !c.isCorrect).length;
@@ -393,9 +685,7 @@ export default {
       let q, lowerText;
 
       if (isCorrect) {
-        const available = levelQuestions.filter(
-          (q) => !spawnedThisRound.has(q.question)
-        );
+        const available = levelQuestions.filter(q => !spawnedThisRound.has(q.question));
         if (available.length === 0) {
           spawnedThisRound.clear();
           return createCard(true);
@@ -406,14 +696,9 @@ export default {
       } else {
         if (wrongCardPool.length === 0) wrongCardPool = buildWrongPool();
         const shuffled = [...wrongCardPool].sort(() => Math.random() - 0.5);
-        // 找和当前题目无关的干扰项，且确保不与同一首诗的正确答案重复
-        const wrongOfCurrent = cards
-          .filter((c) => c.isCorrect && !c.collected)
-          .map((c) => c.lowerText);
+        const wrongOfCurrent = cards.filter((c) => c.isCorrect && !c.collected).map((c) => c.lowerText);
         const available = shuffled.filter(
-          (w) =>
-            !spawnedThisRound.has(w.poem.question) &&
-            !wrongOfCurrent.includes(w.text)
+          (w) => !spawnedThisRound.has(w.poem.question) && !wrongOfCurrent.includes(w.text)
         );
         if (available.length === 0) return createCard(true);
         const chosen = available[0];
@@ -421,23 +706,25 @@ export default {
         q = chosen.poem;
       }
 
-      const x = 40 + Math.random() * (CANVAS_W - CARD_W - 80);
+      const x = 50 + Math.random() * (CANVAS_W - CARD_W - 100);
       const card = {
         id: cardIdCounter++,
         x,
         y: -CARD_H - 20,
         w: CARD_W,
         h: CARD_H,
-        speed: params.speed * (0.9 + Math.random() * 0.3),
+        speed: params.speed * (0.88 + Math.random() * 0.28),
         upperText: q.question,
         lowerText,
-        correctAnswer: q.answer,   // 始终保存正确答案，供复盘使用
+        correctAnswer: q.answer,
+        poem: q,
         isCorrect,
         collected: false,
         passed: false,
         glow: 0,
-        rot: (Math.random() - 0.5) * 0.04,
-        shimmer: 0
+        rot: (Math.random() - 0.5) * 0.06,
+        shimmer: Math.random() * Math.PI * 2,
+        fallAngle: 0
       };
       cards.push(card);
       return card;
@@ -448,19 +735,36 @@ export default {
       return px < cx + cw && px + pw > cx && py < cy + ch && py + ph > cy;
     };
 
-    // ==================== 粒子 ====================
+    // ==================== 粒子系统 ====================
     const spawnParticles = (x, y, color, count) => {
       for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const spd = 1.5 + Math.random() * 3.5;
+        const spd = 2 + Math.random() * 4;
         particles.push({
           x, y,
           vx: Math.cos(angle) * spd,
-          vy: Math.sin(angle) * spd - 2,
+          vy: Math.sin(angle) * spd - 3,
           life: 1,
-          decay: 0.022 + Math.random() * 0.02,
-          size: 3 + Math.random() * 5,
-          color
+          decay: 0.018 + Math.random() * 0.018,
+          size: 4 + Math.random() * 6,
+          color,
+          rotation: Math.random() * Math.PI * 2
+        });
+      }
+    };
+
+    const spawnConfetti = (x, y, count) => {
+      for (let i = 0; i < count; i++) {
+        confetti.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 8,
+          vy: -Math.random() * 6 - 2,
+          life: 1,
+          decay: 0.012,
+          size: 6 + Math.random() * 6,
+          color: ['#FFD700', '#FF6B6B', '#4ECDC4', '#A78BFA', '#F472B6'][Math.floor(Math.random() * 5)],
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.3
         });
       }
     };
@@ -473,7 +777,6 @@ export default {
       canvas.width = CANVAS_W;
       canvas.height = CANVAS_H;
 
-      // 圆角 polyfill
       if (!ctx.roundRect) {
         ctx.roundRect = (x, y, w, h, r) => {
           if (typeof r === 'number') r = [r, r, r, r];
@@ -492,54 +795,131 @@ export default {
         };
       }
 
-      // 背景装饰
       bgDots.length = 0;
-      for (let i = 0; i < 28; i++) {
+      for (let i = 0; i < 32; i++) {
         bgDots.push({
           x: Math.random() * CANVAS_W,
           y: Math.random() * CANVAS_H,
           char: BG_CHARS[Math.floor(Math.random() * BG_CHARS.length)],
-          size: 14 + Math.random() * 12,
-          alpha: 0.035 + Math.random() * 0.045,
-          speed: 0.18 + Math.random() * 0.28,
+          size: 14 + Math.random() * 14,
+          alpha: 0.025 + Math.random() * 0.035,
+          speed: 0.12 + Math.random() * 0.22,
           rot: Math.random() * Math.PI * 2,
-          rotSpd: (Math.random() - 0.5) * 0.006
+          rotSpd: (Math.random() - 0.5) * 0.005
+        });
+      }
+
+      petals.length = 0;
+      for (let i = 0; i < 8; i++) {
+        petals.push({
+          x: Math.random() * CANVAS_W,
+          y: Math.random() * CANVAS_H,
+          size: 10 + Math.random() * 8,
+          speed: 0.3 + Math.random() * 0.4,
+          rot: Math.random() * Math.PI * 2,
+          rotSpd: (Math.random() - 0.5) * 0.02,
+          sway: Math.random() * Math.PI * 2,
+          swaySpd: 0.01 + Math.random() * 0.01
         });
       }
     };
 
     // ==================== 绘制函数 ====================
     const drawBackground = () => {
-      const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-      grad.addColorStop(0, '#f9f3e9');
-      grad.addColorStop(0.45, '#f5eedf');
-      grad.addColorStop(1, '#f0e0c8');
-      ctx.fillStyle = grad;
+      // 渐变天空
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+      skyGrad.addColorStop(0, '#2c1654');
+      skyGrad.addColorStop(0.3, '#1a1035');
+      skyGrad.addColorStop(0.6, '#0f0a1e');
+      skyGrad.addColorStop(1, '#080510');
+      ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-      // 仿宣纸横线
-      ctx.strokeStyle = 'rgba(139, 69, 19, 0.06)';
-      ctx.lineWidth = 1;
-      for (let y = 0; y < CANVAS_H; y += 28) {
+      // 星星
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      for (let i = 0; i < 60; i++) {
+        const sx = (i * 137.5) % CANVAS_W;
+        const sy = (i * 73.3) % (CANVAS_H * 0.6);
+        const ss = 0.5 + Math.sin(Date.now() * 0.001 + i) * 0.5;
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(CANVAS_W, y);
-        ctx.stroke();
+        ctx.arc(sx, sy, ss, 0, Math.PI * 2);
+        ctx.fill();
       }
-      ctx.strokeStyle = 'rgba(205, 133, 63, 0.12)';
-      ctx.beginPath();
-      ctx.moveTo(48, 0);
-      ctx.lineTo(48, CANVAS_H);
-      ctx.moveTo(CANVAS_W - 48, 0);
-      ctx.lineTo(CANVAS_W - 48, CANVAS_H);
-      ctx.stroke();
 
-      // 装饰字符（缓慢飘动，古风色调）
+      // 远山剪影
+      ctx.fillStyle = '#0a0812';
+      ctx.beginPath();
+      ctx.moveTo(0, CANVAS_H);
+      ctx.lineTo(0, CANVAS_H * 0.65);
+      ctx.quadraticCurveTo(CANVAS_W * 0.1, CANVAS_H * 0.55, CANVAS_W * 0.2, CANVAS_H * 0.62);
+      ctx.quadraticCurveTo(CANVAS_W * 0.3, CANVAS_H * 0.5, CANVAS_W * 0.45, CANVAS_H * 0.58);
+      ctx.quadraticCurveTo(CANVAS_W * 0.55, CANVAS_H * 0.45, CANVAS_W * 0.7, CANVAS_H * 0.55);
+      ctx.quadraticCurveTo(CANVAS_W * 0.8, CANVAS_H * 0.48, CANVAS_W * 0.9, CANVAS_H * 0.6);
+      ctx.quadraticCurveTo(CANVAS_W * 0.95, CANVAS_H * 0.55, CANVAS_W, CANVAS_H * 0.62);
+      ctx.lineTo(CANVAS_W, CANVAS_H);
+      ctx.closePath();
+      ctx.fill();
+
+      // 月亮光晕
+      const moonX = CANVAS_W * 0.82;
+      const moonY = CANVAS_H * 0.15;
+      const moonGlow = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, 120);
+      moonGlow.addColorStop(0, 'rgba(255, 248, 220, 0.15)');
+      moonGlow.addColorStop(1, 'transparent');
+      ctx.fillStyle = moonGlow;
+      ctx.fillRect(moonX - 120, moonY - 120, 240, 240);
+
+      // 月亮
+      ctx.fillStyle = '#fff8dc';
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, 35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+      ctx.beginPath();
+      ctx.arc(moonX + 8, moonY - 5, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(moonX - 5, moonY + 10, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 云雾
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+      for (let i = 0; i < 5; i++) {
+        const cloudX = ((Date.now() * 0.01 + i * 200) % (CANVAS_W + 300)) - 150;
+        const cloudY = CANVAS_H * 0.35 + Math.sin(i * 1.5) * 30;
+        ctx.beginPath();
+        ctx.ellipse(cloudX, cloudY, 150, 25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 飘落花瓣
+      for (const p of petals) {
+        p.y += p.speed;
+        p.x += Math.sin(p.sway) * 0.5;
+        p.rot += p.rotSpd;
+        p.sway += p.swaySpd;
+        if (p.y > CANVAS_H + 20) {
+          p.y = -20;
+          p.x = Math.random() * CANVAS_W;
+        }
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.globalAlpha = 0.25;
+        ctx.font = `${p.size}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffb7c5';
+        ctx.fillText('🌸', 0, 0);
+        ctx.restore();
+      }
+
+      // 装饰字符
       ctx.font = `bold ${16}px 'STSong', 'SimSun', serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       for (const el of bgDots) {
-        el.x += el.speed * 0.65;
+        el.x += el.speed;
         el.rot += el.rotSpd;
         if (el.x > CANVAS_W + 40) {
           el.x = -40;
@@ -549,7 +929,7 @@ export default {
         ctx.translate(el.x, el.y);
         ctx.rotate(el.rot);
         ctx.globalAlpha = el.alpha;
-        ctx.fillStyle = '#8b4513';
+        ctx.fillStyle = '#f0d78c';
         ctx.fillText(el.char, 0, 0);
         ctx.restore();
       }
@@ -564,68 +944,92 @@ export default {
       ctx.rotate(card.rot || 0);
       ctx.translate(-(x + w / 2), -(y + h / 2));
 
-      // 发光
+      // 外发光 - 统一为金色光晕
       if (glow > 0 && !collected) {
-        ctx.shadowColor = '#b8860b';
-        ctx.shadowBlur = 18 * glow;
+        ctx.shadowColor = 'rgba(244, 208, 63, 0.6)';
+        ctx.shadowBlur = 30 * glow;
       }
 
-      // 卷轴背景（正误卡外观统一，仅靠内容区分）
-      const bgColor = collected
-        ? 'rgba(205, 133, 63, 0.22)'
-        : 'rgba(255,248,225,0.97)';
-      const borderColor = '#cd853f';
+      // 卡片主体 - 统一深色卷轴风格
+      if (!collected) {
+        const cardGrad = ctx.createLinearGradient(x, y, x + w, y + h);
+        cardGrad.addColorStop(0, 'rgba(20, 30, 60, 0.97)');
+        cardGrad.addColorStop(1, 'rgba(15, 25, 50, 0.97)');
+        ctx.fillStyle = cardGrad;
+      } else {
+        ctx.fillStyle = 'rgba(30, 20, 50, 0.5)';
+      }
 
-      // 卷轴边缘（左边卷轴条）
-      const rollW = 10;
+      // 统一边框颜色
+      ctx.strokeStyle = 'rgba(205, 133, 63, 0.5)';
+      ctx.lineWidth = 2;
+
+      // 卷轴头装饰
+      const rollW = 12;
       const rollGrad = ctx.createLinearGradient(x, y, x + rollW, y);
-      rollGrad.addColorStop(0, 'rgba(139,90,43,0.5)');
-      rollGrad.addColorStop(0.5, 'rgba(205,133,63,0.8)');
-      rollGrad.addColorStop(1, 'rgba(139,90,43,0.5)');
+      rollGrad.addColorStop(0, 'rgba(139, 90, 43, 0.8)');
+      rollGrad.addColorStop(0.5, 'rgba(205, 133, 63, 1)');
+      rollGrad.addColorStop(1, 'rgba(139, 90, 43, 0.8)');
       ctx.fillStyle = rollGrad;
       ctx.fillRect(x, y, rollW, h);
 
       // 卡片主体
-      ctx.fillStyle = bgColor;
-      ctx.strokeStyle = borderColor;
-      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.roundRect(x + rollW, y, w - rollW, h, [0, 10, 10, 0]);
+      ctx.roundRect(x + rollW, y, w - rollW, h, [0, 16, 16, 0]);
       ctx.fill();
       ctx.stroke();
 
       ctx.shadowBlur = 0;
 
+      // 顶部装饰线 - 统一为金色
+      if (!collected) {
+        ctx.strokeStyle = 'rgba(244, 208, 63, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + rollW + 15, y + 2);
+        ctx.lineTo(x + w - 15, y + 2);
+        ctx.stroke();
+      }
+
       // 分隔线
       const midY = y + h / 2;
-      ctx.strokeStyle = 'rgba(205,133,63,0.3)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
-      ctx.moveTo(x + rollW + 10, midY);
-      ctx.lineTo(x + w - 4, midY);
+      ctx.moveTo(x + rollW + 12, midY);
+      ctx.lineTo(x + w - 8, midY);
       ctx.stroke();
       ctx.setLineDash([]);
 
       // 上句
-      const fontSize = Math.min(13, Math.max(10, (w - rollW - 28) / upperText.length * 1.6));
-      ctx.fillStyle = '#5d4037';
+      const fontSize = Math.min(12, Math.max(9, (w - rollW - 28) / upperText.length * 1.5));
+      ctx.fillStyle = collected ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.7)';
       ctx.font = `${fontSize}px 'STSong','SimSun','Noto Serif SC',serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(upperText, x + rollW + (w - rollW) / 2, y + h * 0.26, w - rollW - 20);
+      ctx.fillText(upperText, x + rollW + (w - rollW) / 2, y + h * 0.28, w - rollW - 20);
 
-      // 下句（重点）
-      ctx.font = `bold ${Math.min(15, Math.max(11, (w - rollW - 28) / lowerText.length * 1.8))}px 'STSong','SimSun','Noto Serif SC',serif`;
-      ctx.fillStyle = '#8b4513';
-      ctx.fillText(lowerText, x + rollW + (w - rollW) / 2, y + h * 0.73, w - rollW - 20);
+      // 下句 - 统一为白色/浅色
+      ctx.font = `bold ${Math.min(14, Math.max(10, (w - rollW - 28) / lowerText.length * 1.7))}px 'STSong','SimSun','Noto Serif SC',serif`;
+      ctx.fillStyle = collected
+        ? 'rgba(255, 255, 255, 0.3)'
+        : '#f0d78c';
+      ctx.fillText(lowerText, x + rollW + (w - rollW) / 2, y + h * 0.72, w - rollW - 20);
 
-      // 正确标记
+      // 正确/错误标记 - 统一为金色圆形
       if (!collected) {
-        ctx.fillStyle = 'rgba(205,133,63,0.08)';
+        const tagX = x + w - 30;
+        const tagY = y + 14;
+        ctx.fillStyle = 'rgba(244, 208, 63, 0.3)';
         ctx.beginPath();
-        ctx.roundRect(x + rollW, y, w - rollW, h, [0, 10, 10, 0]);
+        ctx.arc(tagX, tagY, 10, 0, Math.PI * 2);
         ctx.fill();
+        ctx.fillStyle = '#f4d03f';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('●', tagX, tagY);
       }
 
       ctx.restore();
@@ -639,16 +1043,19 @@ export default {
 
       // 拖尾
       player.trail.unshift({ x: px + pw / 2, y: py + ph / 2, life: 1 });
-      if (player.trail.length > 8) player.trail.pop();
+      if (player.trail.length > 12) player.trail.pop();
       for (let i = player.trail.length - 1; i >= 0; i--) {
         const t = player.trail[i];
-        t.life -= 0.12;
+        t.life -= 0.08;
         if (t.life <= 0) { player.trail.splice(i, 1); continue; }
         ctx.save();
-        ctx.globalAlpha = t.life * 0.2;
-        ctx.fillStyle = '#cd853f';
+        ctx.globalAlpha = t.life * 0.25;
+        const grd = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, 8 * t.life);
+        grd.addColorStop(0, '#f0d78c');
+        grd.addColorStop(1, 'transparent');
+        ctx.fillStyle = grd;
         ctx.beginPath();
-        ctx.arc(t.x, t.y, 6 * t.life, 0, Math.PI * 2);
+        ctx.arc(t.x, t.y, 8 * t.life, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
@@ -656,58 +1063,86 @@ export default {
       ctx.save();
       ctx.translate(px + pw / 2, py + ph / 2);
 
-      // 弹跳
+      // 弹跳效果
       if (player.bounce > 0) {
-        ctx.scale(1 + player.bounce * 0.06, 1 - player.bounce * 0.04);
-        player.bounce -= 0.12;
+        ctx.scale(1 + player.bounce * 0.08, 1 - player.bounce * 0.06);
+        player.bounce -= 0.15;
         if (player.bounce < 0) player.bounce = 0;
       }
 
-      // 身体
+      // 光晕
+      const haloGrad = ctx.createRadialGradient(0, 0, pw * 0.2, 0, 0, pw * 0.9);
+      haloGrad.addColorStop(0, 'rgba(244, 208, 63, 0.15)');
+      haloGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = haloGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, pw * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 身体 - 书生形象
       const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, pw * 0.42);
-      bodyGrad.addColorStop(0, '#fff8f0');
-      bodyGrad.addColorStop(1, '#e8d5b5');
+      bodyGrad.addColorStop(0, '#ffffff');
+      bodyGrad.addColorStop(0.5, '#f0f0f0');
+      bodyGrad.addColorStop(1, '#e0d8c8');
       ctx.fillStyle = bodyGrad;
       ctx.beginPath();
       ctx.arc(0, 0, pw * 0.4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#cd853f';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(139, 90, 43, 0.5)';
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      // 衣袍
-      ctx.fillStyle = 'rgba(205,133,63,0.25)';
+      // 书生服装
+      ctx.fillStyle = 'rgba(139, 90, 43, 0.3)';
       ctx.beginPath();
-      ctx.ellipse(0, ph * 0.18, pw * 0.32, ph * 0.12, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, ph * 0.18, pw * 0.34, ph * 0.12, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // 帽子
-      ctx.fillStyle = '#8b4513';
+      // 帽子 - 书生帽
+      const hatGrad = ctx.createLinearGradient(0, -ph * 0.55, 0, -ph * 0.2);
+      hatGrad.addColorStop(0, '#1a1035');
+      hatGrad.addColorStop(1, '#2c1654');
+      ctx.fillStyle = hatGrad;
       ctx.beginPath();
-      ctx.ellipse(0, -ph * 0.26, pw * 0.28, ph * 0.08, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -ph * 0.28, pw * 0.3, ph * 0.07, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillRect(-pw * 0.12, -ph * 0.4, pw * 0.24, ph * 0.14);
-      ctx.fillStyle = '#a0522d';
+      ctx.fillRect(-pw * 0.12, -ph * 0.42, pw * 0.24, ph * 0.14);
+      ctx.fillStyle = '#0f0a1e';
       ctx.beginPath();
-      ctx.arc(0, -ph * 0.4, pw * 0.1, Math.PI, 0);
+      ctx.arc(0, -ph * 0.42, pw * 0.1, Math.PI, 0);
+      ctx.fill();
+      // 帽子上装饰
+      ctx.fillStyle = '#f4d03f';
+      ctx.beginPath();
+      ctx.arc(0, -ph * 0.52, 3, 0, Math.PI * 2);
       ctx.fill();
 
       // 脸
       ctx.fillStyle = '#5d4037';
+      // 眼睛
       ctx.beginPath();
       ctx.arc(-pw * 0.12, -ph * 0.05, 3.5, 0, Math.PI * 2);
       ctx.arc(pw * 0.12, -ph * 0.05, 3.5, 0, Math.PI * 2);
       ctx.fill();
+      // 眼睛高光
+      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(0, ph * 0.09, 5, 0.1, Math.PI - 0.1);
+      ctx.arc(-pw * 0.1, -ph * 0.07, 1.5, 0, Math.PI * 2);
+      ctx.arc(pw * 0.14, -ph * 0.07, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      // 微笑
+      ctx.beginPath();
+      ctx.arc(0, ph * 0.08, 5, 0.2, Math.PI - 0.2);
+      ctx.strokeStyle = '#5d4037';
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      // 接取光晕（当有卡片在附近时）
-      if (cards.some((c) => !c.collected && Math.abs(c.x + c.w / 2 - (px + pw / 2)) < pw * 1.2 && c.y + c.h > py)) {
-        ctx.strokeStyle = 'rgba(255,215,0,0.4)';
+      // 接取光晕
+      if (cards.some((c) => !c.collected && Math.abs(c.x + c.w / 2 - (px + pw / 2)) < pw * 1.4 && c.y + c.h > py)) {
+        ctx.strokeStyle = 'rgba(244, 208, 63, 0.5)';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(0, ph * 0.05, pw * 0.5, 0, Math.PI * 2);
+        ctx.arc(0, ph * 0.05, pw * 0.55, 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -716,12 +1151,47 @@ export default {
 
     const drawParticles = () => {
       for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.12;
+        p.life -= p.decay;
+        p.rotation += 0.1;
+        if (p.life <= 0) continue;
         ctx.save();
         ctx.globalAlpha = p.life;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
         ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 6;
+        // 菱形粒子
+        const s = p.size * p.life;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s, 0);
+        ctx.lineTo(0, s);
+        ctx.lineTo(-s, 0);
+        ctx.closePath();
         ctx.fill();
+        ctx.restore();
+      }
+
+      // 彩带
+      for (let i = confetti.length - 1; i >= 0; i--) {
+        const c = confetti[i];
+        c.x += c.vx;
+        c.y += c.vy;
+        c.vy += 0.15;
+        c.vx *= 0.99;
+        c.rotation += c.rotSpeed;
+        c.life -= c.decay;
+        if (c.life <= 0) { confetti.splice(i, 1); continue; }
+        ctx.save();
+        ctx.globalAlpha = c.life;
+        ctx.translate(c.x, c.y);
+        ctx.rotate(c.rotation);
+        ctx.fillStyle = c.color;
+        ctx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2);
         ctx.restore();
       }
     };
@@ -755,13 +1225,13 @@ export default {
         }
       }
 
-      // 更新卡片（已接住的卡片继续下落直至移出画布，避免堆叠）
+      // 更新卡片
       for (let i = cards.length - 1; i >= 0; i--) {
         const card = cards[i];
         card.y += card.speed;
-        card.shimmer += 0.04;
+        card.shimmer += 0.05;
         if (card.collected && card.glow > 0) {
-          card.glow *= 0.88;
+          card.glow *= 0.85;
           if (card.glow < 0.04) card.glow = 0;
         }
 
@@ -769,37 +1239,56 @@ export default {
           if (hitTest(player.x, player.y, PLAYER_W, PLAYER_H, card.x, card.y, card.w, card.h)) {
             card.collected = true;
             card.glow = 1;
+            player.bounce = 1;
+
             if (card.isCorrect) {
-              score.value++;
+              // 连击系统
+              combo.value++;
+              if (combo.value > maxCombo.value) maxCombo.value = combo.value;
+              
+              // 连击加分
+              const comboBonus = combo.value >= 5 ? 2 : combo.value >= 3 ? 1 : 0;
+              score.value += 1 + comboBonus;
               correctCount.value++;
               scoreAnim.value = true;
               setTimeout(() => { scoreAnim.value = false; }, 300);
-              spawnParticles(card.x + card.w / 2, card.y + card.h / 2, '#FFD700', 14);
-              showToast('+1 正确！', 'success');
+              
+              spawnParticles(card.x + card.w / 2, card.y + card.h / 2, '#4ade80', 16);
+              spawnConfetti(card.x + card.w / 2, card.y, 8);
+              
+              if (comboBonus > 0) {
+                showToast(`+${1 + comboBonus} 诗句通达！`, 'success', combo.value);
+              } else {
+                showToast('+1 正确！', 'success');
+              }
             } else {
+              combo.value = 0; // 重置连击
               wrongCount.value++;
               wrongCaughtLog.push({
                 questionText: card.upperText,
                 userAnswer: card.lowerText,
-                correctAnswer: card.correctAnswer
+                correctAnswer: card.correctAnswer,
+                poem: card.poem
               });
-              spawnParticles(card.x + card.w / 2, card.y + card.h / 2, '#f44336', 10);
+              spawnParticles(card.x + card.w / 2, card.y + card.h / 2, '#f87171', 12);
+              showToast('错误！', 'error');
+
               if (wrongCount.value >= MAX_WRONG) {
                 endGame();
                 return;
               }
-              showToast('错误！', 'error');
             }
           }
         }
 
-        // 漏过检测（仅未接住的正确卡）
+        // 漏过检测
         if (!card.passed && !card.collected && card.y > CANVAS_H) {
           card.passed = true;
           if (card.isCorrect) {
             score.value = Math.max(0, score.value - 1);
             missedCount.value++;
-            spawnParticles(card.x + card.w / 2, CANVAS_H - 10, '#FF9800', 6);
+            combo.value = 0; // 重置连击
+            spawnParticles(card.x + card.w / 2, CANVAS_H - 10, '#fbbf24', 6);
             showToast('-1 漏掉了！', 'warn');
           }
         }
@@ -809,14 +1298,9 @@ export default {
         }
       }
 
-      // 粒子
+      // 更新粒子
       for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.1;
-        p.life -= p.decay;
-        if (p.life <= 0) particles.splice(i, 1);
+        if (particles[i].life <= 0) particles.splice(i, 1);
       }
 
       // 绘制
@@ -838,9 +1322,12 @@ export default {
       missedCount.value = 0;
       elapsed.value = 0;
       gameLevel.value = 1;
+      combo.value = 0;
+      maxCombo.value = 0;
       spawnTimer = 0;
       cards = [];
       particles = [];
+      confetti = [];
       player.x = CANVAS_W / 2 - PLAYER_W / 2;
       player.vx = 0;
       player.bounce = 0;
@@ -857,13 +1344,13 @@ export default {
       }, 1000);
 
       await nextTick();
-      scrollGameIntoView();
 
-      // 聚焦 canvas
-      wrapRef.value?.focus();
-
-      lastTime = performance.now();
-      animId = requestAnimationFrame(gameLoop);
+      // 确保全屏切换时立即响应
+      requestAnimationFrame(() => {
+        scrollGameIntoView();
+        lastTime = performance.now();
+        animId = requestAnimationFrame(gameLoop);
+      });
     };
 
     const pauseGame = () => {
@@ -888,6 +1375,15 @@ export default {
       saveRecord();
     };
 
+    const nextLevel = () => {
+      if (gameLevel.value < 200) {
+        gameLevel.value++;
+        startGame();
+      } else {
+        endGame();
+      }
+    };
+
     const restartGame = () => {
       phase.value = 'MENU';
       cancelAnimationFrame(animId);
@@ -910,7 +1406,7 @@ export default {
       router.push('/');
     };
 
-    // ==================== 复盘 ====================
+    // ==================== 复盘功能 ====================
     const showReview = async () => {
       phase.value = 'REVIEW';
       cancelAnimationFrame(animId);
@@ -920,6 +1416,7 @@ export default {
         questionText: e.questionText,
         userAnswer: e.userAnswer,
         correctAnswer: e.correctAnswer,
+        poem: e.poem,
         aiData: null,
         addedToReview: false
       }));
@@ -956,21 +1453,68 @@ export default {
       reviewLoading.value = false;
     };
 
-    const addToReview = async (err) => {
+    const addSingleToErrorBook = async (err) => {
       try {
-        await fetch(`${API_BASE}/add-to-review`, {
+        const userId = getUserId();
+        const resp = await fetch(`${API_BASE}/add-to-review`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            userId: userId,
             questionText: err.questionText,
-            correctAnswer: err.correctAnswer
+            correctAnswer: err.correctAnswer,
+            userAnswer: err.userAnswer
           })
         });
-        err.addedToReview = true;
-        reviewErrors.value = [...reviewErrors.value];
-        showToast('已加入错题本', 'success');
+        const json = await resp.json();
+        if (json.success) {
+          err.addedToReview = true;
+          reviewErrors.value = [...reviewErrors.value];
+          showToast('已加入错题本', 'success');
+        } else {
+          showToast(json.message || '添加失败', 'error');
+        }
       } catch (e) {
+        console.error('添加错题失败', e);
         showToast('添加失败', 'error');
+      }
+    };
+
+    const addAllToErrorBook = async () => {
+      if (isAddingAll.value || allAddedToReview.value) return;
+      isAddingAll.value = true;
+
+      const notAdded = reviewErrors.value.filter(e => !e.addedToReview);
+      
+      for (const err of notAdded) {
+        try {
+          const userId = getUserId();
+          const resp = await fetch(`${API_BASE}/add-to-review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: userId,
+              questionText: err.questionText,
+              correctAnswer: err.correctAnswer,
+              userAnswer: err.userAnswer
+            })
+          });
+          const json = await resp.json();
+          if (json.success) {
+            err.addedToReview = true;
+          }
+        } catch (e) {
+          console.error('添加错题失败', e);
+        }
+      }
+
+      reviewErrors.value = [...reviewErrors.value];
+      isAddingAll.value = false;
+      
+      if (notAdded.length > 0) {
+        addedSuccess.value = true;
+        setTimeout(() => { addedSuccess.value = false; }, 3000);
+        showToast(`已成功添加 ${notAdded.length} 条错题！`, 'success');
       }
     };
 
@@ -1010,6 +1554,7 @@ export default {
         else if (phase.value === 'PAUSED') resumeGame();
       }
     };
+
     const handleKeyUp = (e) => {
       if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.left = false;
       if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.right = false;
@@ -1017,22 +1562,71 @@ export default {
 
     // ==================== 生命周期 ====================
     const scrollGameIntoView = () => {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      rootRef.value?.scrollIntoView({ block: 'start', behavior: 'auto' });
+      // 立即强制重绘，避免全屏切换时出现闪烁
+      if (canvasRef.value && ctx) {
+        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+        drawBackground();
+      }
+
+      // 使用 requestAnimationFrame 确保在下一帧之前完成滚动
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+
+        if (rootRef.value) {
+          rootRef.value.scrollTop = 0;
+        }
+
+        // 聚焦到游戏区域
+        if (wrapRef.value) {
+          wrapRef.value.focus();
+        }
+      });
+    };
+
+    // 强制重绘，确保全屏切换时画面不卡顿
+    const forceRedraw = () => {
+      if (ctx && canvasRef.value) {
+        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+        drawBackground();
+        // 如果在游戏中，重新绘制游戏状态
+        if (phase.value === 'PLAYING') {
+          for (const card of cards) drawCard(card);
+          drawPlayer();
+        }
+      }
     };
 
     onMounted(() => {
+      // 预计算背景装饰，避免运行时计算
       initCanvas();
       drawBackground();
-      window.addEventListener('keydown', handleKeyDown);
-      window.addEventListener('keyup', handleKeyUp);
-      wrapRef.value?.focus();
+
+      // 确保页面打开时滚动到最顶端
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+
+      // 延迟设置键盘监听，确保 DOM 完全就绪
+      setTimeout(() => {
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        wrapRef.value?.focus();
+
+        // 立即处理全屏切换
+        forceRedraw();
+      }, 50);
     });
 
     onActivated(() => {
-      if (phase.value === 'PLAYING' || phase.value === 'PAUSED') {
-        nextTick(() => scrollGameIntoView());
-      }
+      // 每次激活时强制重绘
+      nextTick(() => {
+        forceRedraw();
+        if (phase.value === 'PLAYING' || phase.value === 'PAUSED') {
+          scrollGameIntoView();
+        }
+      });
     });
 
     onUnmounted(() => {
@@ -1047,390 +1641,1555 @@ export default {
       rootRef, canvasRef, wrapRef,
       phase, diff, score, wrongCount, correctCount, missedCount,
       elapsed, gameLevel, gradeText, gradeClass, levelLabel,
+      combo, maxCombo, scoreAnim,
       DIFFICULTIES,
-      reviewErrors, reviewLoading,
-      scoreAnim, toast,
-      formatTime, showReview, addToReview,
-      startGame, resumeGame, restartGame, quitGame
+      reviewErrors, reviewLoading, isAddingAll, allAddedToReview,
+      toast, addedSuccess,
+      formatTime, getPetalStyle, showReview, addSingleToErrorBook, addAllToErrorBook,
+      startGame, resumeGame, restartGame, quitGame, nextLevel
     };
   }
 };
 </script>
 
 <style scoped>
-.card-catch-wrapper {
-  /* 导航栏 sticky + main 上下 padding，避免整页 100vh 顶出视口导致 HUD 被滚到看不见 */
-  --catch-chrome: max(108px, calc(env(safe-area-inset-top, 0px) + 92px));
-  width: 100%;
-  min-height: calc(100vh - var(--catch-chrome));
-  max-height: calc(100vh - var(--catch-chrome));
-  height: calc(100vh - var(--catch-chrome));
-  min-height: calc(100dvh - var(--catch-chrome));
-  max-height: calc(100dvh - var(--catch-chrome));
-  height: calc(100dvh - var(--catch-chrome));
-  background: #f9f3e9;
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700;900&family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&display=swap');
+
+/* ==================== 基础布局 ==================== */
+.poetry-mahjong-wrapper {
+  /* 使用 fixed 定位确保完全覆盖页面且不受父容器影响 */
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
+  background: linear-gradient(180deg, #1a1035 0%, #0f0a1e 50%, #080510 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
   overflow: hidden;
-  position: relative;
-  font-family: 'SimSun', 'STSong', 'Noto Serif SC', serif;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
   outline: none;
+  will-change: transform;
+  contain: layout style paint;
+  z-index: 1000;
 }
 
-/* ===== HUD（与全站诗词卷轴风一致） ===== */
-.game-hud {
+/* ==================== 通用卷轴卡片 ==================== */
+.scroll-card {
+  background: linear-gradient(135deg, rgba(20, 15, 40, 0.98) 0%, rgba(15, 10, 30, 0.98) 100%);
+  border: 2px solid rgba(205, 133, 63, 0.4);
+  border-radius: 32px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(205, 133, 63, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   position: relative;
-  z-index: 20;
-  flex-shrink: 0;
-  width: 100%;
-  max-width: 920px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: rgba(249, 243, 233, 0.92);
+  overflow: hidden;
+}
+
+.scroll-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(205, 133, 63, 0.6), transparent);
+}
+
+/* ==================== 菜单背景装饰 ==================== */
+.menu-bg-effects {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.floating-petals {
+  position: absolute;
+  inset: 0;
+}
+
+.petal {
+  position: absolute;
+  animation: petalFall linear infinite;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes petalFall {
+  0% {
+    transform: translateY(-20px) rotate(0deg) translateX(0);
+    opacity: 0;
+  }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% {
+    transform: translateY(100vh) rotate(360deg) translateX(50px);
+    opacity: 0;
+  }
+}
+
+.mountain-silhouette {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: linear-gradient(0deg, #0a0812 0%, transparent 100%);
+  clip-path: polygon(0 100%, 0 60%, 20% 40%, 35% 55%, 50% 30%, 65% 50%, 80% 35%, 100% 55%, 100% 100%);
+}
+
+/* ==================== 开始菜单 ==================== */
+.menu-overlay {
+  background: radial-gradient(ellipse at center, rgba(15, 10, 30, 0.9) 0%, rgba(8, 5, 16, 0.95) 100%);
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(205, 133, 63, 0.22);
-  box-shadow: 0 2px 12px rgba(139, 69, 19, 0.06);
-  box-sizing: border-box;
-}
-.hud-item { display: flex; align-items: center; gap: 8px; }
-.hud-left { flex: 0 0 auto; }
-.hud-center { flex: 1; justify-content: center; display: flex; }
-.hud-right { flex: 0 0 auto; gap: 16px; }
-.hud-label { font-size: 12px; color: rgba(139, 69, 19, 0.65); }
-.hud-val { font-size: 16px; display: flex; gap: 2px; }
-.miss-dot { font-size: 16px; transition: all 0.3s; }
-.miss-dot.lost { opacity: 0.2; transform: scale(0.8); }
-
-.level-badge {
-  padding: 4px 16px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: bold;
-  background: rgba(255, 248, 220, 0.85);
-  border: 1px solid rgba(205, 133, 63, 0.35);
-  color: #8b4513;
-}
-.score-block, .time-block { display: flex; flex-direction: column; align-items: flex-end; }
-.score-lbl, .time-lbl { font-size: 11px; color: rgba(93, 64, 55, 0.55); }
-.score-num { font-size: 26px; font-weight: bold; color: #b8860b; }
-.score-num.bounce { animation: scoreBounce 0.3s; }
-.time-num { font-size: 18px; color: #5d4037; }
-.danger .hud-val { color: #c62828; }
-
-@keyframes scoreBounce {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.3); }
-  100% { transform: scale(1); }
 }
 
-/* ===== Canvas ===== */
-.canvas-wrap {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  max-width: 920px;
+.menu-card {
+  max-width: 520px;
+  width: 95%;
+  padding: 40px 44px;
+  text-align: center;
+}
+
+.scroll-top-ornament {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 20px;
-  outline: none;
-  min-height: 280px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
+
+.ornament-line {
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(205, 133, 63, 0.5), transparent);
+}
+
+.ornament-center {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, rgba(205, 133, 63, 0.3), rgba(139, 90, 43, 0.2));
+  border: 2px solid rgba(205, 133, 63, 0.4);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ornament-icon { font-size: 24px; }
+
+/* 标题区域 */
+.title-section {
+  margin-bottom: 28px;
+}
+
+.game-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 20px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(0, 217, 255, 0.1));
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 30px;
+  margin-bottom: 16px;
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); }
+}
+
+.badge-star { font-size: 12px; color: #a855f7; }
+.badge-text { font-size: 12px; color: #a855f7; letter-spacing: 3px; }
+
+.game-title {
+  margin: 0 0 8px;
+}
+
+.title-cn {
+  display: block;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', serif;
+  font-size: 48px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #f4d03f 0%, #fff 50%, #f4d03f 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: titleShine 3s linear infinite;
+  letter-spacing: 8px;
+}
+
+.title-en {
+  display: block;
+  font-size: 14px;
+  color: rgba(168, 85, 247, 0.7);
+  letter-spacing: 4px;
+  margin-top: 4px;
+}
+
+@keyframes titleShine {
+  to { background-position: 200% center; }
+}
+
+.game-slogan {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+  font-style: italic;
+}
+
+/* 操作展示 */
+.controls-showcase {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-bottom: 24px;
+}
+
+.control-keys {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key-btn {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(145deg, rgba(51, 65, 85, 0.8), rgba(30, 41, 59, 0.9));
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.key-sep { color: rgba(255, 255, 255, 0.3); font-size: 14px; }
+
+.control-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 游戏规则 */
+.rules-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.rules-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+.rules-icon { font-size: 16px; }
+.rules-title { letter-spacing: 2px; }
+
+.rules-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.rule-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.rule-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.rule-item.correct .rule-icon { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.rule-item.wrong .rule-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.rule-item.miss .rule-icon { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+.rule-item.danger .rule-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+
+.rule-text strong { color: #fff; }
+
+/* 难度选择 */
+.difficulty-section {
+  margin-bottom: 28px;
+}
+
+.diff-label {
+  display: block;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 12px;
+  letter-spacing: 2px;
+}
+
+.diff-tabs {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.diff-tab {
+  flex: 1;
+  max-width: 120px;
+  padding: 14px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.diff-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-2px);
+}
+
+.diff-tab.active { color: #fff; }
+.diff-tab.active.easy { background: rgba(34, 197, 94, 0.15); border-color: #4ade80; }
+.diff-tab.active.medium { background: rgba(251, 191, 36, 0.15); border-color: #fbbf24; }
+.diff-tab.active.hard { background: rgba(239, 68, 68, 0.15); border-color: #f87171; }
+
+.diff-icon { font-size: 22px; }
+.diff-name { font-size: 14px; font-weight: 600; }
+.diff-desc { font-size: 10px; opacity: 0.6; }
+
+/* 菜单按钮 */
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.start-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+  border: none;
+}
+
+.start-btn.primary-action {
+  background: linear-gradient(135deg, #f4d03f, #f39c12);
+  color: #1a1035;
+  box-shadow: 0 8px 30px rgba(244, 208, 63, 0.4);
+}
+
+.start-btn.primary-action:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 12px 40px rgba(244, 208, 63, 0.5);
+}
+
+.start-btn.secondary-action {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.start-btn.secondary-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.btn-icon { font-size: 18px; }
+.btn-text { letter-spacing: 2px; }
+
+.btn-shimmer {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation: btnShimmer 2s ease-in-out infinite;
+}
+
+@keyframes btnShimmer {
+  0% { left: -100%; }
+  50%, 100% { left: 100%; }
+}
+
+/* 底部装饰 */
+.scroll-bottom-ornament {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.ornament-dot {
+  width: 8px;
+  height: 8px;
+  background: rgba(205, 133, 63, 0.6);
+  border-radius: 50%;
+}
+
+/* ==================== 游戏 HUD ==================== */
+.game-hud {
+  position: fixed;
+  top: 90px;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 20px;
+  background: linear-gradient(180deg, rgba(15, 10, 30, 0.95) 0%, rgba(15, 10, 30, 0.85) 100%);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(205, 133, 63, 0.15);
+  box-sizing: border-box;
+}
+
+.hud-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.hud-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.hud-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* 生命值 */
+.lives-container {
+  display: flex;
+  gap: 4px;
+}
+
+.life-orb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #60a5fa, #3b82f6, #1d4ed8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: lifePulse 2s ease-in-out infinite;
+}
+
+.life-orb:nth-child(2) { animation-delay: 0.2s; }
+.life-orb:nth-child(3) { animation-delay: 0.4s; }
+.life-orb:nth-child(4) { animation-delay: 0.6s; }
+.life-orb:nth-child(5) { animation-delay: 0.8s; }
+
+@keyframes lifePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.life-orb.life-lost {
+  background: radial-gradient(circle at 30% 30%, rgba(100, 100, 120, 0.3), rgba(60, 60, 80, 0.3));
+  box-shadow: none;
+  animation: none;
+  opacity: 0.25;
+  transform: scale(0.8);
+}
+
+.life-orb.life-losing {
+  animation: lifeLose 0.5s ease-out;
+}
+
+@keyframes lifeLose {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); background: radial-gradient(circle at 30% 30%, #ef4444, #dc2626); }
+  100% { transform: scale(0.8); opacity: 0.25; }
+}
+
+.life-icon {
+  font-size: 12px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.life-lost .life-icon { color: rgba(255, 255, 255, 0.3); }
+
+/* 等级徽章 */
+.level-badge {
+  padding: 4px 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.3), rgba(0, 217, 255, 0.2));
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #a855f7;
+  letter-spacing: 2px;
+}
+
+/* 连击显示 */
+.combo-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.3), rgba(239, 68, 68, 0.2));
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 10px;
+  animation: comboBounce 0.5s ease;
+}
+
+@keyframes comboBounce {
+  0% { transform: scale(0.8); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.combo-label { font-size: 10px; color: #fbbf24; }
+.combo-value { font-size: 12px; font-weight: 700; color: #fbbf24; }
+
+/* 分数 */
+.score-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.score-ring {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.score-ring svg {
+  transform: rotate(-90deg);
+}
+
+.score-ring .ring-bg {
+  fill: none;
+  stroke: rgba(244, 208, 63, 0.15);
+  stroke-width: 3;
+}
+
+.score-ring .ring-fill {
+  fill: none;
+  stroke: #f4d03f;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.score-number {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f4d03f;
+}
+
+.score-number.score-bounce {
+  animation: scoreBounce 0.3s ease;
+}
+
+@keyframes scoreBounce {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); color: #4ade80; }
+  100% { transform: scale(1); }
+}
+
+/* 时间 */
+.time-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.time-icon { font-size: 12px; }
+.time-value { font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.8); }
+
+/* ==================== Canvas ==================== */
+.canvas-wrap {
+  flex: 1;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  outline: none;
+  /* 紧贴 HUD，不留空隙 */
+  margin-top: 0;
+}
+
 .game-canvas {
   border-radius: 12px;
-  border: 1px solid rgba(205, 133, 63, 0.25);
-  box-shadow: 0 4px 24px rgba(139, 69, 19, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
-  cursor: default;
+  border: 2px solid rgba(205, 133, 63, 0.2);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(205, 133, 63, 0.1);
   max-width: 100%;
+  max-height: 100%;
+  /* 确保 canvas 填满整个 wrap */
+  width: 100%;
+  height: 100%;
 }
 
-/* ===== 通用玻璃卡片 ===== */
-.glass-card {
-  background: rgba(13, 27, 42, 0.95);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(205, 133, 63, 0.3);
-  border-radius: 24px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
-}
-.primary-btn {
-  display: block;
-  width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, #cd853f, #8b4513);
-  border: none;
-  border-radius: 16px;
-  color: white;
-  font-family: inherit;
-  font-size: 17px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 4px 16px rgba(205, 133, 63, 0.3);
-  margin-bottom: 10px;
-}
-.primary-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(205,133,63,0.4); }
-.secondary-btn {
-  display: block;
-  width: 100%;
-  padding: 12px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 16px;
-  color: rgba(255,255,255,0.7);
-  font-family: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  transition: all 0.25s;
-  margin-bottom: 10px;
-}
-.secondary-btn:hover { background: rgba(255,255,255,0.1); color: white; }
-.secondary-btn.sm { padding: 8px 16px; font-size: 13px; }
-.danger-btn {
-  display: block;
-  width: 100%;
-  padding: 12px;
-  background: rgba(244, 67, 54, 0.15);
-  border: 1px solid rgba(244,67,54,0.3);
-  border-radius: 16px;
-  color: #f44336;
-  font-family: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  transition: all 0.25s;
-  margin-bottom: 10px;
-}
-.danger-btn:hover { background: rgba(244,67,54,0.25); }
-
-/* ===== 遮罩 ===== */
+/* ==================== 遮罩 ==================== */
 .overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(8px);
   padding: 20px;
   box-sizing: border-box;
 }
 
-/* ===== 开始菜单 ===== */
-.menu-card {
-  padding: 40px 48px;
-  max-width: 460px;
-  width: 100%;
+.menu-overlay {
+  background: radial-gradient(ellipse at center, rgba(15, 10, 30, 0.92) 0%, rgba(8, 5, 16, 0.97) 100%);
+  backdrop-filter: blur(16px);
+}
+
+.pause-overlay,
+.gameover-overlay,
+.review-overlay {
+  background: rgba(8, 5, 16, 0.88);
+  backdrop-filter: blur(16px);
+}
+
+/* ==================== 暂停面板 ==================== */
+.pause-card {
+  padding: 36px 44px;
+  max-width: 400px;
+  width: 90%;
   text-align: center;
 }
-.card-decor { font-size: 52px; margin-bottom: 8px; }
-.game-title {
-  font-size: 40px;
-  color: #cd853f;
-  margin: 0 0 6px;
-  text-shadow: 2px 2px 6px rgba(0,0,0,0.4);
-  font-weight: bold;
+
+.pause-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
 }
-.game-subtitle { color: rgba(255,255,255,0.55); font-size: 14px; margin: 0 0 28px; }
-.rules-box {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 14px;
-  padding: 14px 18px;
-  margin-bottom: 22px;
-  text-align: left;
+
+.pause-icon { font-size: 48px; }
+.pause-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
 }
-.rule-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 13px; color: rgba(255,255,255,0.7); }
-.rule-row:last-child { margin-bottom: 0; }
-.rk {
-  min-width: 72px; padding: 3px 8px;
-  border-radius: 6px; font-size: 12px; font-weight: bold;
-  text-align: center; display: inline-block;
+
+.pause-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 24px;
 }
-.rk.ok { background: rgba(76,175,80,0.2); color: #4CAF50; }
-.rk.err { background: rgba(244,67,54,0.2); color: #f44336; }
-.rk.warn { background: rgba(255,152,0,0.2); color: #FF9800; }
-.rk.danger { background: rgba(244,67,54,0.2); color: #f44336; }
-.difficulty-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 22px; }
-.diff-lbl { color: rgba(255,255,255,0.6); font-size: 14px; font-weight: bold; }
-.diff-btn {
-  padding: 8px 18px;
-  border: 1px solid rgba(255,255,255,0.15);
+
+.pause-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.03);
   border-radius: 12px;
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.6);
-  font-family: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.25s;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
-.diff-btn.active { background: linear-gradient(135deg, #cd853f, #8b4513); color: white; border-color: transparent; }
 
-/* ===== 暂停 ===== */
-.pause-card { padding: 36px 44px; max-width: 360px; width: 100%; text-align: center; }
-.pause-title { font-size: 28px; color: #cd853f; margin: 0 0 20px; }
-.pause-stats { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 14px; margin-bottom: 20px; }
-.ps { display: flex; justify-content: space-between; padding: 7px 0; font-size: 14px; color: rgba(255,255,255,0.6); border-bottom: 1px solid rgba(255,255,255,0.06); }
-.ps:last-child { border-bottom: none; }
-.pv { font-weight: bold; color: #FFD700; }
-.pv.danger { color: #f44336; }
+.pause-stat .stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
 
-/* ===== 游戏结束 ===== */
-.go-card { padding: 36px 44px; max-width: 400px; width: 100%; text-align: center; }
-.go-badge { font-size: 48px; margin-bottom: 4px; }
-.go-title { font-size: 28px; color: #cd853f; margin: 0 0 20px; }
-.go-stats { background: rgba(255,255,255,0.04); border-radius: 14px; padding: 14px; margin-bottom: 18px; }
-.gs { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; color: rgba(255,255,255,0.6); border-bottom: 1px solid rgba(255,255,255,0.06); }
-.gs:last-child { border-bottom: none; }
-.gv { font-weight: bold; }
-.score-val { color: #FFD700; font-size: 22px; }
-.correct-val { color: #4CAF50; }
-.miss-val { color: #FF9800; }
-.danger-val { color: #f44336; }
-.go-grade { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; font-size: 15px; color: rgba(255,255,255,0.7); }
-.grade-chip { padding: 4px 16px; border-radius: 14px; font-weight: bold; font-size: 14px; }
-.grade-god { background: linear-gradient(135deg, #ffd700, #ff8c00); color: white; }
-.grade-master { background: linear-gradient(135deg, #cd853f, #8b4513); color: white; }
-.grade-senior { background: rgba(76,175,80,0.2); color: #4CAF50; border: 1px solid rgba(76,175,80,0.3); }
-.grade-junior { background: rgba(33,150,243,0.15); color: #2196F3; border: 1px solid rgba(33,150,243,0.3); }
-.grade-novice { background: rgba(158,158,158,0.15); color: #9e9e9e; border: 1px solid rgba(158,158,158,0.3); }
-.go-actions { display: flex; flex-direction: column; }
+.pause-stat .stat-value {
+  font-size: 24px;
+  font-weight: 700;
+}
 
-/* ===== 复盘 ===== */
-.review-overlay { align-items: flex-start; overflow-y: auto; padding: 20px; }
-.review-card {
+.pause-stat .stat-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.correct-stat .stat-icon { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.correct-stat .stat-value { color: #4ade80; }
+.wrong-stat .stat-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.wrong-stat .stat-value { color: #f87171; }
+.miss-stat .stat-icon { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+.miss-stat .stat-value { color: #fbbf24; }
+.time-stat .stat-icon { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
+.time-stat .stat-value { color: #60a5fa; }
+
+.pause-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ==================== 游戏结束面板 ==================== */
+.gameover-card {
+  padding: 36px 44px;
+  max-width: 440px;
+  width: 90%;
+  text-align: center;
+}
+
+/* 结果动画 */
+.result-animation {
+  margin-bottom: 20px;
+}
+
+.result-orb {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  animation: orbAppear 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes orbAppear {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.orb-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 4px solid;
+  animation: ringRotate 3s linear infinite;
+}
+
+@keyframes ringRotate {
+  to { transform: rotate(360deg); }
+}
+
+.grade-immortal { background: radial-gradient(circle, rgba(251, 191, 36, 0.4), rgba(245, 158, 11, 0.2)); }
+.grade-immortal .orb-ring { border-color: #fbbf24; box-shadow: 0 0 30px rgba(251, 191, 36, 0.5); }
+.grade-master { background: radial-gradient(circle, rgba(168, 85, 247, 0.4), rgba(139, 92, 246, 0.2)); }
+.grade-master .orb-ring { border-color: #a855f7; box-shadow: 0 0 30px rgba(168, 85, 247, 0.5); }
+.grade-expert { background: radial-gradient(circle, rgba(96, 165, 250, 0.4), rgba(59, 130, 246, 0.2)); }
+.grade-expert .orb-ring { border-color: #60a5fa; box-shadow: 0 0 30px rgba(96, 165, 250, 0.5); }
+.grade-talent { background: radial-gradient(circle, rgba(34, 197, 94, 0.4), rgba(22, 163, 74, 0.2)); }
+.grade-talent .orb-ring { border-color: #4ade80; box-shadow: 0 0 30px rgba(34, 197, 94, 0.5); }
+.grade-rookie { background: radial-gradient(circle, rgba(251, 146, 60, 0.4), rgba(249, 115, 22, 0.2)); }
+.grade-rookie .orb-ring { border-color: #fb923c; box-shadow: 0 0 30px rgba(251, 146, 60, 0.5); }
+.grade-novice { background: radial-gradient(circle, rgba(148, 163, 184, 0.4), rgba(100, 116, 139, 0.2)); }
+.grade-novice .orb-ring { border-color: #94a3b8; box-shadow: 0 0 20px rgba(148, 163, 184, 0.3); }
+
+.orb-text {
+  font-size: 24px;
+  font-weight: 900;
+  color: #fff;
+  z-index: 1;
+  font-family: 'ZCOOL XiaoWei', serif;
+}
+
+.gameover-header {
+  margin-bottom: 20px;
+}
+
+.gameover-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 6px;
+}
+
+.gameover-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+
+/* 统计 */
+.gameover-stats {
+  margin-bottom: 16px;
+}
+
+.main-stat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px;
+  background: rgba(244, 208, 63, 0.1);
+  border: 1px solid rgba(244, 208, 63, 0.2);
+  border-radius: 16px;
+  margin-bottom: 12px;
+}
+
+.main-icon { font-size: 28px; }
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.main-value {
+  font-size: 32px;
+  font-weight: 800;
+  color: #f4d03f;
+  line-height: 1;
+}
+
+.main-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4px;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+}
+
+.stat-box .stat-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.stat-box .stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.stat-box .stat-label {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.correct-icon { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.correct-stat .stat-value { color: #4ade80; }
+.wrong-icon { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.wrong-stat .stat-value { color: #f87171; }
+.miss-icon { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+.miss-stat .stat-value { color: #fbbf24; }
+.time-icon { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
+.time-stat .stat-value { color: #60a5fa; }
+
+/* 最高连击 */
+.max-combo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(239, 68, 68, 0.1));
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 20px;
+  margin-bottom: 20px;
+}
+
+.combo-badge { font-size: 18px; }
+.combo-text { font-size: 13px; color: #fbbf24; }
+
+.gameover-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ==================== 通用按钮 ==================== */
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border: none;
+}
+
+.action-btn.primary-btn {
+  background: linear-gradient(135deg, #f4d03f, #f39c12);
+  color: #1a1035;
+  box-shadow: 0 6px 24px rgba(244, 208, 63, 0.35);
+}
+
+.action-btn.primary-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 32px rgba(244, 208, 63, 0.45);
+}
+
+.action-btn.review-btn {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.3), rgba(59, 130, 246, 0.2));
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.action-btn.review-btn:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.4), rgba(59, 130, 246, 0.3));
+}
+
+.action-btn.secondary-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.action-btn.secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.action-btn.danger-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.action-btn.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+/* ==================== 复盘面板 ==================== */
+.review-overlay {
+  align-items: flex-start;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.review-panel {
   padding: 28px 32px;
-  max-width: 700px;
+  max-width: 720px;
   width: 100%;
   margin: 0 auto;
 }
-.review-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.back-btn {
-  padding: 8px 16px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px; color: rgba(255,255,255,0.7); font-family: inherit; font-size: 14px;
-  cursor: pointer; transition: all 0.25s;
-}
-.back-btn:hover { background: rgba(255,255,255,0.1); color: white; }
-.review-title { font-size: 24px; color: #cd853f; margin: 0; font-weight: bold; }
 
-.review-loading { text-align: center; padding: 40px; color: rgba(255,255,255,0.6); }
-.spinner {
-  width: 40px; height: 40px;
-  border: 3px solid rgba(205,133,63,0.2);
+.review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.header-back-btn {
+  padding: 8px 16px;
+  background: rgba(205, 133, 63, 0.15);
+  border: 1px solid rgba(205, 133, 63, 0.3);
+  border-radius: 10px;
+  color: #cd853f;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.header-back-btn:hover {
+  background: rgba(205, 133, 63, 0.25);
+}
+
+.review-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.title-icon { font-size: 26px; }
+
+.header-restart-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.header-restart-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* 一键添加按钮 */
+.batch-actions {
+  margin-bottom: 20px;
+}
+
+.batch-add-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(22, 163, 74, 0.2));
+  border: 2px solid rgba(34, 197, 94, 0.4);
+  border-radius: 14px;
+  color: #4ade80;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.batch-add-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.4), rgba(22, 163, 74, 0.3));
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(34, 197, 94, 0.3);
+}
+
+.batch-add-btn.all-added {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(22, 163, 74, 0.15));
+  border-color: rgba(34, 197, 94, 0.3);
+  color: rgba(74, 222, 128, 0.6);
+  cursor: default;
+}
+
+.batch-add-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-count {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* 加载状态 */
+.review-loading {
+  text-align: center;
+  padding: 60px;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 16px;
+}
+
+.spinner-ring {
+  width: 100%;
+  height: 100%;
+  border: 4px solid rgba(205, 133, 63, 0.2);
   border-top-color: #cd853f;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-  margin: 0 auto 12px;
 }
-.spinner-sm {
-  width: 18px; height: 18px;
-  border: 2px solid rgba(205,133,63,0.2);
-  border-top-color: #cd853f;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  display: inline-block;
-  margin-right: 8px;
-}
+
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.review-empty { text-align: center; padding: 40px; }
-.empty-icon { font-size: 52px; margin-bottom: 12px; }
-.review-empty h3 { color: #4CAF50; margin: 0 0 8px; }
-.review-empty p { color: rgba(255,255,255,0.5); }
+.loading-text {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.6);
+}
 
-.review-legend { font-size: 13px; color: rgba(255,255,255,0.5); margin-bottom: 16px; }
-.review-list { display: flex; flex-direction: column; gap: 18px; }
+/* 无错误 */
+.review-empty {
+  text-align: center;
+  padding: 60px 20px;
+}
 
-.review-item {
+.empty-illustration { font-size: 72px; margin-bottom: 16px; }
+.empty-title { font-size: 22px; color: #4ade80; margin: 0 0 8px; }
+.empty-subtitle { font-size: 14px; color: rgba(255, 255, 255, 0.5); margin: 0; }
+
+/* 错误列表 */
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.review-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+}
+
+.legend-icon { font-size: 16px; }
+
+/* 错误卡片 */
+.review-card-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
   padding: 20px;
-  background: rgba(255,255,255,0.03);
 }
-.review-item-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.review-num {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: rgba(205,133,63,0.2); color: #cd853f;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: bold; flex-shrink: 0;
+
+.card-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
 }
-.review-tag { padding: 3px 10px; border-radius: 8px; font-size: 12px; font-weight: bold; }
-.review-tag.wrong { background: rgba(244,67,54,0.2); color: #f44336; }
-.add-review-btn {
-  margin-left: auto;
-  padding: 5px 12px;
-  border: 1px solid rgba(76,175,80,0.4);
+
+.item-num {
+  width: 28px;
+  height: 28px;
+  background: rgba(205, 133, 63, 0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #cd853f;
+}
+
+.item-badge {
+  padding: 4px 12px;
   border-radius: 8px;
-  background: rgba(76,175,80,0.1);
-  color: #4CAF50;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.error-badge {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.add-single-btn {
+  margin-left: auto;
+  padding: 6px 14px;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 8px;
+  color: #4ade80;
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
-.add-review-btn:hover:not(:disabled) { background: rgba(76,175,80,0.2); }
-.add-review-btn.added { border-color: rgba(76,175,80,0.6); color: #4CAF50; cursor: default; }
-.add-review-btn:disabled { opacity: 0.7; cursor: default; }
 
-/* 卷轴 */
-.poem-scroll {
-  background: rgba(255,248,225,0.05);
-  border: 1px solid rgba(205,133,63,0.25);
-  border-radius: 10px;
+.add-single-btn:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.add-single-btn.added {
+  border-color: rgba(34, 197, 94, 0.5);
+  color: rgba(74, 222, 128, 0.6);
+  cursor: default;
+}
+
+.add-single-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* 诗句卷轴 */
+.poem-scroll-display {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.scroll-roll {
+  width: 16px;
+  background: linear-gradient(90deg, rgba(139, 90, 43, 0.8), rgba(205, 133, 63, 1), rgba(139, 90, 43, 0.8));
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.scroll-roll.left { border-radius: 4px 0 0 4px; }
+.scroll-roll.right { border-radius: 0 4px 4px 0; }
+
+.scroll-content {
+  flex: 1;
+  background: linear-gradient(135deg, rgba(20, 30, 60, 0.97), rgba(15, 25, 50, 0.97));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding: 14px 16px;
-  margin-bottom: 12px;
 }
-.scroll-upper { color: #8b6914; font-size: 13px; margin-bottom: 6px; font-family: 'STSong','SimSun',serif; }
-.scroll-sep { color: rgba(205,133,63,0.3); font-size: 12px; margin-bottom: 6px; letter-spacing: 2px; }
-.scroll-answer { display: flex; flex-direction: column; gap: 6px; }
-.answer-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
-.answer-lbl { flex-shrink: 0; color: rgba(255,255,255,0.45); font-size: 12px; width: 70px; }
-.answer-val { font-weight: bold; font-family: 'STSong','SimSun',serif; }
-.answer-val.wrong { color: #f44336; }
-.answer-val.correct { color: #4CAF50; }
-.ai-tip { color: #FF9800; font-size: 12px; }
 
-.scroll-bottom { margin-top: 10px; }
-.ai-section { display: flex; flex-direction: column; gap: 8px; }
-.ai-block {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-  padding: 10px 12px;
+.scroll-upper {
+  margin-bottom: 8px;
 }
-.ai-label { font-size: 11px; color: #cd853f; margin-bottom: 4px; font-weight: bold; }
-.ai-content { font-size: 13px; color: rgba(255,255,255,0.75); line-height: 1.6; }
-.ai-content.tip { color: #FF9800; font-style: italic; }
-.ai-loading { display: flex; align-items: center; padding: 10px; color: rgba(255,255,255,0.4); font-size: 12px; }
+
+.scroll-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.scroll-text {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.scroll-divider {
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.2);
+  margin-bottom: 10px;
+  letter-spacing: 4px;
+}
+
+.scroll-answer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.answer-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.answer-label {
+  font-size: 12px;
+  flex-shrink: 0;
+  width: 70px;
+}
+
+.answer-text {
+  font-size: 15px;
+  font-weight: 600;
+  font-family: 'STSong', 'SimSun', serif;
+}
+
+.wrong-text { color: #f87171; }
+.correct-text { color: #4ade80; }
+.ai-reason { font-size: 13px; color: #fbbf24; }
+
+/* AI 讲解 */
+.ai-explain-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ai-block {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.ai-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ai-icon { font-size: 14px; }
+.ai-block-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ai-block-content {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.tip-content {
+  color: #fbbf24;
+  font-style: italic;
+}
+
+.ai-loading-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.mini-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(205, 133, 63, 0.2);
+  border-top-color: #cd853f;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
 
 /* 填空练习 */
-.fill-blank-section { border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 10px; }
-.fill-q { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; }
-.fill-label { color: #2196F3; font-weight: bold; }
-.fill-text { color: rgba(255,255,255,0.6); font-family: 'STSong','SimSun',serif; }
-.fill-blank { color: #cd853f; font-weight: bold; min-width: 60px; border-bottom: 2px solid rgba(205,133,63,0.4); }
-.fill-answer { color: #4CAF50; font-weight: bold; font-family: 'STSong','SimSun',serif; }
+.fill-practice-section {
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-top: 12px;
+}
 
-/* ===== Toast（须高于全站导航 z-index:1000，且 top 避开导航栏） ===== */
-.toast {
+.fill-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.fill-icon { font-size: 14px; }
+.fill-title { font-size: 12px; color: #60a5fa; font-weight: 600; }
+
+.fill-display {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.fill-text {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: 'STSong', 'SimSun', serif;
+}
+
+.fill-answer {
+  color: #4ade80;
+  font-weight: 700;
+  font-family: 'STSong', 'SimSun', serif;
+}
+
+/* ==================== Toast ==================== */
+.game-toast {
   position: fixed;
-  top: calc(10px + var(--catch-chrome, 108px));
+  top: 120px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 10px 28px;
-  border-radius: 20px;
-  font-family: 'SimSun', 'STSong', serif;
-  font-size: 15px; font-weight: bold;
-  z-index: 10050;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-radius: 50px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 200;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
 }
-.toast.success { background: rgba(76,175,80,0.92); color: white; }
-.toast.error { background: rgba(244,67,54,0.92); color: white; }
-.toast.warn { background: rgba(255,152,0,0.92); color: white; }
-.toast.info { background: rgba(139,69,19,0.88); color: white; }
-.toast-slide-enter-active, .toast-slide-leave-active { transition: all 0.3s; }
-.toast-slide-enter-from { opacity: 0; transform: translateX(-50%) translateY(-16px); }
-.toast-slide-leave-to { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+
+.game-toast.success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(22, 163, 74, 0.95));
+  color: white;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+}
+
+.game-toast.error {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(220, 38, 38, 0.95));
+  color: white;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.game-toast.warn {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.95), rgba(245, 158, 11, 0.95));
+  color: #1a1035;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+}
+
+.toast-icon { font-size: 16px; }
+.toast-combo {
+  font-size: 12px;
+  opacity: 0.8;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+
+/* ==================== 成功提示 ==================== */
+.success-banner {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 32px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  border-radius: 50px;
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 10px 40px rgba(34, 197, 94, 0.4);
+  z-index: 200;
+}
+
+.success-icon { font-size: 20px; }
+
+/* ==================== 过渡动画 ==================== */
+.panel-fade-enter-active {
+  animation: panelIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.panel-fade-leave-active {
+  animation: panelOut 0.3s ease-in;
+}
+
+@keyframes panelIn {
+  from { opacity: 0; transform: scale(0.9) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes panelOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+.hud-slide-enter-active {
+  animation: hudIn 0.4s ease-out;
+}
+
+@keyframes hudIn {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.toast-pop-enter-active {
+  animation: toastIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.toast-pop-leave-active {
+  animation: toastOut 0.3s ease-in;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.8); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@keyframes toastOut {
+  to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+}
+
+.success-pop-enter-active {
+  animation: successIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.success-pop-leave-active {
+  animation: successOut 0.3s ease-in;
+}
+
+@keyframes successIn {
+  from { opacity: 0; transform: translateX(-50%) scale(0); }
+  to { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+@keyframes successOut {
+  to { opacity: 0; transform: translateX(-50%) translateY(10px); }
+}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 768px) {
+  .menu-card { padding: 32px 24px; }
+  .title-cn { font-size: 38px; letter-spacing: 4px; }
+  .diff-tabs { flex-direction: column; align-items: center; }
+  .diff-tab { max-width: 200px; width: 100%; }
+  .rules-grid { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .game-hud { padding: 10px 16px; }
+  .canvas-wrap { padding: 8px 12px; }
+}
 </style>

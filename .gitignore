@@ -24,6 +24,7 @@ build/
 *.swp
 *.swo
 *~
+.DS_Store
 
 # OS generated files
 Thumbs.db
@@ -37,9 +38,10 @@ ehthumbs.db
 # Cache directories
 cache/
 .temp/
+backend/cache/
 
 # Log files
-logs
+logs/
 *.log
 
 # Database files
@@ -55,7 +57,7 @@ electron/dist/
 electron/build/
 
 # Runtime data
-pids
+pids/
 *.pid
 *.seed
 *.pid.lock
@@ -89,3 +91,17 @@ jspm_packages/
 
 # Yarn Integrity file
 .yarn-integrity
+
+# Test files
+node_portable/
+
+# Backend compiled files
+backend/public/assets/*.js
+backend/public/assets/*.css
+backend/public/*.html
+
+# Logs
+*.log
+
+# Test scripts
+test-*.js

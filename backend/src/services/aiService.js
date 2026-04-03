@@ -309,7 +309,7 @@ ${input}${learningRecordInfo}
     
     // 发送API请求
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     
     try {
       const response = await fetch(config.ai.apiUrl, {
@@ -1241,7 +1241,7 @@ async function getCharInfo(prompt) {
     
     while (retries > 0) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 5秒超时
       
       try {
         response = await fetch(config.ai.apiUrl, {
@@ -1692,6 +1692,127 @@ function getMockFeihuaEvaluation(poem, keyword) {
 }
 
 /**
+ * 验证飞花令诗句（数据库验证失败后调用AI）
+ * @param {string} poem - 诗句
+ * @param {string} keyword - 令字
+ * @returns {Promise<object>} 验证结果
+ */
+async function validateFeihuaPoem(poem, keyword) {
+  try {
+    const apiKey = process.env.SILICONFLOW_API_KEY;
+    if (!apiKey) {
+      console.error('[aiService] 缺少SILICONFLOW_API_KEY环境变量');
+      const mock = getMockFeihuaEvaluation(poem, keyword);
+      return {
+        valid: mock.isValid,
+        message: mock.reason,
+        poem: mock.isValid ? { poem, keyword } : null,
+        analysis: mock.reason
+      };
+    }
+
+    const prompt = `你是一位飞花令诗句验证专家。请严格验证以下诗句。
+
+令字：${keyword}
+待验证诗句：${poem}
+
+验证要求（必须全部满足才返回valid:true）：
+1. 诗句中必须包含「${keyword}」字
+2. 诗句必须是真实存在于中华诗词传统中的经典诗句，不可是自创、改编或虚构的
+3. 诗句符合基本格律，语义通顺
+
+直接返回JSON（不要markdown代码块）：
+{
+  "valid": true或false,
+  "message": "简短说明",
+  "poem": { "poem": "完整诗句", "keyword": "${keyword}", "title": "标题", "author": "作者" },
+  "analysis": "简要分析"
+}
+
+重要提示：如果你不确定某诗句是否真实存在，请务必返回 valid: false。宁可误判为假，不可放过假诗。
+
+`;
+
+    const requestData = {
+      model: 'Qwen/Qwen3-8B',
+      messages: [
+        {
+          role: "system",
+          content: "你是一位严格的飞花令诗句验证专家。你的职责是验证用户提交的诗句是否有效。"
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 500,
+      stream: false,
+      response_format: { type: "json_object" }
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestData),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`API请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('API返回内容为空');
+      }
+
+      const result = JSON.parse(content);
+      return {
+        valid: result.valid === true,
+        message: result.message || (result.valid ? '诗句正确' : '诗句不正确'),
+        poem: result.poem || { poem, keyword, title: null, author: null },
+        analysis: result.analysis || ''
+      };
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        console.error('[aiService] AI验证请求超时');
+      } else {
+        console.error('[aiService] AI验证请求失败:', fetchError.message);
+      }
+      const mock = getMockFeihuaEvaluation(poem, keyword);
+      return {
+        valid: mock.isValid,
+        message: mock.reason,
+        poem: mock.isValid ? { poem, keyword } : null,
+        analysis: mock.reason
+      };
+    }
+  } catch (error) {
+    console.error('[aiService] validateFeihuaPoem 错误:', error.message);
+    const mock = getMockFeihuaEvaluation(poem, keyword);
+    return {
+      valid: mock.isValid,
+      message: mock.reason,
+      poem: mock.isValid ? { poem, keyword } : null,
+      analysis: mock.reason
+    };
+  }
+}
+
+/**
  * 半句归一化（用于匹配题干与偶句）
  */
 function normalizeHalfRaw(s) {
@@ -2040,6 +2161,813 @@ function getMockDuelQuestions(count, excludeTitles = []) {
   return { questions: shuffled.slice(0, count) };
 }
 
+/**
+ * 古诗词情感/题材分类映射表（keyword → category label）
+ * 用于无 AI 时快速识别用户搜索的意向与情感
+ */
+const EMOTION_THEME_MAP = {
+  // 情感类
+  '思乡': { label: '思乡', keywords: ['乡', '思乡', '故乡', '归', '家', '归家', '归乡', '家乡', '故里', '客居', '羁旅'], weight: 30 },
+  '离别': { label: '离别', keywords: ['送别', '离别', '分手', '相送', '赠', '饯', '别离', '辞别', '作别', '握别', '洒泪', '折柳', '长亭'], weight: 30 },
+  '思念': { label: '思念', keywords: ['思', '念', '想', '思君', '思人', '想念', '思慕', '牵挂', '忆', '怀', '追忆', '相忆', '入梦'], weight: 25 },
+  '怀人': { label: '怀人', keywords: ['怀人', '寄友', '赠友', '寄远', '怀旧', '故人', '旧友', '知音', '故交', '思友'], weight: 25 },
+  '闲适': { label: '闲适', keywords: ['闲', '悠然', '隐居', '隐', '归隐', '隐者', '山林', '林泉', '田园', '茅舍', '溪', '垂钓'], weight: 25 },
+  '孤独': { label: '孤独', keywords: ['孤', '独', '寂', '愁', '惆怅', '凄', '冷', '寒', '寂寞', '孤灯', '孤影', '无眠', '辗转'], weight: 20 },
+  '豪放': { label: '豪放', keywords: ['豪', '壮', '万丈', '胸怀', '壮志', '豪情', '慷慨', '壮阔', '磅礴', '大气', '冲天'], weight: 20 },
+  '婉约': { label: '婉约', keywords: ['婉', '柔', '细腻', '含蓄', '低回', '缠绵', '婉转', '柔情', '细腻'], weight: 20 },
+  '爱国': { label: '爱国', keywords: ['忠', '报国', '杀敌', '边塞', '从军', '出征', '收复', '中原', '山河', '家国', '社稷', '忧国', '报君'], weight: 25 },
+  '感伤': { label: '感伤', keywords: ['伤', '悲', '叹', '惜', '哀', '怜', '可怜', '惘然', '怅', '惋惜', '长叹', '泪', '泣'], weight: 15 },
+  '旷达': { label: '旷达', keywords: ['旷', '达', '豁达', '释然', '放下', '无求', '随缘', '自在', '逍遥', '飘逸'], weight: 20 },
+
+  // 题材类
+  '山水': { label: '山水', keywords: ['山', '水', '江', '河', '湖', '海', '峰', '岭', '瀑', '溪', '潭', '泉', '舟', '帆', '渡口'], weight: 20 },
+  '田园': { label: '田园', keywords: ['田', '亩', '桑', '麻', '稻', '麦', '耕', '农', '村', '农家', '牧', '童', '锄', '桑麻', '鸡犬', '猪'], weight: 20 },
+  '边塞': { label: '边塞', keywords: ['塞', '关', '羌', '胡', '敌', '胡马', '烽火', '长城', '大漠', '沙', '征', '戍', '将军', '士卒', '金鼓', '铁衣'], weight: 25 },
+  '送别': { label: '送别', keywords: ['送', '别', '离', '远', '之', '赴', '行', '去', '辞', '赠', '留别', '奉送', '祖饯', '长亭', '灞桥'], weight: 25 },
+  '咏物': { label: '咏物', keywords: ['咏', '赞', '颂', '品', '吟'], weight: 15 },
+  '怀古': { label: '怀古', keywords: ['古', '遗迹', '故', '旧', '前朝', '当年', '曾', '忆往', '过', '凭吊', '怀古', '遗迹', '废'], weight: 20 },
+  '节序': { label: '节序', keywords: ['春', '夏', '秋', '冬', '元', '除夕', '端午', '中秋', '重阳', '清明', '寒食', '七夕', '元宵', '除夜'], weight: 20 },
+  '闺怨': { label: '闺怨', keywords: ['闺', '妾', '思妇', '征妇', '闺中', '玉阶', '罗幕', '春闺', '闺怨'], weight: 20 },
+  '羁旅': { label: '羁旅', keywords: ['客', '旅', '游', '宦', '漂', '逆旅', '客舍', '羁旅', '落魄', '飘零', '孤旅', '羁愁'], weight: 25 },
+
+  // 常见意象（单独关键词，权重较低）
+  '月': { label: '月', keywords: ['月', '明月', '月光', '月色', '圆月', '月圆', '皎洁'], weight: 15 },
+  '酒': { label: '酒', keywords: ['酒', '醉', '杯', '酌', '饮', '酣', '壶', '瓮', '醪', '浊酒', '清酒', '劝酒'], weight: 15 },
+  '花': { label: '花', keywords: ['花', '落花', '花瓣', '花开', '花落', '春花', '残花', '花飞'], weight: 15 },
+  '雁': { label: '雁', keywords: ['雁', '鸿雁', '归雁', '飞雁', '雁声', '雁行'], weight: 15 },
+  '柳': { label: '柳', keywords: ['柳', '杨柳', '柳枝', '柳色', '垂柳', '折柳', '柳绵'], weight: 15 },
+  '雨': { label: '雨', keywords: ['雨', '春雨', '细雨', '夜雨', '雨声', '雨滴', '雨落'], weight: 15 },
+  '雪': { label: '雪', keywords: ['雪', '白雪', '雪飞', '雪落', '飞雪', '瑞雪'], weight: 15 },
+  '风': { label: '风', keywords: ['风', '春风', '秋风', '西风', '东风', '风起', '风来'], weight: 12 },
+};
+
+/**
+ * 从查询词中检测情感/题材意向
+ * 纯本地算法，无需 AI 调用
+ * @param {string} query - 用户搜索关键词
+ * @returns {{ intent: string, emotion: string|null, emotionScore: number, matchedTheme: string|null }}
+ */
+function detectSearchEmotion(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) return { intent: 'general', emotion: null, emotionScore: 0, matchedTheme: null };
+
+  let bestMatch = { theme: null, score: 0, keywords: [] };
+
+  for (const [theme, config] of Object.entries(EMOTION_THEME_MAP)) {
+    for (const kw of config.keywords) {
+      if (q.includes(kw) || kw.includes(q)) {
+        // 精确匹配或包含匹配得更高分
+        const isExact = q === kw;
+        const isStartsWith = q.startsWith(kw) || kw.startsWith(q);
+        const score = isExact ? config.weight + 20 : isStartsWith ? config.weight + 10 : config.weight;
+        if (score > bestMatch.score) {
+          bestMatch = { theme, score, keywords: [kw] };
+        } else if (kw === bestMatch.keywords[0] && score === bestMatch.score) {
+          bestMatch.keywords.push(kw);
+        }
+      }
+    }
+  }
+
+  if (bestMatch.score === 0) return { intent: 'general', emotion: null, emotionScore: 0, matchedTheme: null };
+
+  const emotionLabel = EMOTION_THEME_MAP[bestMatch.theme]?.label || bestMatch.theme;
+  let intent = 'general';
+
+  // 根据匹配的情感/题材判断搜索意向
+  const emotionKeywords = ['思乡', '离别', '思念', '怀人', '孤独', '感伤', '旷达', '豪放', '婉约', '爱国'];
+  const themeKeywords = ['山水', '田园', '边塞', '咏物', '怀古', '节序', '闺怨', '羁旅'];
+  const intentKeywords = ['意象', '月', '酒', '花', '雁', '柳', '雨', '雪', '风'];
+
+  if (emotionKeywords.includes(bestMatch.theme)) intent = 'emotion';
+  else if (themeKeywords.includes(bestMatch.theme)) intent = 'theme';
+  else if (intentKeywords.includes(bestMatch.theme)) intent = 'imagery';
+
+  return {
+    intent,
+    emotion: emotionLabel,
+    emotionScore: Math.min(bestMatch.score / 50, 1.0),
+    matchedTheme: bestMatch.theme,
+  };
+}
+
+/**
+ * 根据情感/题材过滤诗词（无 AI 时使用）
+ * @param {string} matchedTheme - 匹配到的主题
+ * @param {object[]} poems - 诗词列表
+ * @returns {object[]} - 打分后的诗词
+ */
+function scorePoemsByEmotion(matchedTheme, poems) {
+  if (!matchedTheme || !EMOTION_THEME_MAP[matchedTheme]) return [];
+
+  const config = EMOTION_THEME_MAP[matchedTheme];
+  const keywords = config.keywords;
+
+  return poems
+    .map(p => {
+      let score = 0;
+      const content = (p.content || '').toLowerCase();
+      const tags = Array.isArray(p.tags) ? p.tags.join(' ').toLowerCase() : (p.tags || '').toLowerCase();
+      const combined = content + ' ' + tags;
+
+      for (const kw of keywords) {
+        const count = (combined.match(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+        if (count > 0) score += count * 5;
+      }
+
+      // 如果诗词本身有匹配的主题标签，加更多分
+      if (p.tags && Array.isArray(p.tags)) {
+        if (p.tags.some(t => t === config.label || t.includes(config.label))) {
+          score += 30;
+        }
+      }
+
+      return { poem: p, emotionScore: score };
+    })
+    .filter(item => item.emotionScore > 0)
+    .sort((a, b) => b.emotionScore - a.emotionScore);
+}
+
+/**
+ * AI智能语义搜索诗词（硅基流动 Qwen3-8B）
+ * 将关键词与诗词库进行语义匹配，返回排序后的结果
+ */
+async function aiPoemSearch(query, limit = 50) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+
+  // 读取诗词数据库
+  let poems = [];
+  try {
+    const { db } = require('../utils/db');
+    poems = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM poems ORDER BY id LIMIT 500', [], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      });
+    });
+  } catch (err) {
+    console.warn('[aiService] 读取诗词库失败:', err.message);
+    return { poems: [], didYouMean: null, intent: 'general', emotion: null };
+  }
+
+  if (poems.length === 0) return { poems: [], didYouMean: null, intent: 'general', emotion: null };
+
+  // 先检测情感/题材意向（本地极速，无需 AI）
+  const emotionResult = detectSearchEmotion(query);
+
+  // 如果有API Key，尝试AI语义排序
+  if (apiKey) {
+    try {
+      const rankedPoems = await rankPoemsWithAI(query, poems, apiKey, emotionResult);
+      return {
+        poems: rankedPoems.slice(0, limit),
+        didYouMean: rankedPoems.didYouMean || null,
+        intent: emotionResult.intent,
+        emotion: emotionResult.emotion,
+      };
+    } catch (err) {
+      console.warn('[aiService] AI语义排序失败，降级:', err.message);
+    }
+  }
+
+  // 降级：前端关键词匹配 + 情感增强
+  return { ...fallbackSearch(query, poems, limit), intent: emotionResult.intent, emotion: emotionResult.emotion };
+}
+
+/**
+ * 调用AI对诗词进行语义排序
+ */
+async function rankPoemsWithAI(query, poems, apiKey, emotionResult) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  // 只传前50首给AI，避免token超限
+  const poemSamples = poems.slice(0, 50).map(p => ({
+    id: p.id,
+    title: p.title,
+    author: p.author || '佚名',
+    dynasty: p.dynasty || '未知',
+    content: (p.content || '').substring(0, 100),
+  }));
+
+  const emotionContext = emotionResult && emotionResult.matchedTheme
+    ? `\n重要提示：用户搜索词 "${query}" 被识别为【${emotionResult.emotion}】主题（${emotionResult.intent}类搜索），请优先返回与该主题/情感高度相关的诗词。判断相关性时，这一项优先级最高。`
+    : '';
+
+  const prompt = `你是一个古诗词搜索引擎的智能排序器。用户输入了搜索关键词"${query}"，请从以下诗词列表中，找出与关键词最相关的诗词，并按相关度从高到低排序。
+${emotionContext}
+
+同时，如果用户输入的关键词有明显拼写错误或可推荐的更优关键词，请指出"didYouMean"。
+
+返回格式（严格JSON，不要任何其他内容）：
+{
+  "ranking": [poem_id_1, poem_id_2, ...],  // 按相关度从高到低的ID数组
+  "didYouMean": "更优的搜索词"  // 如果有纠错建议才填，否则填null
+}
+
+判断相关性时，考虑以下因素：
+1. 标题完全匹配或部分匹配（如"静夜思"匹配"静夜"）
+2. 作者名匹配（如"李白"、"杜甫"）
+3. 朝代匹配（如"唐"、"宋"）
+4. 诗句内容关键词匹配（如"月"出现在诗句中）
+5. 情感/题材相关（如搜索"送别"时，有送别意象的诗更相关）
+
+诗词列表（JSON格式）：
+${JSON.stringify(poemSamples, null, 2)}
+
+只输出JSON，不要解释，不要markdown代码块。`;
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'Qwen/Qwen3-8B',
+        messages: [
+          { role: 'system', content: '你是一个专业的古诗词搜索引擎排序助手。你必须严格输出JSON格式。' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 800,
+        top_p: 0.8,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error('[aiService] rankPoemsWithAI失败:', response.status, errText);
+      throw new Error('AI排序请求失败');
+    }
+
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content?.trim() || '';
+    if (!raw) throw new Error('AI返回内容为空');
+
+    // 解析JSON
+    let jsonStr = raw;
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) jsonStr = jsonMatch[1];
+    else {
+      const braceStart = raw.indexOf('{');
+      const braceEnd = raw.lastIndexOf('}');
+      if (braceStart !== -1 && braceEnd !== -1) jsonStr = raw.substring(braceStart, braceEnd + 1);
+    }
+
+    const parsed = JSON.parse(jsonStr);
+    const ranking = parsed.ranking || [];
+    const didYouMean = parsed.didYouMean || null;
+
+    // 按排序ID重排诗词数组
+    const poemMap = new Map(poems.map(p => [p.id, p]));
+    const ranked = ranking
+      .map(id => poemMap.get(id))
+      .filter(Boolean);
+
+    // 未被AI排序到的诗词追加到末尾
+    const rankedIds = new Set(ranking);
+    poems.forEach(p => { if (!rankedIds.has(p.id)) ranked.push(p); });
+
+    ranked.didYouMean = didYouMean;
+    return ranked;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.warn('[aiService] rankPoemsWithAI异常:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * 前端关键词匹配兜底（含情感/题材增强）
+ */
+function fallbackSearch(query, poems, limit) {
+  const q = query.toLowerCase().trim();
+
+  // 先检测情感/题材意向
+  const emotionResult = detectSearchEmotion(query);
+  const matchedTheme = emotionResult?.matchedTheme;
+
+  // 多级匹配打分
+  const scored = poems.map(p => {
+    let score = 0;
+    const title = (p.title || '').toLowerCase();
+    const author = (p.author || '').toLowerCase();
+    const content = (p.content || '').toLowerCase();
+    const dynasty = (p.dynasty || '').toLowerCase();
+    const tags = Array.isArray(p.tags) ? p.tags.join(' ').toLowerCase() : (p.tags || '').toLowerCase();
+
+    if (title === q) score += 100; // 标题完全匹配
+    else if (title.includes(q)) score += 60; // 标题包含
+    if (author === q) score += 50; // 作者完全匹配
+    else if (author.includes(q)) score += 30; // 作者包含
+    if (content.includes(q)) score += 20; // 内容包含
+    if (dynasty.includes(q)) score += 10; // 朝代匹配
+
+    // 支持多个关键词（空格分隔）
+    const keywords = q.split(/\s+/);
+    keywords.forEach(kw => {
+      if (kw.length < 2) return;
+      if (title.includes(kw)) score += 40;
+      if (author.includes(kw)) score += 25;
+      if (content.includes(kw)) score += 15;
+    });
+
+    // ===== 情感/题材增强 =====
+    if (matchedTheme && EMOTION_THEME_MAP[matchedTheme]) {
+      const config = EMOTION_THEME_MAP[matchedTheme];
+      const combined = content + ' ' + tags;
+      for (const kw of config.keywords) {
+        const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const count = (combined.match(new RegExp(escaped, 'g')) || []).length;
+        if (count > 0) score += count * 8;
+      }
+      // 如果诗词标签本身匹配主题，加额外分
+      if (p.tags && Array.isArray(p.tags)) {
+        if (p.tags.some(t => t === config.label || t.includes(config.label))) {
+          score += 30;
+        }
+      }
+    }
+
+    return { poem: p, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // 如果关键词搜索没有任何结果，但检测到情感/题材，尝试纯情感搜索
+  const keywordResults = scored.filter(s => s.score > 0).slice(0, limit).map(s => s.poem);
+  if (keywordResults.length === 0 && matchedTheme) {
+    const emotionScored = scorePoemsByEmotion(matchedTheme, poems);
+    if (emotionScored.length > 0) {
+      return {
+        poems: emotionScored.slice(0, limit).map(s => s.poem),
+        didYouMean: null,
+        intent: emotionResult.intent,
+        emotion: emotionResult.emotion,
+        emotionOnly: true,
+      };
+    }
+  }
+
+  return {
+    poems: keywordResults.length > 0 ? keywordResults : scored.slice(0, limit).map(s => s.poem),
+    didYouMean: null,
+  };
+}
+
+/**
+ * AI分析搜索结果（硅基流动 Qwen3-8B）
+ * 根据搜索关键词和结果列表，生成摘要、标签和推荐方向
+ */
+async function analyzeSearchResults(query, poems, emotionResult) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey) return generateFallbackAnalysis(query, poems, emotionResult);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  const poemList = poems.slice(0, 8).map(p =>
+    `《${p.title || '未知'}》${p.author || '佚名'}（${p.dynasty || '未知'}）：${(p.content || '').substring(0, 80)}`
+  ).join('\n');
+
+  const emotionContext = emotionResult && emotionResult.emotion
+    ? `\n用户此次搜索被系统识别为【${emotionResult.emotion}】主题（${emotionResult.intent === 'emotion' ? '情感搜索' : emotionResult.intent === 'theme' ? '题材搜索' : '意象搜索'}），请在解读中重点围绕这一主题展开。`
+    : '';
+
+  const prompt = `你是一位古诗词研究专家。用户搜索了关键词"${query}"，以下是与该词最相关的诗词列表：
+${emotionContext}
+
+${poemList}
+
+请分析这些诗词，生成一份简洁的解读，要求：
+{
+  "summary": "一段50-80字的中文总结，概括这些诗词的整体特点和主题",
+  "tags": ["朝代标签", "题材标签", ...],  // 2-4个标签
+  "suggestions": ["相关搜索词1", "相关搜索词2", ...]  // 4个相关探索方向
+}
+
+要求：
+- summary要生动有趣，像老师给学生讲解
+- tags用简短的词语概括，如"唐代"、"山水诗"、"送别"等
+- suggestions要有引导性，引导用户继续探索
+- 只输出JSON，不要任何其他内容`;
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'Qwen/Qwen3-8B',
+        messages: [
+          { role: 'system', content: '你是一位博学儒雅、擅长讲故事的的古诗词研究专家。回答必须是JSON格式。' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+        top_p: 0.8,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error('[aiService] analyzeSearchResults失败:', response.status, errText);
+      return generateFallbackAnalysis(query, poems, emotionResult);
+    }
+
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content?.trim() || '';
+    if (!raw) return generateFallbackAnalysis(query, poems, emotionResult);
+
+    let jsonStr = raw;
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) jsonStr = jsonMatch[1];
+    else {
+      const braceStart = raw.indexOf('{');
+      const braceEnd = raw.lastIndexOf('}');
+      if (braceStart !== -1 && braceEnd !== -1) jsonStr = raw.substring(braceStart, braceEnd + 1);
+    }
+
+    try {
+      const result = JSON.parse(jsonStr);
+      if (!result.summary) return generateFallbackAnalysis(query, poems, emotionResult);
+      return result;
+    } catch (parseErr) {
+      console.warn('[aiService] analyzeSearchResults JSON解析失败:', parseErr.message);
+      return generateFallbackAnalysis(query, poems, emotionResult);
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.warn('[aiService] analyzeSearchResults异常:', error.message);
+    return generateFallbackAnalysis(query, poems, emotionResult);
+  }
+}
+
+/**
+ * 降级分析搜索结果（无需API，可带情感/题材意向）
+ */
+function generateFallbackAnalysis(query, poems, emotionResult) {
+  const dynasties = {};
+  const authors = {};
+  poems.forEach(p => {
+    if (p.dynasty) dynasties[p.dynasty] = (dynasties[p.dynasty] || 0) + 1;
+    if (p.author) authors[p.author] = (authors[p.author] || 0) + 1;
+  });
+
+  const topDynasty = Object.entries(dynasties).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  const topAuthor = Object.entries(authors).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  const emotion = emotionResult?.emotion || '';
+  const intent = emotionResult?.intent || 'general';
+
+  const suggestions = [];
+  const q = query.toLowerCase();
+  // 根据情感/题材上下文智能推荐
+  const emotionRelated = {
+    '思乡': ['送别', '月', '归', '家'],
+    '离别': ['思念', '酒', '柳', '长亭'],
+    '思念': ['怀人', '月', '雁', '书'],
+    '山水': ['田园', '隐居', '隐', '渔樵'],
+    '边塞': ['爱国', '从军', '沙场', '金鼓'],
+    '闺怨': ['春怨', '红颜', '独守', '玉阶'],
+    '羁旅': ['孤独', '无眠', '客路', '漂泊'],
+    '闲适': ['田园', '悠然', '归隐', '溪'],
+    '孤独': ['感伤', '无眠', '夜', '寂'],
+  };
+
+  if (emotion && emotionRelated[emotion]) {
+    emotionRelated[emotion].forEach(s => { if (!q.includes(s.toLowerCase())) suggestions.push(s); });
+  } else {
+    if (!q.includes('送别')) suggestions.push('送别');
+    if (!q.includes('思乡')) suggestions.push('思乡');
+    if (!q.includes('月')) suggestions.push('月');
+    if (!q.includes('春')) suggestions.push('春');
+    if (!q.includes('李白')) suggestions.push('李白');
+    if (!q.includes('杜甫')) suggestions.push('杜甫');
+  }
+
+  let summary = '';
+  if (emotion && poems.length > 0) {
+    const intentText = intent === 'emotion' ? '情感' : intent === 'theme' ? '题材' : '意象';
+    summary = `为您找到 ${poems.length} 首与"${emotion}"相关的诗词，${intentText}鲜明，多为${topDynasty || '各代'}${topAuthor ? '·' + topAuthor : ''}所作，富有感染力。`;
+  } else {
+    summary = `为您找到 ${poems.length} 首与"${query}"相关的诗词，涵盖${topDynasty || '各代'}时期，以${topAuthor || '佚名'}的诗作最为丰富。`;
+  }
+
+  return {
+    summary,
+    tags: [emotion, topDynasty, topAuthor].filter(Boolean).slice(0, 4),
+    suggestions: suggestions.slice(0, 4),
+  };
+}
+
+/**
+ * 获取诗词创作背景（硅基流动 Qwen3-8B）
+ * 优化版：采用沉浸式叙事，像带你穿越到诗人创作的现场
+ */
+async function getPoemBackground(title, author, dynasty, content) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const prompt = `你是一位穿越时空的导游，请将读者带回到${author || '诗人'}创作《${title || '未知'}》的那个时刻。
+
+背景信息：
+- 诗词标题：${title || '未知'}
+- 诗　　人：${author || '佚名'}（${dynasty || '唐代'}）
+- 诗词内容：
+${content}
+
+请用第一人称视角写一段沉浸式的创作背景故事（约200-250字），要求如下：
+
+1. 开篇引入：描述一个具体的场景——是什么时辰？天气如何？诗人身在哪里？周围有什么景物？
+   示例："深秋的一个傍晚，扬州城外的客栈里，..."
+
+2. 层层展开：描绘诗人的心境——他为何会写这首诗？是什么触动了他的心弦？
+   融入诗人的生平片段、当时的际遇，或者一个让他久久不能忘怀的画面。
+
+3. 身临其境：用细腻的笔触描写环境细节（如月光、落叶、流水声），
+   让读者仿佛能闻到空气中的味道、感受到当时的光线。
+
+4. 结尾呼应：用一句话点明这首诗的情感核心，让读者在故事结束后，
+   对诗人当时的心境有深刻的共鸣。
+
+语言要求：
+- 文笔优美，有画面感，像一篇优秀的散文
+- 避免空洞的叙述，多用具体的场景细节
+- 语气温暖有感染力，如同一位老者娓娓讲述
+- 不要使用标题、小标题或序号，只写一段完整的文字`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'Qwen/Qwen3-8B',
+        messages: [
+          {
+            role: 'system',
+            content: '你是一位博学儒雅、擅长讲故事的古代文学学者，笔触细腻、画面感强，能将读者带入诗人创作时的真实场景。'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.8,
+        max_tokens: 500,
+        top_p: 0.85,
+        stream: false
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error('[aiService] getPoemBackground 失败:', response.status, errText);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim() || '';
+    if (!content) return null;
+
+    const tips = `沉浸到诗人创作的那个场景中，你会更好地理解这首诗蕴含的深情。闭上眼睛，想象自己就站在诗人身旁，感受他当时的心境吧。`;
+
+    return { background: content, tips };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('[aiService] getPoemBackground 异常:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 获取诗词趣味故事（硅基流动 Qwen3-8B）
+ * 优化版：像讲述传说逸闻，生动有趣，有细节有温度
+ */
+async function getPoemStory(title, author, content) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const prompt = `你是一位才华横溢的历史故事讲述人，请为以下诗词讲述一个引人入胜的趣味故事：
+
+诗词标题：${title || '未知'}
+诗　　人：${author || '佚名'}
+诗词内容：
+${content}
+
+请讲述一段约250-300字的故事，要求如下：
+
+1. 题材选择（任选其一或融合）：
+   - 诗人创作此诗时的趣事或传说（如灵感突现、一气呵成）
+   - 诗人与友人、门生之间的轶事佳话
+   - 诗句背后不为人知的典故或历史真相
+   - 后人流传中关于此诗的有趣典故
+
+2. 叙事技巧：
+   - 开篇设置悬念或一个出人意料的场景
+   - 中间用细节铺垫，加入对话（如果合适）或心理描写
+   - 结尾揭示故事的深意，或留下一个意味深长的悬念
+   - 让故事既有趣味性，又暗含人生的智慧或诗词的深意
+
+3. 语言风格：
+   - 口语化讲述，但用词雅致，文白相间
+   - 像老茶馆里说书先生讲故事，有画面感、有节奏
+   - 可以用"相传"、"据记载"、"话说"等传统说书语气
+   - 切忌写成说明文，要像一篇精彩的叙事散文
+
+4. 特别注意：
+   - 加入2-3个具体的场景细节（如天气、地点、动作、神态）
+   - 让人物"活"起来，能看到他的表情和反应
+   - 有冲突或转折更佳，避免平铺直叙
+   - 故事要有头有尾，切忌戛然而止`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'Qwen/Qwen3-8B',
+        messages: [
+          {
+            role: 'system',
+            content: '你是一位风趣幽默、博古通今的故事大王，擅长将诗词背后的故事讲得生动有趣、引人入胜，你的语言风格像传统说书人，文白相间，有画面感。'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.85,
+        max_tokens: 600,
+        top_p: 0.9,
+        stream: false
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error('[aiService] getPoemStory 失败:', response.status, errText);
+      return null;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim() || '';
+    return content || null;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('[aiService] getPoemStory 异常:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 获取诵读技巧指南（硅基流动 Qwen3-8B）
+ * 优化版：实用具体，有画面感，带有详细示例
+ */
+async function getRecitationGuide(title, author, content, dynasty) {
+  const apiKey = process.env.SILICONFLOW_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  // 先解析诗词的基本信息
+  const lines = content.split('\n').filter(l => l.trim());
+  const isSevenChar = lines[0] && lines[0].replace(/[，。！？；：、""''（）【】]/g, '').length === 7;
+  const charType = isSevenChar ? '七言' : '五言';
+  const poemType = lines.length === 4 ? '绝句' : lines.length === 8 ? '律诗' : '古体诗';
+
+  const prompt = `你是一位专业资深的朗诵艺术指导老师，同时也是一位古诗词鉴赏家。请为以下诗词撰写一份生动实用的诵读技巧指南：
+
+诗词标题：${title || '未知'}
+诗　　人：${author || '佚名'}（${dynasty || '唐代'}）
+诗词内容：
+${content}
+
+请按以下JSON格式返回内容（三个字段，每个字段80-120字，tips为4个实用妙招）：
+
+{
+  "rhythm": "节奏韵律说明：准确判断是${charType}${poemType}，给出具体停顿点示范。例如：'床前/月光'为22节奏，'疑是/地上/霜'为222节奏。标注韵脚字（如'光''霜''乡'押ang韵），朗读时韵脚字适当拖长约半拍，余音袅袅。",
+  "emotion": "情感把控说明：描述诗歌的起承转合与情感递进。例如：前两句轻读，营造静谧氛围；'举头''低头'处稍作停顿，情感逐渐加深；结尾'思故乡'三字语调上扬但音量渐收，以气带声，余韵悠长。",
+  "tips": ["诵读妙招1：先深呼吸3次放松身心，想象自己就在诗人所处的场景中，感受那种氛围后再开口朗读", "诵读妙招2：五言诗每句按22或221节奏划分，用手指轻轻点拍辅助，句末韵脚字略微拖长", "诵读妙招3：颈联和尾联往往情感最深，朗读时适当放慢语速，增加胸腔共鸣，声音更有穿透力", "诵读妙招4：用手机录下自己的朗读，对比原诗录音，找出差距后反复练习，坚持三天会有明显进步"]
+}
+
+重要要求：
+1. 节奏划分要精确到每个停顿位置，给出2-3句的具体标注示例
+2. 情感把控要描述"起承转合"四个阶段的具体处理方式
+3. tips必须接地气、可操作，像教练手把手教一样细致
+4. 语言要生动，有画面感，让读者仿佛能看到你示范的场景
+5. 四个tips要各有侧重：第一招讲准备，第二招讲节奏，第三招讲情感，第四招讲练习方法
+6. 只输出JSON，不要任何文字解释`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'Qwen/Qwen3-8B',
+        messages: [
+          {
+            role: 'system',
+            content: '你是一位专业资深的朗诵艺术指导老师，同时也是一位古诗词鉴赏家。你生成的内容专业实用、条理清晰、有画面感，像教练手把手教一样细致。你的回答必须是标准JSON格式。'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.6,
+        max_tokens: 800,
+        top_p: 0.85,
+        stream: false
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error('[aiService] getRecitationGuide 失败:', response.status, errText);
+      return null;
+    }
+
+    const data = await response.json();
+    const raw = data.choices?.[0]?.message?.content?.trim() || '';
+
+    if (!raw) return null;
+
+    // 尝试提取JSON（可能带有markdown代码块）
+    let jsonStr = raw;
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) jsonStr = jsonMatch[1];
+    else {
+      const braceStart = raw.indexOf('{');
+      const braceEnd = raw.lastIndexOf('}');
+      if (braceStart !== -1 && braceEnd !== -1) {
+        jsonStr = raw.substring(braceStart, braceEnd + 1);
+      }
+    }
+
+    try {
+      const guide = JSON.parse(jsonStr);
+      // 确保tips是数组
+      if (typeof guide.tips === 'string') {
+        guide.tips = guide.tips.split(/[、，,；;\\n]+/).filter(t => t.trim()).slice(0, 4);
+      }
+      if (!Array.isArray(guide.tips) || guide.tips.length === 0) {
+        guide.tips = ['先理解诗意，再带着情感朗读，效果会更好', '注意诗句的押韵字，朗读时适当延长韵脚的读音', '可以配合手势和表情，增强朗诵的感染力', '反复练习，注意每句最后一个字的声调变化'];
+      }
+      return guide;
+    } catch (parseErr) {
+      console.warn('[aiService] getRecitationGuide JSON解析失败:', parseErr.message, 'raw:', raw);
+      return null;
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    console.error('[aiService] getRecitationGuide 异常:', error.message);
+    return null;
+  }
+}
+
 module.exports = {
   getAIExplanation,
   getMockExplanation,
@@ -2059,10 +2987,17 @@ module.exports = {
   getAIGeneratedQuestions,
   generatePoemImage,
   evaluateFeihuaPoem,
+  validateFeihuaPoem,
   generateDuelQuestions,
   repairDuelQuestionFromFullPoem,
   generatePoemSceneImage,
-  spawn
+  spawn,
+  getPoemBackground,
+  getPoemStory,
+  getRecitationGuide,
+  aiPoemSearch,
+  analyzeSearchResults,
+  detectSearchEmotion,
 };
 
 /**

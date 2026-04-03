@@ -1,0 +1,43 @@
+{
+  "appId": "com.chinesepoetry.desktop",
+  "productName": "中国诗词学习系统",
+  "directories": {
+    "output": "ele_build",
+    "buildResources": "electron/assets"
+  },
+  "files": [
+    "electron/**/*",
+    "backend/**/*",
+    "!backend/node_modules",
+    "package.json"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "mac": {
+    "target": [
+      "dmg",
+      "zip"
+    ]
+  },
+  "linux": {
+    "target": [
+      "AppImage",
+      "deb"
+    ],
+    "category": "Education"
+  },
+  "extraResources": [
+    {
+      "from": "poetry",
+      "to": "poetry"
+    }
+  ]
+}
