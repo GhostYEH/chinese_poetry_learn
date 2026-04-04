@@ -328,6 +328,10 @@ function setupSocket(io) {
       console.log('[Socket] Socket断开连接:', socket.id);
 
       if (currentUserId) {
+        // 处理闯关对战匹配队列退出
+        challengeBattleService.removeFromMatchmaking(currentUserId);
+        io.emit('challenge-matchmaking-count', { count: challengeBattleService.getMatchmakingQueueSize() });
+
         // 处理飞花令断线
         const onlineUsers = feihualingService.removeUser(socket.id);
         io.emit('online-users', onlineUsers);
@@ -364,10 +368,10 @@ function setupSocket(io) {
     });
 
     // ==============================================================
-    // 诗词闯关对战 - 简化为单人练习模式（本地出题，无AI）
+    // 诗词闯关对战 - 单人练习模式
     // ==============================================================
 
-    // 开始闯关对战
+    // 开始单人闯关对战
     socket.on('challenge-start', async (data) => {
       try {
         if (!currentUserId) {
@@ -375,54 +379,47 @@ function setupSocket(io) {
           return;
         }
 
-        const room = await challengeBattleService.startGame(currentUserId, data.username || '玩家');
+        const room = await challengeBattleService.startSingleGame(currentUserId, data.username || '玩家');
         socket.emit('challenge-started', {
           roomId: room.id,
+          mode: 'single',
           currentQuestion: room.questions[0],
           currentRound: 1
         });
       } catch (err) {
-        console.error('[Challenge] 开始游戏失败:', err);
+        console.error('[Challenge] 开始单人游戏失败:', err);
         socket.emit('error', { error: '开始游戏失败' });
       }
     });
 
-    // 提交答案
+    // 提交答案（单人）
     socket.on('challenge-answer', async (data) => {
       try {
         const { roomId, answer } = data;
-        const submitResult = challengeBattleService.submitAnswer(roomId, currentUserId, answer);
+        const submitResult = challengeBattleService.submitSingleAnswer(roomId, currentUserId, answer);
 
         if (!submitResult.success) {
           socket.emit('error', { error: submitResult.error });
           return;
         }
 
-        const { isCorrect, correctAnswer, question, room } = submitResult;
-
         socket.emit('challenge-answer-result', {
-          isCorrect,
-          submittedAnswer: answer,
-          correctAnswer: correctAnswer,
-          question: question
+          isCorrect: submitResult.isCorrect,
+          correctAnswer: submitResult.correctAnswer,
+          question: submitResult.question
         });
 
         setTimeout(async () => {
-          const nextResult = await challengeBattleService.nextQuestion(roomId);
+          const nextResult = await challengeBattleService.nextSingleQuestion(roomId);
 
           if (nextResult.type === 'finished') {
-            const finishedRoom = challengeBattleService.getRoom(roomId);
-            if (finishedRoom) {
-              challengeBattleService.saveBattleRecord(finishedRoom);
-            }
-
+            challengeBattleService.saveSingleRecord(challengeBattleService.getRoom(roomId));
             socket.emit('challenge-finished', {
               type: 'finished',
               reason: nextResult.reason,
               totalQuestions: nextResult.totalQuestions,
               correctCount: nextResult.correctCount,
               wrongCount: nextResult.wrongCount,
-              questions: nextResult.questions,
               wrongQuestions: nextResult.wrongQuestions,
               players: nextResult.resultPlayers
             });
@@ -441,42 +438,200 @@ function setupSocket(io) {
       }
     });
 
-    // 超时处理
+    // 超时处理（单人）
     socket.on('challenge-timeout', async (data) => {
+      try {
+        const { roomId } = data;
+        const result = await challengeBattleService.timeoutSingleGame(roomId);
+
+        if (result && result.type === 'finished') {
+          socket.emit('challenge-finished', {
+            type: 'finished',
+            reason: 'timeout',
+            totalQuestions: result.totalQuestions,
+            correctCount: result.correctCount,
+            wrongCount: result.wrongCount,
+            wrongQuestions: result.wrongQuestions,
+            players: result.resultPlayers
+          });
+        } else if (result) {
+          socket.emit('challenge-timeouted', {
+            correctAnswer: result.correctAnswer,
+            question: result.question,
+            currentRound: result.currentRound,
+            correctCount: result.correctCount,
+            wrongCount: result.wrongCount
+          });
+        }
+      } catch (err) {
+        console.error('[Challenge] 超时处理失败:', err);
+      }
+    });
+
+    // ==============================================================
+    // 诗词闯关对战 - 双人实时对战模式
+    // ==============================================================
+
+    // 加入匹配队列
+    socket.on('challenge-match-start', (data) => {
+      if (!currentUserId) {
+        socket.emit('error', { error: '未登录' });
+        return;
+      }
+
+      const room = challengeBattleService.addToMatchmaking(
+        currentUserId,
+        data.username || '玩家',
+        socket.id
+      );
+
+      if (room) {
+        // 匹配成功，给双方发送游戏开始
+        const roomInfo = challengeBattleService.getRoomInfo(room);
+        roomInfo.currentQuestion = room.question;
+        roomInfo.status = 'playing';
+
+        room.players.forEach(p => {
+          if (p.socketId) {
+            io.to(p.socketId).emit('challenge-dual-started', roomInfo);
+          }
+        });
+
+        // 通知其他人更新等待人数
+        io.emit('challenge-matchmaking-count', { count: challengeBattleService.getMatchmakingQueueSize() });
+      } else {
+        // 还在等待
+        socket.emit('challenge-matchmaking-waiting', {
+          count: challengeBattleService.getMatchmakingQueueSize()
+        });
+      }
+    });
+
+    // 取消匹配
+    socket.on('challenge-match-cancel', () => {
+      challengeBattleService.removeFromMatchmaking(currentUserId);
+      socket.emit('challenge-matchmaking-cancelled');
+      io.emit('challenge-matchmaking-count', { count: challengeBattleService.getMatchmakingQueueSize() });
+    });
+
+    // 拉取当前等待人数
+    socket.on('challenge-match-count', () => {
+      socket.emit('challenge-matchmaking-count', {
+        count: challengeBattleService.getMatchmakingQueueSize()
+      });
+    });
+
+    // 双人答题
+    socket.on('challenge-dual-answer', async (data) => {
+      try {
+        const { roomId, answer } = data;
+        const result = challengeBattleService.submitDualAnswer(roomId, currentUserId, answer);
+
+        if (!result.success) {
+          socket.emit('error', { error: result.error });
+          return;
+        }
+
+        const room = challengeBattleService.getRoom(roomId);
+        const player = room.players.find(p => p.id === currentUserId);
+
+        // 实时通知双方谁答了题、正确与否
+        const answerEvent = {
+          playerId: currentUserId,
+          username: player.username,
+          isCorrect: player.isCorrect,
+          bothAnswered: result.bothAnswered
+        };
+
+        room.players.forEach(p => {
+          if (p.socketId) {
+            io.to(p.socketId).emit('challenge-dual-answer-update', answerEvent);
+          }
+        });
+
+        if (result.bothAnswered) {
+          // 双方都答了，等待一小段时间展示结果后进入下一题
+          setTimeout(async () => {
+            const advanceResult = await challengeBattleService.advanceDualRound(roomId);
+
+            if (advanceResult.type === 'finished') {
+              // 游戏结束，给双方发送结果
+              room.players.forEach(p => {
+                if (p.socketId) {
+                  io.to(p.socketId).emit('challenge-dual-finished', advanceResult);
+                }
+              });
+            } else if (advanceResult.success) {
+              // 下一题
+              room.players.forEach(p => {
+                if (p.socketId) {
+                  io.to(p.socketId).emit('challenge-dual-next', {
+                    question: advanceResult.question,
+                    currentRound: advanceResult.currentRound,
+                    players: advanceResult.players
+                  });
+                }
+              });
+            }
+          }, 2000);
+        }
+      } catch (err) {
+        console.error('[Challenge] 双人答题失败:', err);
+        socket.emit('error', { error: '提交答案失败' });
+      }
+    });
+
+    // 双人超时
+    socket.on('challenge-dual-timeout', async (data) => {
       try {
         const { roomId } = data;
         const room = challengeBattleService.getRoom(roomId);
         if (!room || room.status !== 'playing') return;
 
-        const submitResult = challengeBattleService.submitAnswer(roomId, currentUserId, '__TIMEOUT__');
+        const player = room.players.find(p => p.id === currentUserId);
+        if (!player || player.answered) return;
 
-        if (submitResult.isCorrect === false) {
-          const nextResult = await challengeBattleService.nextQuestion(roomId);
+        const result = challengeBattleService.handleDualTimeout(roomId, currentUserId);
 
-          if (nextResult.type === 'finished') {
-            challengeBattleService.saveBattleRecord(room);
-            socket.emit('challenge-finished', {
-              type: 'finished',
-              reason: 'timeout',
-              totalQuestions: nextResult.totalQuestions,
-              correctCount: nextResult.correctCount,
-              wrongCount: nextResult.wrongCount,
-              questions: nextResult.questions,
-              wrongQuestions: nextResult.wrongQuestions,
-              players: nextResult.resultPlayers
-            });
-          } else if (nextResult.success) {
-            socket.emit('challenge-timeouted', {
-              correctAnswer: submitResult.correctAnswer,
-              question: nextResult.question,
-              currentRound: nextResult.currentRound,
-              correctCount: nextResult.correctCount,
-              wrongCount: nextResult.wrongCount
-            });
+        if (result) {
+          room.players.forEach(p => {
+            if (p.socketId) {
+              io.to(p.socketId).emit('challenge-dual-answer-update', {
+                playerId: currentUserId,
+                username: player.username,
+                isCorrect: false,
+                bothAnswered: result.bothAnswered,
+                isTimeout: true
+              });
+            }
+          });
+
+          if (result.bothAnswered) {
+            setTimeout(async () => {
+              const advanceResult = await challengeBattleService.advanceDualRound(roomId);
+
+              if (advanceResult.type === 'finished') {
+                room.players.forEach(p => {
+                  if (p.socketId) {
+                    io.to(p.socketId).emit('challenge-dual-finished', advanceResult);
+                  }
+                });
+              } else if (advanceResult.success) {
+                room.players.forEach(p => {
+                  if (p.socketId) {
+                    io.to(p.socketId).emit('challenge-dual-next', {
+                      question: advanceResult.question,
+                      currentRound: advanceResult.currentRound,
+                      players: advanceResult.players
+                    });
+                  }
+                });
+              }
+            }, 2000);
           }
         }
       } catch (err) {
-        console.error('[Challenge] 超时处理失败:', err);
+        console.error('[Challenge] 双人超时处理失败:', err);
       }
     });
 

@@ -368,33 +368,8 @@ export default {
         ]
       };
     };
-      localLoading.value = true;
 
-      try {
-        const response = await api.creationWorkbench.getStructureGuide({
-          genre: props.genre,
-          theme: props.theme,
-          keywords: props.keywords,
-          mood: props.mood
-        });
-        const result = response.data || response;
-        structure.value = result;
-      } catch (error) {
-        console.error('加载结构引导失败:', error);
-        // 根据主题生成相关性更高的 fallback 数据
-        structure.value = buildThemeFallback(props.theme, props.genre, props.keywords, props.mood);
-      } finally {
-        localLoading.value = false;
-      }
-    };
-
-    // 当genre或theme变化时自动加载
-    watch([() => props.genre, () => props.theme], () => {
-      if (props.genre && props.theme) {
-        loadStructure();
-      }
-    });
-
+    // 加载结构引导
     const loadStructure = async () => {
       localLoading.value = true;
 
@@ -414,6 +389,13 @@ export default {
         localLoading.value = false;
       }
     };
+
+    // 当genre或theme变化时自动加载
+    watch([() => props.genre, () => props.theme], () => {
+      if (props.genre && props.theme) {
+        loadStructure();
+      }
+    });
 
     // 组件挂载时自动加载
     onMounted(() => {

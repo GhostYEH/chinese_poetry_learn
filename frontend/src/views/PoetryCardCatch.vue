@@ -826,73 +826,8 @@ export default {
 
     // ==================== 绘制函数 ====================
     const drawBackground = () => {
-      // 渐变天空
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-      skyGrad.addColorStop(0, '#2c1654');
-      skyGrad.addColorStop(0.3, '#1a1035');
-      skyGrad.addColorStop(0.6, '#0f0a1e');
-      skyGrad.addColorStop(1, '#080510');
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-      // 星星
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-      for (let i = 0; i < 60; i++) {
-        const sx = (i * 137.5) % CANVAS_W;
-        const sy = (i * 73.3) % (CANVAS_H * 0.6);
-        const ss = 0.5 + Math.sin(Date.now() * 0.001 + i) * 0.5;
-        ctx.beginPath();
-        ctx.arc(sx, sy, ss, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 远山剪影
-      ctx.fillStyle = '#0a0812';
-      ctx.beginPath();
-      ctx.moveTo(0, CANVAS_H);
-      ctx.lineTo(0, CANVAS_H * 0.65);
-      ctx.quadraticCurveTo(CANVAS_W * 0.1, CANVAS_H * 0.55, CANVAS_W * 0.2, CANVAS_H * 0.62);
-      ctx.quadraticCurveTo(CANVAS_W * 0.3, CANVAS_H * 0.5, CANVAS_W * 0.45, CANVAS_H * 0.58);
-      ctx.quadraticCurveTo(CANVAS_W * 0.55, CANVAS_H * 0.45, CANVAS_W * 0.7, CANVAS_H * 0.55);
-      ctx.quadraticCurveTo(CANVAS_W * 0.8, CANVAS_H * 0.48, CANVAS_W * 0.9, CANVAS_H * 0.6);
-      ctx.quadraticCurveTo(CANVAS_W * 0.95, CANVAS_H * 0.55, CANVAS_W, CANVAS_H * 0.62);
-      ctx.lineTo(CANVAS_W, CANVAS_H);
-      ctx.closePath();
-      ctx.fill();
-
-      // 月亮光晕
-      const moonX = CANVAS_W * 0.82;
-      const moonY = CANVAS_H * 0.15;
-      const moonGlow = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, 120);
-      moonGlow.addColorStop(0, 'rgba(255, 248, 220, 0.15)');
-      moonGlow.addColorStop(1, 'transparent');
-      ctx.fillStyle = moonGlow;
-      ctx.fillRect(moonX - 120, moonY - 120, 240, 240);
-
-      // 月亮
-      ctx.fillStyle = '#fff8dc';
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, 35, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
-      ctx.beginPath();
-      ctx.arc(moonX + 8, moonY - 5, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(moonX - 5, moonY + 10, 5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 云雾
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-      for (let i = 0; i < 5; i++) {
-        const cloudX = ((Date.now() * 0.01 + i * 200) % (CANVAS_W + 300)) - 150;
-        const cloudY = CANVAS_H * 0.35 + Math.sin(i * 1.5) * 30;
-        ctx.beginPath();
-        ctx.ellipse(cloudX, cloudY, 150, 25, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 飘落花瓣
       for (const p of petals) {
         p.y += p.speed;
         p.x += Math.sin(p.sway) * 0.5;
@@ -914,7 +849,6 @@ export default {
         ctx.restore();
       }
 
-      // 装饰字符
       ctx.font = `bold ${16}px 'STSong', 'SimSun', serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1657,7 +1591,6 @@ export default {
 
 /* ==================== 基础布局 ==================== */
 .poetry-mahjong-wrapper {
-  /* 使用 fixed 定位确保完全覆盖页面且不受父容器影响 */
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;
@@ -1667,7 +1600,7 @@ export default {
   height: 100vh !important;
   min-height: 100vh !important;
   max-height: 100vh !important;
-  background: linear-gradient(180deg, #1a1035 0%, #0f0a1e 50%, #080510 100%);
+  background: linear-gradient(180deg, #2c1654 0%, #1a1035 30%, #0f0a1e 60%, #080510 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1677,6 +1610,58 @@ export default {
   will-change: transform;
   contain: layout style paint;
   z-index: 1000;
+}
+
+.poetry-mahjong-wrapper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(ellipse at 82% 15%, rgba(255, 248, 220, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 20% 80%, rgba(139, 90, 43, 0.05) 0%, transparent 40%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.poetry-mahjong-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60%;
+  background-image: 
+    radial-gradient(1px 1px at 10% 10%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 20% 25%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 30% 15%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 40% 35%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 50% 8%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1.5px 1.5px at 60% 28%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 70% 18%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 80% 40%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1.5px 1.5px at 90% 12%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 15% 45%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 25% 55%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1.5px 1.5px at 35% 38%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 45% 52%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 55% 42%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1.5px 1.5px at 65% 58%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 75% 48%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 85% 62%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1.5px 1.5px at 95% 35%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 5% 30%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 12% 65%, rgba(255, 255, 255, 0.4), transparent);
+  pointer-events: none;
+  z-index: 0;
+  animation: twinkle 4s ease-in-out infinite alternate;
+}
+
+@keyframes twinkle {
+  0% { opacity: 0.6; }
+  100% { opacity: 1; }
 }
 
 /* ==================== 通用卷轴卡片 ==================== */
@@ -2276,27 +2261,26 @@ export default {
 
 /* ==================== Canvas ==================== */
 .canvas-wrap {
-  flex: 1;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
-  max-width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
   outline: none;
-  /* 紧贴 HUD，不留空隙 */
-  margin-top: 0;
+  z-index: 1;
 }
 
 .game-canvas {
   border-radius: 12px;
   border: 2px solid rgba(205, 133, 63, 0.2);
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(205, 133, 63, 0.1);
-  max-width: 100%;
-  max-height: 100%;
-  /* 确保 canvas 填满整个 wrap */
-  width: 100%;
-  height: 100%;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 140px);
 }
 
 /* ==================== 遮罩 ==================== */

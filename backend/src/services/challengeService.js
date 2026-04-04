@@ -1222,23 +1222,54 @@ const POEMS = [
 ];
 
 // ============================================================
-// 构建 level -> question 的直接查找表（O(1) 访问）
+// 构建 level -> 所有题目的索引（支持 couplet / choice / author / emotion / meaning 等类型）
 // ============================================================
-const LEVEL_INDEX = {};
+const LEVEL_QUESTIONS = {}; // level -> [{ question, answer, type, options? }, ...]
 POEMS.forEach(poem => {
-  poem.couplets.forEach(c => {
-    LEVEL_INDEX[poem.level] = {
+  // 去重：同 level 只建一次
+  if (!LEVEL_QUESTIONS[poem.level]) {
+    LEVEL_QUESTIONS[poem.level] = {
       level: poem.level,
       title: poem.title,
       author: poem.author,
       difficulty: poem.difficulty,
-      question: c.question,
-      answer: c.answer,
       full_poem: poem.full_poem,
-      analysis: `此句出自${poem.author}的《${poem.title}》，考察对经典诗句的掌握。`
+      questions: []
     };
+  }
+  // 填句题（每个 couplet 一题）
+  poem.couplets.forEach(c => {
+    LEVEL_QUESTIONS[poem.level].questions.push({
+      type: 'fill',
+      question: c.question,
+      answer: c.answer
+    });
   });
 });
+
+// 构建 level -> 随机一题（与前端 loadQuestions 逻辑一致）
+function buildRandomQuestion(level) {
+  const block = LEVEL_QUESTIONS[level];
+  if (!block || block.questions.length === 0) return null;
+  const q = block.questions[Math.floor(Math.random() * block.questions.length)];
+  return {
+    level: block.level,
+    title: block.title,
+    author: block.author,
+    difficulty: block.difficulty,
+    question: q.question,
+    answer: q.answer,
+    full_poem: block.full_poem,
+    analysis: `此句出自${block.author}的《${block.title}》，考察对经典诗句的掌握。`
+  };
+}
+
+// 按 level 精确查找题目（用于后端判题）
+function findQuestionByLevelAndText(level, questionText) {
+  const block = LEVEL_QUESTIONS[level];
+  if (!block) return null;
+  return block.questions.find(q => q.question === questionText) || null;
+}
 
 // ============================================================
 // 答案规范化：去空格、标点、全角转半角
@@ -1268,7 +1299,7 @@ function checkAnswer(userAnswer, correctAnswer) {
 // 根据关卡获取题目（直接查找）
 // ============================================================
 function getQuestionByLevel(level) {
-  return LEVEL_INDEX[level] || null;
+  return buildRandomQuestion(level);
 }
 
 // ============================================================
@@ -1330,7 +1361,7 @@ async function updateUserProgress(userId, level) {
 async function generateQuestions(userId, startLevel, count = 20) {
   const questions = [];
   for (let i = startLevel; i < startLevel + count && i <= 200; i++) {
-    const q = LEVEL_INDEX[i];
+    const q = buildRandomQuestion(i);
     if (q) questions.push(q);
   }
   return questions;
@@ -1339,34 +1370,49 @@ async function generateQuestions(userId, startLevel, count = 20) {
 // ============================================================
 // 提交答案（直接用静态数据校验，不依赖前端传来的答案）
 // ============================================================
-async function submitAnswer(userId, level, questionText, userAnswer, _, poemTitle, poemAuthor) {
-  // 直接从静态数据获取正确答案，忽略前端传入的 correctAnswer
-  const staticQ = LEVEL_INDEX[level];
-  if (!staticQ) {
-    return { correct: false, recordId: null, error: '关卡不存在' };
-  }
-
-  const isCorrect = checkAnswer(userAnswer, staticQ.answer);
+async function submitAnswer(userId, level, questionText, userAnswer, frontendCorrect, poemTitle, poemAuthor) {
+  const matched = findQuestionByLevelAndText(level, questionText);
   const now = new Date().toISOString();
+  const block = LEVEL_QUESTIONS[level];
+
+  let isCorrect;
+  if (matched) {
+    isCorrect = checkAnswer(userAnswer, matched.answer);
+  } else {
+    isCorrect = frontendCorrect === true;
+  }
 
   return new Promise((resolve, reject) => {
     db.run(
       `INSERT INTO user_challenge_records
       (user_id, level, question_content, user_answer, correct_answer, is_correct, answered_at, poem_title, poem_author)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, level, staticQ.question, userAnswer, staticQ.answer, isCorrect ? 1 : 0, now, staticQ.title, staticQ.author],
+      [userId, level, questionText, userAnswer, matched?.answer || '', isCorrect ? 1 : 0, now, block?.title || poemTitle, block?.author || poemAuthor],
       function(err) {
         if (err) { reject(err); return; }
         const recordId = this.lastID;
         if (isCorrect) {
-          updateUserProgress(userId, level).then(() => {
-            resolve({ correct: true, recordId });
+          updateUserProgress(userId, level).then(async () => {
+            // 重新查询最新进度返回给前端
+            try {
+              const progress = await getUserProgress(userId);
+              resolve({ correct: true, recordId, highestLevel: progress.highest_level, currentLevel: progress.current_challenge_level });
+            } catch {
+              resolve({ correct: true, recordId });
+            }
           }).catch(reject);
         } else {
           db.run(
             'UPDATE user_challenge_progress SET total_errors = total_errors + 1 WHERE user_id = ?',
             [userId],
-            () => resolve({ correct: false, recordId })
+            async () => {
+              try {
+                const progress = await getUserProgress(userId);
+                resolve({ correct: false, recordId, highestLevel: progress.highest_level, currentLevel: progress.current_challenge_level });
+              } catch {
+                resolve({ correct: false, recordId });
+              }
+            }
           );
         }
       }
@@ -1431,9 +1477,6 @@ async function getLeaderboard() {
 // ============================================================
 // 获取静态题库（供前端展示/调试）
 // ============================================================
-function getStaticQuestionBank() {
-  return Object.values(LEVEL_INDEX);
-}
 
 module.exports = {
   getUserProgress,
@@ -1447,7 +1490,10 @@ module.exports = {
   checkAnswer,
   normalize,
   getQuestionByLevel,
-  getStaticQuestionBank,
+  getStaticQuestionBank: () => Object.values(LEVEL_QUESTIONS).map(b => ({
+    level: b.level, title: b.title, author: b.author,
+    difficulty: b.difficulty, questions: b.questions
+  })),
   POEMS,
-  LEVEL_INDEX
+  LEVEL_QUESTIONS
 };

@@ -47,13 +47,13 @@ router.post('/questions/generate', authenticateToken, async (req, res) => {
 router.post('/answer/submit', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { level, question, userAnswer, correctAnswer, poemTitle, poemAuthor } = req.body;
+    const { level, question, userAnswer, correctAnswer, isCorrect, poemTitle, poemAuthor } = req.body;
     const result = await challengeService.submitAnswer(
       userId,
       level,
       question,
       userAnswer,
-      correctAnswer,
+      isCorrect,
       poemTitle,
       poemAuthor
     );

@@ -266,14 +266,34 @@ export default {
       if (q) {
         currentQuestion.value = q;
         loading.value = false;
-      } else if (questions.value.length > 0) {
-        // 如果没有找到当前级别的题目，但有其他题目，尝试加载第一题
-        currentQuestion.value = questions.value[0];
-        loading.value = false;
       } else {
-        // 如果没有任何题目，设置loading为false，显示错误信息
+        const levelData = poetryLevels.find(l => l.level === currentLevel.value);
+        if (levelData && levelData.questions.length > 0) {
+          const randomIndex = Math.floor(Math.random() * levelData.questions.length);
+          const questionData = levelData.questions[randomIndex];
+          const poem = levelData.poems[0];
+          
+          const newQ = {
+            level: levelData.level,
+            title: poem.title,
+            author: poem.author,
+            dynasty: poem.dynasty,
+            question: questionData.question,
+            answer: questionData.answer,
+            hint: questionData.hint,
+            analysis: questionData.analysis,
+            type: questionData.type,
+            options: questionData.options || [],
+            full_poem: poem.content,
+            difficulty: levelData.difficulty,
+            description: levelData.description
+          };
+          
+          questions.value.push(newQ);
+          saveLocalQuestions(questions.value);
+          currentQuestion.value = newQ;
+        }
         loading.value = false;
-        console.error('没有加载到任何题目');
       }
     };
 
@@ -286,6 +306,7 @@ export default {
       addedToErrorBook.value = false;
       selectedOption.value = null;
       loadCurrentQuestion();
+      scrollToCurrentLevel();
       if (level + 20 > highestLevel.value) {
         loadQuestions(level, 20);
       }
@@ -331,9 +352,18 @@ export default {
       let userAnswerText;
 
       if (currentQuestion.value.type === 'choice') {
-        correctAnswer = currentQuestion.value.options[currentQuestion.value.answer];
-        userAnswerText = currentQuestion.value.options[selectedOption.value];
-        isCorrect.value = selectedOption.value === currentQuestion.value.answer;
+        // 兼容两种数据格式：answer 可能是文本，也可能是索引
+        const answerData = currentQuestion.value.answer;
+        if (typeof answerData === 'number') {
+          correctAnswer = currentQuestion.value.options[answerData];
+          userAnswerText = currentQuestion.value.options[selectedOption.value];
+          isCorrect.value = selectedOption.value === answerData;
+        } else {
+          // answer 是文本字符串，直接比较文本
+          correctAnswer = answerData;
+          userAnswerText = currentQuestion.value.options[selectedOption.value];
+          isCorrect.value = normalize(userAnswerText) === normalize(correctAnswer);
+        }
       } else {
         correctAnswer = currentQuestion.value.answer;
         userAnswerText = userAnswer.value;
@@ -347,14 +377,23 @@ export default {
           level: currentLevel.value,
           question: currentQuestion.value.question,
           userAnswer: userAnswerText,
+          isCorrect: isCorrect.value,
           correctAnswer: correctAnswer,
           poemTitle: currentQuestion.value.title,
           poemAuthor: currentQuestion.value.author
         });
 
         currentRecordId.value = result.recordId;
+        // 用服务器返回的最新进度更新本地状态
+        if (result.highestLevel !== undefined) {
+          highestLevel.value = result.highestLevel;
+        }
+        if (result.currentLevel !== undefined) {
+          currentLevel.value = result.currentLevel;
+        }
+
         if (result.correct) {
-          highestLevel.value = Math.max(highestLevel.value, currentLevel.value);
+          // 答对：正确数已由后端更新进度
         } else {
           try {
             await api.wrongQuestions.add({
@@ -388,6 +427,7 @@ export default {
       userAnswer.value = '';
       addedToErrorBook.value = false;
       loadCurrentQuestion();
+      scrollToCurrentLevel();
     };
 
     const retry = async () => {
@@ -481,14 +521,29 @@ export default {
       return isLoggedIn.value;
     };
 
+    const scrollToCurrentLevel = () => {
+      setTimeout(() => {
+        const levelScroll = document.querySelector('.level-scroll');
+        const currentLevelItem = document.querySelector('.level-item.current');
+        if (levelScroll && currentLevelItem) {
+          const scrollLeft = currentLevelItem.offsetLeft - levelScroll.clientWidth / 2 + currentLevelItem.clientWidth / 2;
+          levelScroll.scrollTo({
+            left: Math.max(0, scrollLeft),
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+    };
+
     const initializeData = async () => {
       if (checkLoginStatus()) {
         loading.value = true;
         try {
           await loadProgress();
-          await loadQuestions(1, 20);
+          await loadQuestions(currentLevel.value, 20);
           loadCurrentQuestion();
           loadLeaderboard();
+          scrollToCurrentLevel();
         } catch (error) {
           console.error('初始化数据失败:', error);
         } finally {
@@ -521,6 +576,7 @@ export default {
       leaderboard,
       selectedOption,
       getDifficultyText,
+      getDifficultyClass,
       selectLevel,
       selectOption,
       submitAnswer,

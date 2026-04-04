@@ -1193,7 +1193,7 @@ router.get('/challenge/rankings', authenticateTeacher, (req, res) => {
 router.get('/challenge/student/:id', authenticateTeacher, (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // 获取学生基本信息和闯关进度
     db.get(
       `SELECT u.id, u.username, u.email, u.class_id,
@@ -1207,42 +1207,42 @@ router.get('/challenge/student/:id', authenticateTeacher, (req, res) => {
           console.error('获取学生闯关详情失败:', err);
           return res.status(500).json({ message: '获取学生闯关详情失败' });
         }
-        
+
         if (!studentInfo) {
           return res.status(404).json({ message: '学生不存在' });
         }
-        
-        // 获取学生答题记录
+
+        // 获取学生答题记录（最近100条）
         db.all(
           `SELECT * FROM user_challenge_records
            WHERE user_id = ?
            ORDER BY answered_at DESC
-           LIMIT 50`,
+           LIMIT 100`,
           [id],
           (err, challengeRecords) => {
             if (err) {
               console.error('获取学生答题记录失败:', err);
               return res.status(500).json({ message: '获取学生闯关详情失败' });
             }
-            
-            // 获取学生错题本
+
+            // 获取学生错题复习列表
             db.all(
-              `SELECT * FROM user_error_book
+              `SELECT * FROM wrong_questions
                WHERE user_id = ?
-               ORDER BY added_time DESC`,
-              [id],
-              (err, errorBook) => {
+               ORDER BY last_wrong_time DESC`,
+              [id.toString()],
+              (err, wrongQuestions) => {
                 if (err) {
                   console.error('获取学生错题本失败:', err);
                   return res.status(500).json({ message: '获取学生闯关详情失败' });
                 }
-                
+
                 res.json({
                   success: true,
                   data: {
                     student: studentInfo,
                     challengeRecords,
-                    errorBook
+                    wrongQuestions
                   }
                 });
               }
@@ -1254,6 +1254,59 @@ router.get('/challenge/student/:id', authenticateTeacher, (req, res) => {
   } catch (error) {
     console.error('获取学生闯关详情失败:', error);
     res.status(500).json({ message: '获取学生闯关详情失败' });
+  }
+});
+
+// 新增 - 导出全班学生闯关记录（支持按班级筛选）
+router.get('/challenge/records/export', authenticateTeacher, async (req, res) => {
+  try {
+    const { classId } = req.query;
+
+    let query = `
+      SELECT u.id as student_id, u.username as student_name,
+             COALESCE(u.class_id, '') as class_id,
+             COALESCE(c.class_name, '未分班') as class_name,
+             COALESCE(ucp.highest_level, 0) as highest_level,
+             COALESCE(ucp.current_challenge_level, 1) as current_level,
+             COALESCE(ucp.total_errors, 0) as total_errors,
+             ucp.last_challenge_time,
+             COUNT(ucr.id) as total_answers,
+             SUM(CASE WHEN ucr.is_correct = 1 THEN 1 ELSE 0 END) as correct_answers,
+             SUM(CASE WHEN ucr.is_correct = 0 THEN 1 ELSE 0 END) as wrong_answers
+      FROM users u
+      LEFT JOIN user_challenge_progress ucp ON u.id = ucp.user_id
+      LEFT JOIN classes c ON u.class_id = c.id
+      LEFT JOIN user_challenge_records ucr ON u.id = ucr.user_id
+      WHERE u.class_id IS NOT NULL
+    `;
+    const params = [];
+
+    if (classId) {
+      query += ' AND u.class_id = ?';
+      params.push(classId);
+    }
+
+    query += ' GROUP BY u.id, u.username, u.class_id, c.class_name, ucp.highest_level, ucp.current_challenge_level, ucp.total_errors, ucp.last_challenge_time ORDER BY highest_level DESC, u.username';
+
+    db.all(query, params, (err, rows) => {
+      if (err) {
+        console.error('导出闯关记录失败:', err);
+        return res.status(500).json({ message: '导出闯关记录失败' });
+      }
+
+      // 补充正确率
+      const data = (rows || []).map(row => ({
+        ...row,
+        accuracy: row.total_answers > 0
+          ? Math.round((row.correct_answers / row.total_answers) * 100) + '%'
+          : '0%'
+      }));
+
+      res.json({ success: true, data });
+    });
+  } catch (error) {
+    console.error('导出闯关记录失败:', error);
+    res.status(500).json({ message: '导出闯关记录失败' });
   }
 });
 
