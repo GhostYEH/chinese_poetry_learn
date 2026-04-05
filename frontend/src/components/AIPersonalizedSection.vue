@@ -112,7 +112,10 @@
           </div>
           <div class="analysis-title-group">
             <h3 class="analysis-title">AI 学习分析报告</h3>
-            <p class="analysis-subtitle" v-if="!isNewUser">基于您的专属学习数据生成</p>
+            <p class="analysis-subtitle" v-if="!isNewUser">
+              <span v-if="usingCache" class="cache-badge">已缓存</span>
+              <span v-else>基于您的专属学习数据生成</span>
+            </p>
             <p class="analysis-subtitle" v-else>新用户专属推荐分析</p>
           </div>
           <div class="analysis-refresh" v-if="analysis && !analysisLoading" @click="refreshAnalysis" title="重新生成报告">
@@ -253,6 +256,7 @@ import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import api from '@/services/api'
+import { getCachedAnalysis, setCachedAnalysis } from '@/utils/analysisCache'
 
 export default {
   name: 'AIPersonalizedSection',
@@ -269,6 +273,7 @@ export default {
     const reviewLoading = ref(false)
     const learnLoading = ref(false)
     const analysisLoading = ref(false)
+    const usingCache = ref(false) // 是否使用缓存数据
 
     // 新增：加载动画相关状态
     const loadingProgress = ref(0)
@@ -426,15 +431,22 @@ export default {
       return '保持学习热情，诗词之路虽然漫长，但每一步都是成长！'
     }
 
-    // 刷新分析报告
+    // 刷新分析报告（强制重新获取，绕过缓存）
     const refreshAnalysis = async () => {
       analysisLoading.value = true
       startLoadingAnimation()
       analysis.value = null
+      usingCache.value = false
       try {
-        const result = await api.personalized.getAIAnalysis()
+        const result = await api.personalized.getAIAnalysis(true) // 传入true强制刷新
         if (result?.success) {
           analysis.value = result.data || null
+          // 更新缓存
+          setCachedAnalysis({
+            review: reviewItems.value,
+            learn: learnItems.value,
+            analysis: analysis.value
+          })
         }
       } catch (err) {
         console.warn('AI分析刷新失败:', err)
@@ -465,21 +477,57 @@ export default {
     const fetchDataParallel = async () => {
       if (!userStore.isLoggedIn) return
       
-      const cachedData = getCachedData()
+      // 检查是否有缓存数据
+      const cachedData = getCachedAnalysis()
       if (cachedData) {
+        console.log('[AIPersonalizedSection] 使用缓存数据')
         reviewItems.value = cachedData.review || []
         learnItems.value = cachedData.learn || []
         analysis.value = cachedData.analysis || null
+        usingCache.value = true
+        // 异步更新数据（不阻塞显示）
+        fetchDataInBackground()
         return
       }
       
       error.value = ''
       errorHint.value = ''
+      usingCache.value = false
       
       // 并行触发三个独立加载任务，互不等待
       fetchReviewSection()
       fetchLearnSection()
       fetchAnalysisSection()
+    }
+    
+    // 后台异步更新数据（缓存有效时静默刷新）
+    const fetchDataInBackground = async () => {
+      try {
+        const [reviewResult, learnResult, analysisResult] = await Promise.all([
+          api.personalized.getReviewRecommendations().catch(() => null),
+          api.personalized.getLearnRecommendations().catch(() => null),
+          api.personalized.getAIAnalysis().catch(() => null)
+        ])
+        
+        if (reviewResult?.success) {
+          reviewItems.value = reviewResult.data || []
+        }
+        if (learnResult?.success) {
+          learnItems.value = learnResult.data || []
+        }
+        if (analysisResult?.success) {
+          analysis.value = analysisResult.data || null
+          // 更新缓存
+          setCachedAnalysis({
+            review: reviewItems.value,
+            learn: learnItems.value,
+            analysis: analysis.value
+          })
+        }
+        console.log('[AIPersonalizedSection] 后台数据更新完成')
+      } catch (err) {
+        console.warn('[AIPersonalizedSection] 后台数据更新失败:', err)
+      }
     }
     
     // 独立加载复习推荐模块
@@ -527,6 +575,12 @@ export default {
           // 检查是否是新用户（无数据）
           isNewUser.value = !analysis.value || (analysis.value.stats?.total_learned === 0)
           console.log('[AIPersonalizedSection] AI分析数据已设置:', analysis.value)
+          // 保存到缓存
+          setCachedAnalysis({
+            review: reviewItems.value,
+            learn: learnItems.value,
+            analysis: analysis.value
+          })
         } else {
           console.warn('[AIPersonalizedSection] AI分析返回失败:', result)
           isNewUser.value = true
@@ -599,6 +653,7 @@ export default {
       reviewLoading,
       learnLoading,
       analysisLoading,
+      usingCache,
       fetchDataParallel,
       navigateToDetail,
       getTagClass,
@@ -1584,6 +1639,19 @@ export default {
 .analysis-refresh:hover {
   background: rgba(102, 126, 234, 0.2);
   transform: rotate(180deg);
+}
+
+/* 缓存指示器 */
+.cache-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #4caf50, #8bc34a);
+  color: white;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: 'Noto Sans SC', sans-serif;
 }
 
 /* 加载数据预览 */

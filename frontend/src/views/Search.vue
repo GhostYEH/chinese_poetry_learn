@@ -610,9 +610,9 @@ export default {
       }
       try {
         const res = await fetchWithTimeout(
-          `${getApiOrigin()}/api/poems?page=1&pageSize=600`,
+          `${getApiOrigin()}/api/poems?page=1&pageSize=2000`,
           {},
-          10000,
+          15000,
         );
         const data = await res.json();
         const list = Array.isArray(data) ? data : [];

@@ -9,7 +9,7 @@
       <div class="header-icon">🔗</div>
       <div class="header-text">
         <h2>接龙创作</h2>
-        <p>与AI轮流创作，句句相扣</p>
+        <p>与AI轮流创作，句句相扣，意境连贯</p>
       </div>
     </div>
 
@@ -266,16 +266,22 @@ export default {
       const lastLine = chainLines.value.length > 0
         ? chainLines.value[chainLines.value.length - 1].text
         : '';
-      
+
       const allLinesText = chainLines.value.map(l => l.text);
 
-      emit('submit', {
+      const payload = {
         userLine: lastLine,
-        allLines: allLinesText,
         genre: selectedGenre.value,
         theme: chainTheme.value,
         lineNumber: currentLineNumber.value
-      });
+      };
+
+      // 只有在有历史行时才传 allLines，避免空数组导致后端验证失败
+      if (allLinesText.length > 0) {
+        payload.allLines = allLinesText;
+      }
+
+      emit('submit', payload);
     };
 
     const submitLine = () => {
@@ -325,10 +331,10 @@ export default {
 
     const updateHint = () => {
       const hints = [
-        '注意与上一句形成对仗或呼应',
-        '尝试引入新的意象或情感',
-        '结尾要为下一句留有余地',
-        '注意平仄和押韵'
+        '语义自然承接上句，避免跳脱到无关意象',
+        '注意情感推进：起承转合各有任务',
+        '关注韵脚，全诗同韵部更和谐',
+        '律诗注意对仗，尤其是颔联和颈联'
       ];
 
       if (chainLines.value.length === 0) {

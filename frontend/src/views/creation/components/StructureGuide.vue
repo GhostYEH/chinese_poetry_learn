@@ -1,7 +1,7 @@
 /**
  * 结构引导面板组件
  * Step 2: 结构引导 - 展示诗词结构提示，帮助用户理解写作框架
- * 全面接入AI系统，提供个性化指导
+ * 本地数据驱动，即时加载，根据诗词类型和主题提供精准示例
  */
 <template>
   <div class="structure-guide">
@@ -10,14 +10,14 @@
       <div class="header-icon">🗺️</div>
       <div class="header-text">
         <h2>结构引导</h2>
-        <p>AI为你定制专属写作框架，深度契合创作主题</p>
+        <p>为你定制专属写作框架，深度契合创作主题</p>
       </div>
     </div>
 
     <!-- 加载状态 -->
     <div class="loading-state" v-if="localLoading">
       <div class="loading-spinner-large"></div>
-      <p>AI正在为你生成个性化结构引导...</p>
+      <p>正在加载结构引导...</p>
     </div>
 
     <!-- 结构信息卡片 -->
@@ -177,11 +177,11 @@
     <div class="load-prompt" v-else>
       <div class="prompt-icon">📖</div>
       <h3>了解诗词结构</h3>
-      <p>AI将根据你的主题，生成个性化的写作框架</p>
+      <p>根据你的主题，生成个性化的写作框架</p>
       <button class="load-btn" @click="loadStructure" :disabled="localLoading">
         <span v-if="localLoading" class="loading-spinner"></span>
-        <span v-else>🤖</span>
-        <span>{{ localLoading ? 'AI生成中...' : '获取AI结构引导' }}</span>
+        <span v-else>📖</span>
+        <span>{{ localLoading ? '加载中...' : '获取结构引导' }}</span>
       </button>
     </div>
   </div>
@@ -189,7 +189,383 @@
 
 <script>
 import { ref, watch, onMounted } from 'vue';
-import { api } from '../../../services/api.js';
+
+const GENRE_CONFIG = {
+  '五言绝句': { lines: 4, charactersPerLine: 5 },
+  '七言绝句': { lines: 4, charactersPerLine: 7 },
+  '五言律诗': { lines: 8, charactersPerLine: 5 },
+  '七言律诗': { lines: 8, charactersPerLine: 7 },
+};
+
+const STRUCTURE_EXAMPLES = {
+  '五言绝句': {
+    思乡: {
+      intro: '五言绝句写思乡，以景托情、情景交融。起句从故乡景物或旅途所见切入，承句铺陈离愁，转句宕开写时空之隔，合句以情收束。五字一句，字字精炼。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以月光入笔，营造静谧氛围，暗示夜深人静时的孤独', example: '床前明月光', themeHint: '李白《静夜思》' },
+        { position: '第二句（承）', role: '承', description: '承上写月色如霜，暗示寒意与凄清', example: '疑是地上霜', themeHint: '李白《静夜思》' },
+        { position: '第三句（转）', role: '转', description: '动作转折，由静转动，打破前两句的静态', example: '举头望明月', themeHint: '李白《静夜思》' },
+        { position: '第四句（合）', role: '合', description: '情感收束，点明思乡主题，余韵悠长', example: '低头思故乡', themeHint: '李白《静夜思》' }
+      ],
+      tips: ['以「乡」字为情感内核，把思乡之情寄托在具体景物上', '用空间对比强化乡愁：此处景物与故乡景物形成落差', '善用听觉意象（杜鹃声、羌笛）触发乡情', '结尾可用「归」字或归期意象收束'],
+      rhyme: '思乡诗多押「ang」韵（乡、霜、光等），韵脚洪亮深远',
+      rhymeExamples: ['ang韵：乡、霜、光、望、长', 'an韵：山、关、还、寒、难'],
+      avoid: ['直呼「想家」等空洞情感词而不借景', '把故乡写成完美仙境失去真实感', '首句就写思念，起得太急']
+    },
+    离别: {
+      intro: '五言绝句写离别，以景写情、含而不露。起句交代送别场景，承句铺陈离愁，转句宕开写别后，合句以景结情。五字一句，节奏稳健。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以送别场景入笔，点明地点与氛围', example: '山中相送罢', themeHint: '王维《送别》' },
+        { position: '第二句（承）', role: '承', description: '承接送别，写别后独归的寂寥', example: '日暮掩柴扉', themeHint: '王维《送别》' },
+        { position: '第三句（转）', role: '转', description: '转写明年春草，以景寄托思念', example: '春草明年绿', themeHint: '王维《送别》' },
+        { position: '第四句（合）', role: '合', description: '以问句收束，含蓄表达期盼重逢', example: '王孙归不归', themeHint: '王维《送别》' }
+      ],
+      tips: ['离别起点是景——长亭、古道、渡口、杨柳', '用具体动作代替抽象情感：「执手」「回首」', '转句可宕开写别后或天下普遍之别', '合句以「山高水长」等意象收束'],
+      rhyme: '送别诗常用「ei/ui」韵（归、扉、违等），韵脚悠长',
+      rhymeExamples: ['ei韵：归、扉、违、飞、微', 'i韵：离、期、凄、迷、啼'],
+      avoid: ['起句就哭，还没铺垫就抒情', '意象堆砌却无情感落点', '结尾说「再见」等口语']
+    },
+    春日: {
+      intro: '五言绝句写春日，忌空洞赞春。起句从一花一草切入，承句展开春意，转句写春之短暂，合句以情收束。五字一句，字字精炼。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以春眠入笔，写春日慵懒惬意', example: '春眠不觉晓', themeHint: '孟浩然《春晓》' },
+        { position: '第二句（承）', role: '承', description: '承接春眠，写清晨鸟鸣的生机', example: '处处闻啼鸟', themeHint: '孟浩然《春晓》' },
+        { position: '第三句（转）', role: '转', description: '转写夜雨，打破白日的明朗', example: '夜来风雨声', themeHint: '孟浩然《春晓》' },
+        { position: '第四句（合）', role: '合', description: '以落花收束，感叹春光易逝', example: '花落知多少', themeHint: '孟浩然《春晓》' }
+      ],
+      tips: ['写春不写春字：借「柳绿」「桃红」让春意自现', '动静结合：蜂蝶忙而人静', '转句可引入「春将尽」「落花」', '结尾可宕入人事增加生活气息'],
+      rhyme: '咏春常用「ao」韵（晓、鸟、少等），韵脚明快',
+      rhymeExamples: ['ao韵：晓、鸟、少、早、好', 'an韵：天、山、烟、寒、斓'],
+      avoid: ['开篇就是「春天真美」等空洞感叹', '把所有春日意象全塞进去', '只有景没有情']
+    },
+    山水: {
+      intro: '五言绝句写山水，山高水长、境随心转。起句从具体景观切入，承句移步换景，转句借山水言志，合句留白深远。五字一句，意境空灵。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以空山入笔，营造幽静氛围', example: '空山不见人', themeHint: '王维《鹿柴》' },
+        { position: '第二句（承）', role: '承', description: '承接空山，写人语声反衬寂静', example: '但闻人语响', themeHint: '王维《鹿柴》' },
+        { position: '第三句（转）', role: '转', description: '转写光影，以动写静', example: '返景入深林', themeHint: '王维《鹿柴》' },
+        { position: '第四句（合）', role: '合', description: '以青苔收束，留白深远', example: '复照青苔上', themeHint: '王维《鹿柴》' }
+      ],
+      tips: ['以动写静：「鸟鸣山更幽」更有张力', '远近层次：近处细草，远处孤云', '转句可引入「人」衬山之静', '结尾留白：「独坐」「忘言」更耐读'],
+      rhyme: '山水诗常用「ang」韵（响、上等），韵致幽深',
+      rhymeExamples: ['ang韵：响、上、苍、茫、长', 'e韵：色、壑、泽、白、鹤'],
+      avoid: ['按游记顺序罗列山名水名', '全诗只有山水没有「我」', '结尾强行升华']
+    },
+    怀古: {
+      intro: '五言绝句写怀古，借古讽今、寄意深远。起句从古迹切入，承句回顾历史，转句宕开感慨，合句以理收束。五字一句，发人深省。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以怀古入笔，点明古迹', example: '此地别燕丹', themeHint: '骆宾王《于易水送人》' },
+        { position: '第二句（承）', role: '承', description: '承接古迹，写壮士发冲冠的悲壮', example: '壮士发冲冠', themeHint: '骆宾王《于易水送人》' },
+        { position: '第三句（转）', role: '转', description: '转写昔时人已没，以古衬今', example: '昔时人已没', themeHint: '骆宾王《于易水送人》' },
+        { position: '第四句（合）', role: '合', description: '以今日水犹寒收束，感慨今昔', example: '今日水犹寒', themeHint: '骆宾王《于易水送人》' }
+      ],
+      tips: ['选好角度：以小见大', '古今对比：在「变与不变」中找立意', '转句宕开议论，点明主旨', '结尾可用反问增加思辨'],
+      rhyme: '怀古常用「an」韵（丹、冠、寒等），声调铿锵',
+      rhymeExamples: ['an韵：丹、冠、寒、难、还', 'ia韵：霞、遐、夸、槎'],
+      avoid: ['写成历史复述没有感慨', '堆砌古人古事无统一主题', '结尾说教味太重']
+    },
+    边塞: {
+      intro: '五言绝句写边塞，苍凉悲壮、气势雄浑。起句从边关景象切入，承句写戍边艰辛，转句宕开写思乡或壮志，合句以景结情。五字一句，慷慨激昂。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以月黑雁飞入笔，写边塞夜色', example: '月黑雁飞高', themeHint: '卢纶《塞下曲》' },
+        { position: '第二句（承）', role: '承', description: '承接夜景，写敌军夜遁的紧张', example: '单于夜遁逃', themeHint: '卢纶《塞下曲》' },
+        { position: '第三句（转）', role: '转', description: '转写欲将轻骑逐，以动写静', example: '欲将轻骑逐', themeHint: '卢纶《塞下曲》' },
+        { position: '第四句（合）', role: '合', description: '以大雪满弓刀收束，写边塞苦寒', example: '大雪满弓刀', themeHint: '卢纶《塞下曲》' }
+      ],
+      tips: ['以边关意象入笔：月黑、雁飞、大雪、弓刀', '写戍边艰辛而不失壮志', '转句可写追击或思乡', '合句以景结情，苍凉悲壮'],
+      rhyme: '边塞诗常用「ao」韵（高、逃、刀等），声调铿锵',
+      rhymeExamples: ['ao韵：高、逃、刀、劳、豪', 'ang韵：苍、茫、长、凉、阳'],
+      avoid: ['只写苦寒没有壮志', '堆砌边塞意象无情感', '结尾过于悲观']
+    },
+    田园: {
+      intro: '五言绝句写田园，恬淡自然、闲适悠远。起句从田园生活切入，承句写农事或闲居，转句宕开写心境，合句以景结情。五字一句，清新淡雅。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以田园生活入笔，点明场景', example: '种豆南山下', themeHint: '陶渊明《归园田居》' },
+        { position: '第二句（承）', role: '承', description: '承接农事，写劳作的艰辛', example: '草盛豆苗稀', themeHint: '陶渊明《归园田居》' },
+        { position: '第三句（转）', role: '转', description: '转写晨兴暮归，以动写静', example: '晨兴理荒秽', themeHint: '陶渊明《归园田居》' },
+        { position: '第四句（合）', role: '合', description: '以带月归收束，写田园之乐', example: '带月荷锄归', themeHint: '陶渊明《归园田居》' }
+      ],
+      tips: ['以田园意象入笔：豆苗、锄头、月光', '写农事艰辛而不失闲适', '转句可写心境或自然', '合句以景结情，恬淡悠远'],
+      rhyme: '田园诗常用「i」韵（稀、归等），韵致清新',
+      rhymeExamples: ['i韵：稀、归、衣、飞、微', 'ei韵：归、扉、违、飞'],
+      avoid: ['只写劳作没有闲适', '堆砌田园意象无情感', '结尾过于沉重']
+    },
+    咏物: {
+      intro: '五言绝句写咏物，托物言志、借物抒情。起句从物象特征切入，承句铺陈描写，转句宕开写寓意，合句点明主旨。五字一句，形神兼备。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以物象特征入笔，点明描写对象', example: '垂緌饮清露', themeHint: '虞世南《蝉》' },
+        { position: '第二句（承）', role: '承', description: '承接物象，写其高洁姿态', example: '流响出疏桐', themeHint: '虞世南《蝉》' },
+        { position: '第三句（转）', role: '转', description: '转写居高声远，以物喻人', example: '居高声自远', themeHint: '虞世南《蝉》' },
+        { position: '第四句（合）', role: '合', description: '以非藉秋风收束，点明品格', example: '非是藉秋风', themeHint: '虞世南《蝉》' }
+      ],
+      tips: ['以物象特征入笔：形、色、声、态', '写物之形更要传其神', '转句以物喻人，托物言志', '合句点明主旨，借物抒情'],
+      rhyme: '咏物诗常用「ong」韵（桐、风等），韵致清越',
+      rhymeExamples: ['ong韵：桐、风、空、中、同', 'eng韵：声、清、明、生、情'],
+      avoid: ['只写物象没有寓意', '堆砌描写无情感寄托', '结尾过于直白']
+    }
+  },
+  '七言绝句': {
+    思乡: {
+      intro: '七言绝句写思乡，以景托情、情景交融。起句从故乡景物或旅途所见切入，承句铺陈离愁，转句宕开写时空之隔，合句以情收束。七字一句，意境开阔。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以日暮乡关入笔，营造苍茫氛围', example: '日暮乡关何处是', themeHint: '崔颢《黄鹤楼》' },
+        { position: '第二句（承）', role: '承', description: '承接乡关，写烟波江上的愁绪', example: '烟波江上使人愁', themeHint: '崔颢《黄鹤楼》' },
+        { position: '第三句（转）', role: '转', description: '转写黄鹤一去，以古衬今', example: '黄鹤一去不复返', themeHint: '崔颢《黄鹤楼》' },
+        { position: '第四句（合）', role: '合', description: '以白云千载收束，感慨时空', example: '白云千载空悠悠', themeHint: '崔颢《黄鹤楼》' }
+      ],
+      tips: ['以「乡」字为情感内核，寄托在具体景物上', '用空间对比强化乡愁', '善用听觉意象触发乡情', '结尾可用「归」字意象收束'],
+      rhyme: '思乡诗多押「ou」韵（愁、悠等），韵脚悠长',
+      rhymeExamples: ['ou韵：愁、悠、楼、舟、流', 'an韵：山、关、还、寒、难'],
+      avoid: ['直呼「想家」等空洞情感词', '把故乡写成完美仙境', '首句就写思念，起得太急']
+    },
+    离别: {
+      intro: '七言绝句写离别，以景写情、含而不露。起句交代送别场景，承句铺陈离愁，转句宕开写别后，合句以景结情。七字一句，情意绵长。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以渭城朝雨入笔，点明送别场景', example: '渭城朝雨浥轻尘', themeHint: '王维《渭城曲》' },
+        { position: '第二句（承）', role: '承', description: '承接送别，写客舍青青的清新', example: '客舍青青柳色新', themeHint: '王维《渭城曲》' },
+        { position: '第三句（转）', role: '转', description: '转写劝酒，以动作写情', example: '劝君更尽一杯酒', themeHint: '王维《渭城曲》' },
+        { position: '第四句（合）', role: '合', description: '以西出阳关收束，感慨别离', example: '西出阳关无故人', themeHint: '王维《渭城曲》' }
+      ],
+      tips: ['离别起点是景——长亭、古道、渡口', '用具体动作代替抽象情感', '转句可宕开写别后', '合句以景结情，余韵绵长'],
+      rhyme: '送别诗常用「en/in」韵（尘、新、人等），韵脚悠长',
+      rhymeExamples: ['en韵：尘、人、春、门、痕', 'in韵：新、人、亲、邻、频'],
+      avoid: ['起句就哭，还没铺垫就抒情', '意象堆砌却无情感落点', '结尾说「再见」等口语']
+    },
+    春日: {
+      intro: '七言绝句写春日，忌空洞赞春。起句从一花一草切入，承句展开春意，转句写春之短暂，合句以情收束。七字一句，生机盎然。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以两个黄鹂入笔，写春日生机', example: '两个黄鹂鸣翠柳', themeHint: '杜甫《绝句》' },
+        { position: '第二句（承）', role: '承', description: '承接春景，写一行白鹭的灵动', example: '一行白鹭上青天', themeHint: '杜甫《绝句》' },
+        { position: '第三句（转）', role: '转', description: '转写窗含西岭，以静写动', example: '窗含西岭千秋雪', themeHint: '杜甫《绝句》' },
+        { position: '第四句（合）', role: '合', description: '以门泊东吴收束，写春日闲适', example: '门泊东吴万里船', themeHint: '杜甫《绝句》' }
+      ],
+      tips: ['写春不写春字：借具体意象让春意自现', '动静结合：蜂蝶忙而人静', '转句可引入「春将尽」「落花」', '结尾可宕入人事增加生活气息'],
+      rhyme: '咏春常用「an」韵（天、船等），韵脚明快',
+      rhymeExamples: ['an韵：天、船、山、烟、寒', 'ang韵：长、香、忙、苍、妆'],
+      avoid: ['开篇就是「春天真美」等空洞感叹', '把所有春日意象全塞进去', '只有景没有情']
+    },
+    山水: {
+      intro: '七言绝句写山水，山高水长、境随心转。起句从具体景观切入，承句移步换景，转句借山水言志，合句留白深远。七字一句，气势磅礴。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以朝辞白帝入笔，写清晨启程', example: '朝辞白帝彩云间', themeHint: '李白《早发白帝城》' },
+        { position: '第二句（承）', role: '承', description: '承接启程，写千里江陵的迅疾', example: '千里江陵一日还', themeHint: '李白《早发白帝城》' },
+        { position: '第三句（转）', role: '转', description: '转写猿声，以声衬景', example: '两岸猿声啼不住', themeHint: '李白《早发白帝城》' },
+        { position: '第四句（合）', role: '合', description: '以轻舟过万山收束，写畅快心境', example: '轻舟已过万重山', themeHint: '李白《早发白帝城》' }
+      ],
+      tips: ['以动写静：「鸟鸣山更幽」更有张力', '远近层次：近处细草，远处孤云', '转句可引入「人」衬山之静', '结尾留白：「独坐」「忘言」更耐读'],
+      rhyme: '山水诗常用「an」韵（间、还、山等），韵致幽深',
+      rhymeExamples: ['an韵：间、还、山、关、寒', 'ian韵：天、烟、前、边、连'],
+      avoid: ['按游记顺序罗列山名水名', '全诗只有山水没有「我」', '结尾强行升华']
+    },
+    怀古: {
+      intro: '七言绝句写怀古，借古讽今、寄意深远。起句从古迹切入，承句回顾历史，转句宕开感慨，合句以理收束。七字一句，发人深省。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以烟笼寒水入笔，点明怀古场景', example: '烟笼寒水月笼沙', themeHint: '杜牧《泊秦淮》' },
+        { position: '第二句（承）', role: '承', description: '承接夜景，写夜泊秦淮的寂寥', example: '夜泊秦淮近酒家', themeHint: '杜牧《泊秦淮》' },
+        { position: '第三句（转）', role: '转', description: '转写商女，以歌写史', example: '商女不知亡国恨', themeHint: '杜牧《泊秦淮》' },
+        { position: '第四句（合）', role: '合', description: '以隔江犹唱收束，感慨今昔', example: '隔江犹唱后庭花', themeHint: '杜牧《泊秦淮》' }
+      ],
+      tips: ['选好角度：以小见大', '古今对比：在「变与不变」中找立意', '转句宕开议论，点明主旨', '结尾可用反问增加思辨'],
+      rhyme: '怀古常用「a」韵（沙、家、花等），声调铿锵',
+      rhymeExamples: ['a韵：沙、家、花、斜、嗟', 'ia韵：霞、遐、夸、槎'],
+      avoid: ['写成历史复述没有感慨', '堆砌古人古事无统一主题', '结尾说教味太重']
+    },
+    边塞: {
+      intro: '七言绝句写边塞，苍凉悲壮、气势雄浑。起句从边关景象切入，承句写戍边艰辛，转句宕开写思乡或壮志，合句以景结情。七字一句，慷慨激昂。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以秦时明月入笔，写边关苍凉', example: '秦时明月汉时关', themeHint: '王昌龄《出塞》' },
+        { position: '第二句（承）', role: '承', description: '承接边塞，写万里长征的艰辛', example: '万里长征人未还', themeHint: '王昌龄《出塞》' },
+        { position: '第三句（转）', role: '转', description: '转写龙城飞将，以古衬今', example: '但使龙城飞将在', themeHint: '王昌龄《出塞》' },
+        { position: '第四句（合）', role: '合', description: '以不教胡马收束，点明壮志', example: '不教胡马度阴山', themeHint: '王昌龄《出塞》' }
+      ],
+      tips: ['以边关意象入笔：明月、关山、烽火', '写戍边艰辛而不失壮志', '转句可写思乡或壮志', '合句以景结情，苍凉悲壮'],
+      rhyme: '边塞诗常用「an」韵（关、还、山等），声调铿锵',
+      rhymeExamples: ['an韵：关、还、山、寒、难', 'ang韵：苍、茫、长、凉、阳'],
+      avoid: ['只写苦寒没有壮志', '堆砌边塞意象无情感', '结尾过于悲观']
+    },
+    田园: {
+      intro: '七言绝句写田园，恬淡自然、闲适悠远。起句从田园生活切入，承句写农事或闲居，转句宕开写心境，合句以景结情。七字一句，清新淡雅。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以草长莺飞入笔，写春日田园', example: '草长莺飞二月天', themeHint: '高鼎《村居》' },
+        { position: '第二句（承）', role: '承', description: '承接春景，写拂堤杨柳的生机', example: '拂堤杨柳醉春烟', themeHint: '高鼎《村居》' },
+        { position: '第三句（转）', role: '转', description: '转写儿童，以人衬景', example: '儿童散学归来早', themeHint: '高鼎《村居》' },
+        { position: '第四句（合）', role: '合', description: '以忙趁东风收束，写田园之乐', example: '忙趁东风放纸鸢', themeHint: '高鼎《村居》' }
+      ],
+      tips: ['以田园意象入笔：草长、莺飞、杨柳', '写农事艰辛而不失闲适', '转句可写心境或自然', '合句以景结情，恬淡悠远'],
+      rhyme: '田园诗常用「an」韵（天、烟、鸢等），韵致清新',
+      rhymeExamples: ['an韵：天、烟、鸢、山、田', 'ian韵：天、烟、鸢、边、前'],
+      avoid: ['只写劳作没有闲适', '堆砌田园意象无情感', '结尾过于沉重']
+    },
+    咏物: {
+      intro: '七言绝句写咏物，托物言志、借物抒情。起句从物象特征切入，承句铺陈描写，转句宕开写寓意，合句点明主旨。七字一句，形神兼备。',
+      structure: [
+        { position: '第一句（起）', role: '起', description: '以物象特征入笔，点明描写对象', example: '千锤万凿出深山', themeHint: '于谦《石灰吟》' },
+        { position: '第二句（承）', role: '承', description: '承接物象，写其坚韧品质', example: '烈火焚烧若等闲', themeHint: '于谦《石灰吟》' },
+        { position: '第三句（转）', role: '转', description: '转写粉骨碎身，以物喻人', example: '粉骨碎身浑不怕', themeHint: '于谦《石灰吟》' },
+        { position: '第四句（合）', role: '合', description: '以留清白收束，点明品格', example: '要留清白在人间', themeHint: '于谦《石灰吟》' }
+      ],
+      tips: ['以物象特征入笔：形、色、声、态', '写物之形更要传其神', '转句以物喻人，托物言志', '合句点明主旨，借物抒情'],
+      rhyme: '咏物诗常用「an」韵（山、闲、间等），韵致清越',
+      rhymeExamples: ['an韵：山、闲、间、颜、艰', 'ian韵：间、颜、艰、山、闲'],
+      avoid: ['只写物象没有寓意', '堆砌描写无情感寄托', '结尾过于直白']
+    }
+  },
+  '五言律诗': {
+    思乡: {
+      intro: '五言律诗写思乡，以景托情、情景交融。八句分四联：首联起笔，颔联承接，颈联转折，尾联收束。五字一句，对仗工整，格律严谨。',
+      structure: [
+        { position: '首联（起）', role: '起', description: '以国破山河入笔，营造苍凉氛围', example: '国破山河在', themeHint: '杜甫《春望》' },
+        { position: '首联（起）', role: '起', description: '承接首句，写城春草木的荒芜', example: '城春草木深', themeHint: '杜甫《春望》' },
+        { position: '颔联（承）', role: '承', description: '以感时花溅泪承接，情景交融', example: '感时花溅泪', themeHint: '杜甫《春望》' },
+        { position: '颔联（承）', role: '承', description: '承接颔联，写恨别鸟惊心的愁绪', example: '恨别鸟惊心', themeHint: '杜甫《春望》' },
+        { position: '颈联（转）', role: '转', description: '转写烽火连三月，以时写情', example: '烽火连三月', themeHint: '杜甫《春望》' },
+        { position: '颈联（转）', role: '转', description: '承接颈联，写家书抵万金的珍贵', example: '家书抵万金', themeHint: '杜甫《春望》' },
+        { position: '尾联（合）', role: '合', description: '以白头搔更短收束，写愁苦之态', example: '白头搔更短', themeHint: '杜甫《春望》' },
+        { position: '尾联（合）', role: '合', description: '以浑欲不胜簪收束，点明思乡之苦', example: '浑欲不胜簪', themeHint: '杜甫《春望》' }
+      ],
+      tips: ['首联点题，营造氛围', '颔联承接，对仗工整', '颈联转折，情感深化', '尾联收束，余韵悠长'],
+      rhyme: '五律押韵在二、四、六、八句末，首句可押可不押',
+      rhymeExamples: ['深、心、金、簪（en/in韵）', '韵脚要平声，对仗要工整'],
+      avoid: ['颔联颈联不对仗', '格律不严谨', '情感没有层次']
+    },
+    离别: {
+      intro: '五言律诗写离别，以景写情、含而不露。八句分四联，首联起笔，颔联承接，颈联转折，尾联收束。五字一句，情意绵长。',
+      structure: [
+        { position: '首联（起）', role: '起', description: '以相送入笔，点明送别场景', example: '相送情无限', themeHint: '通用离别诗' },
+        { position: '首联（起）', role: '起', description: '承接首句，写沾巾的离愁', example: '沾巾此路歧', themeHint: '通用离别诗' },
+        { position: '颔联（承）', role: '承', description: '以风尘承接，写旅途艰辛', example: '风尘何处客', themeHint: '通用离别诗' },
+        { position: '颔联（承）', role: '承', description: '承接颔联，写江汉的辽远', example: '江汉别离时', themeHint: '通用离别诗' },
+        { position: '颈联（转）', role: '转', description: '转写云山，以景写情', example: '云山从此隔', themeHint: '通用离别诗' },
+        { position: '颈联（转）', role: '转', description: '承接颈联，写音信的渺茫', example: '音信自难期', themeHint: '通用离别诗' },
+        { position: '尾联（合）', role: '合', description: '以相望收束，写别后思念', example: '但令心似水', themeHint: '通用离别诗' },
+        { position: '尾联（合）', role: '合', description: '以万里收束，点明情深', example: '万里共清辉', themeHint: '通用离别诗' }
+      ],
+      tips: ['首联点题，营造氛围', '颔联承接，对仗工整', '颈联转折，情感深化', '尾联收束，余韵悠长'],
+      rhyme: '五律押韵在二、四、六、八句末',
+      rhymeExamples: ['歧、时、期、辉（i韵）', '韵脚要平声，对仗要工整'],
+      avoid: ['颔联颈联不对仗', '格律不严谨', '情感没有层次']
+    },
+    山水: {
+      intro: '五言律诗写山水，山高水长、境随心转。八句分四联，首联起笔，颔联承接，颈联转折，尾联收束。五字一句，意境空灵。',
+      structure: [
+        { position: '首联（起）', role: '起', description: '以空山入笔，营造幽静氛围', example: '空山新雨后', themeHint: '王维《山居秋暝》' },
+        { position: '首联（起）', role: '起', description: '承接首句，写天气晚来秋的清凉', example: '天气晚来秋', themeHint: '王维《山居秋暝》' },
+        { position: '颔联（承）', role: '承', description: '以明月松间照承接，写山间夜景', example: '明月松间照', themeHint: '王维《山居秋暝》' },
+        { position: '颔联（承）', role: '承', description: '承接颔联，写清泉石上流的灵动', example: '清泉石上流', themeHint: '王维《山居秋暝》' },
+        { position: '颈联（转）', role: '转', description: '转写竹喧归浣女，以人衬景', example: '竹喧归浣女', themeHint: '王维《山居秋暝》' },
+        { position: '颈联（转）', role: '转', description: '承接颈联，写莲动下渔舟的生机', example: '莲动下渔舟', themeHint: '王维《山居秋暝》' },
+        { position: '尾联（合）', role: '合', description: '以随意春芳歇收束，写心境', example: '随意春芳歇', themeHint: '王维《山居秋暝》' },
+        { position: '尾联（合）', role: '合', description: '以王孙自可留收束，点明归隐', example: '王孙自可留', themeHint: '王维《山居秋暝》' }
+      ],
+      tips: ['首联点题，营造氛围', '颔联承接，对仗工整', '颈联转折，情感深化', '尾联收束，余韵悠长'],
+      rhyme: '五律押韵在二、四、六、八句末',
+      rhymeExamples: ['秋、流、舟、留（iu/ou韵）', '韵脚要平声，对仗要工整'],
+      avoid: ['颔联颈联不对仗', '格律不严谨', '情感没有层次']
+    }
+  },
+  '七言律诗': {
+    思乡: {
+      intro: '七言律诗写思乡，以景托情、情景交融。八句分四联：首联起笔，颔联承接，颈联转折，尾联收束。七字一句，对仗工整，格律严谨。',
+      structure: [
+        { position: '首联（起）', role: '起', description: '以风急天高入笔，营造苍凉氛围', example: '风急天高猿啸哀', themeHint: '杜甫《登高》' },
+        { position: '首联（起）', role: '起', description: '承接首句，写渚清沙白的寥廓', example: '渚清沙白鸟飞回', themeHint: '杜甫《登高》' },
+        { position: '颔联（承）', role: '承', description: '以无边落木承接，写秋景萧瑟', example: '无边落木萧萧下', themeHint: '杜甫《登高》' },
+        { position: '颔联（承）', role: '承', description: '承接颔联，写不尽长江的壮阔', example: '不尽长江滚滚来', themeHint: '杜甫《登高》' },
+        { position: '颈联（转）', role: '转', description: '转写万里悲秋，以情写景', example: '万里悲秋常作客', themeHint: '杜甫《登高》' },
+        { position: '颈联（转）', role: '转', description: '承接颈联，写百年多病的愁苦', example: '百年多病独登台', themeHint: '杜甫《登高》' },
+        { position: '尾联（合）', role: '合', description: '以艰难苦恨收束，写人生感慨', example: '艰难苦恨繁霜鬓', themeHint: '杜甫《登高》' },
+        { position: '尾联（合）', role: '合', description: '以潦倒新停收束，点明思乡之苦', example: '潦倒新停浊酒杯', themeHint: '杜甫《登高》' }
+      ],
+      tips: ['首联点题，营造氛围', '颔联承接，对仗工整', '颈联转折，情感深化', '尾联收束，余韵悠长'],
+      rhyme: '七律押韵在二、四、六、八句末，首句可押可不押',
+      rhymeExamples: ['哀、回、来、台、杯（ai/ei韵）', '韵脚要平声，对仗要工整'],
+      avoid: ['颔联颈联不对仗', '格律不严谨', '情感没有层次']
+    },
+    离别: {
+      intro: '七言律诗写离别，以景写情、含而不露。八句分四联，首联起笔，颔联承接，颈联转折，尾联收束。七字一句，情意绵长。',
+      structure: [
+        { position: '首联（起）', role: '起', description: '以城阙辅三秦入笔，点明送别场景', example: '城阙辅三秦', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '首联（起）', role: '起', description: '承接首句，写风烟望五津的辽远', example: '风烟望五津', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '颔联（承）', role: '承', description: '以与君离别意承接，写离情', example: '与君离别意', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '颔联（承）', role: '承', description: '承接颔联，写同是宦游人的感慨', example: '同是宦游人', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '颈联（转）', role: '转', description: '转写海内存知己，以理写情', example: '海内存知己', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '颈联（转）', role: '转', description: '承接颈联，写天涯若比邻的豁达', example: '天涯若比邻', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '尾联（合）', role: '合', description: '以无为在歧路收束，写别后', example: '无为在歧路', themeHint: '王勃《送杜少府之任蜀州》' },
+        { position: '尾联（合）', role: '合', description: '以儿女共沾巾收束，点明洒脱', example: '儿女共沾巾', themeHint: '王勃《送杜少府之任蜀州》' }
+      ],
+      tips: ['首联点题，营造氛围', '颔联承接，对仗工整', '颈联转折，情感深化', '尾联收束，余韵悠长'],
+      rhyme: '七律押韵在二、四、六、八句末',
+      rhymeExamples: ['津、人、邻、巾（in/en韵）', '韵脚要平声，对仗要工整'],
+      avoid: ['颔联颈联不对仗', '格律不严谨', '情感没有层次']
+    },
+    山水: {
+      intro: '七言律诗写山水，山高水长、境随心转。八句分四联，首联起笔，颔联承接，颈联转折，尾联收束。七字一句，气势磅礴。',
+      structure: [
+        { position: '首联（起）', role: '起', description: '以孤山寺北入笔，点明游览地点', example: '孤山寺北贾亭西', themeHint: '白居易《钱塘湖春行》' },
+        { position: '首联（起）', role: '起', description: '承接首句，写水面初平的春景', example: '水面初平云脚低', themeHint: '白居易《钱塘湖春行》' },
+        { position: '颔联（承）', role: '承', description: '以几处早莺承接，写春日生机', example: '几处早莺争暖树', themeHint: '白居易《钱塘湖春行》' },
+        { position: '颔联（承）', role: '承', description: '承接颔联，写谁家新燕的灵动', example: '谁家新燕啄春泥', themeHint: '白居易《钱塘湖春行》' },
+        { position: '颈联（转）', role: '转', description: '转写乱花渐欲，以景写情', example: '乱花渐欲迷人眼', themeHint: '白居易《钱塘湖春行》' },
+        { position: '颈联（转）', role: '转', description: '承接颈联，写浅草才能的春意', example: '浅草才能没马蹄', themeHint: '白居易《钱塘湖春行》' },
+        { position: '尾联（合）', role: '合', description: '以最爱湖东收束，写游览之乐', example: '最爱湖东行不足', themeHint: '白居易《钱塘湖春行》' },
+        { position: '尾联（合）', role: '合', description: '以绿杨阴里收束，点明留恋', example: '绿杨阴里白沙堤', themeHint: '白居易《钱塘湖春行》' }
+      ],
+      tips: ['首联点题，营造氛围', '颔联承接，对仗工整', '颈联转折，情感深化', '尾联收束，余韵悠长'],
+      rhyme: '七律押韵在二、四、六、八句末',
+      rhymeExamples: ['西、低、泥、蹄、堤（i韵）', '韵脚要平声，对仗要工整'],
+      avoid: ['颔联颈联不对仗', '格律不严谨', '情感没有层次']
+    }
+  }
+};
+
+function buildStructureData(genre, theme, keywords, mood) {
+  const config = GENRE_CONFIG[genre] || { lines: 4, charactersPerLine: 5 };
+  const t = theme || '';
+  const kw = keywords || [];
+
+  let matchedTheme = null;
+  const genreExamples = STRUCTURE_EXAMPLES[genre] || STRUCTURE_EXAMPLES['五言绝句'];
+  
+  const themeKeys = ['思乡', '离别', '春日', '山水', '怀古', '边塞', '田园', '咏物'];
+  for (const key of themeKeys) {
+    if (t.includes(key) || kw.some(k => k.includes(key))) {
+      matchedTheme = key;
+      break;
+    }
+  }
+  
+  if (!matchedTheme) {
+    if (t.includes('秋') || t.includes('月')) matchedTheme = '思乡';
+    else if (t.includes('送') || t.includes('别')) matchedTheme = '离别';
+    else if (t.includes('春') || t.includes('花')) matchedTheme = '春日';
+    else if (t.includes('山') || t.includes('水') || t.includes('江')) matchedTheme = '山水';
+    else matchedTheme = '山水';
+  }
+
+  const themeData = genreExamples[matchedTheme] || genreExamples['山水'];
+
+  return {
+    name: genre,
+    lines: config.lines,
+    charactersPerLine: config.charactersPerLine,
+    rhymeScheme: config.charactersPerLine === 5 ? '二四句押韵' : '二四句押韵',
+    introduction: themeData.intro,
+    structure: themeData.structure,
+    tips: themeData.tips,
+    rhyme: themeData.rhyme,
+    rhymeExamples: themeData.rhymeExamples,
+    keywordSuggestions: kw.slice(0, 3).map(kwItem => ({
+      keyword: kwItem,
+      usage: `「${kwItem}」适合用在承句或转句中，配合其他意象共同呈现主题`
+    })),
+    avoid: themeData.avoid || ['直接抒发抽象情感而不借助具体意象', '堆砌意象却没有情感主线', '四句都在一个层面，缺乏起伏'],
+    advancedTips: [
+      '以动写静手法——用具体动态反衬主题的静谧感',
+      '虚实相生——眼前实景与心中虚景交织',
+      '对写法——从对方视角写，增强情感张力'
+    ]
+  };
+}
 
 export default {
   name: 'StructureGuide',
@@ -216,188 +592,21 @@ export default {
     const structure = ref(null);
     const localLoading = ref(false);
 
-    // 根据主题关键词匹配相关诗词范例和建议
-    const buildThemeFallback = (theme, genre, keywords, mood) => {
-      const t = theme || '';
-      const kw = keywords || [];
-      const kwStr = kw.join('、');
-      const charCount = genre.includes('七') ? 7 : 5;
-      const lineCount = genre.includes('律诗') ? 8 : 4;
-      const moodLabel = mood || '含蓄内敛';
-
-      // 主题匹配表：关键词 → 个性化数据
-      const themeMap = {
-        思乡: {
-          intro: `${genre}写思乡，讲究以景托情、情景交融。起句常从故乡景物或旅途所见切入，承句层层铺陈离愁，转句宕开一笔写时空之隔，合句以情语收束、余韵悠长。注意${charCount}字一句的节奏。`,
-          examples: [['日暮乡关何处是', '崔颢《黄鹤楼》'], ['烽火连三月', '杜甫《春望》'], ['独在异乡为异客', '王维《九月九日忆山东兄弟》'], ['春风又绿江南岸', '王安石《泊船瓜洲》']],
-          tips: [`以「乡」字为情感内核，把思乡之情寄托在具体景物上，避免直接喊「我想家」`, `用空间对比强化乡愁：此处景物 vs 故乡景物，形成情感落差`, `善用听觉意象（如杜鹃声、羌笛）触发乡情，比视觉意象更能穿透距离`, `结尾可用「归」字或归期意象收束，给读者留下期待感`],
-          rhyme: '思乡诗多押「an/iang」韵（关、山、还、船等），韵脚洪亮深远，契合旷远意境',
-          rhymeEx: ['an韵：关、山、烟、寒、难', 'iang韵：乡、望、长、苍、茫'],
-          avoid: ['直呼「想家」「思乡」等空洞情感词而不借景', '把故乡写成完美无缺的仙境，失去真实感', '首句就写思念，起得太急失去回味空间']
-        },
-        离别: {
-          intro: `${genre}写离别，核心在于「以景写情、含而不露」。起句交代送别场景，承句铺陈离愁别绪，转句宕开写别后想象或劝慰，合句以景结情、余韵绵长。字数${charCount}字/句，节奏要稳。`,
-          examples: [['海内存知己', '王勃《送杜少府之任蜀州》'], ['劝君更尽一杯酒', '王维《渭城曲》'], ['莫愁前路无知己', '高适《别董大》'], ['洛阳亲友如相问', '王昌龄《芙蓉楼送辛渐》']],
-          tips: [`离别起点不是人而是景——长亭、古道、渡口、杨柳，先把空间感铺出来`, `用具体动作代替抽象情感：「执手」「泪沾巾」「回首」比「我很悲伤」更有画面`, `转句可宕开一笔写别后：或想象对方旅途，或转写天下普遍之别，扩大格局`, `合句以「山高水长」「后会有期」等意象收束，避免哭哭啼啼`],
-          rhyme: '送别诗常用「i/ing」韵（西、啼、丝、期等），韵脚轻柔悠长，契合离别意境',
-          rhymeEx: ['i韵：西、期、凄、迷、啼', 'ing韵：行、程、亭、声、清'],
-          avoid: ['起句就哭，还没铺垫就抒情，太直白', '意象堆砌过长亭古道却无情感落点', '结尾说「再见」「保重」等口语，破坏诗意']
-        },
-        春日: {
-          intro: `${genre}写春日，忌空洞赞春、堆砌好词。起句可从一花一草切入，承句层层展开春意，转句可写春之短暂或引出人事，合句以情收束。注意${charCount}字一句，字字精炼。`,
-          examples: [['春眠不觉晓', '孟浩然《春晓》'], ['两个黄鹂鸣翠柳', '杜甫《绝句》'], ['草长莺飞二月天', '高鼎《村居》'], ['春风又绿江南岸', '王安石《泊船瓜洲》']],
-          tips: [`写春不写春字：借「柳绿」「桃红」「燕归」「冰融」等具体意象让春意自己显现`, `动静结合：蜂蝶忙而人静、风吹草动而云闲，以动衬静或以静显动`, `转句可引入「春将尽」「落花」「春雨」等转折意象，增加层次`, `结尾可宕入人事：春日里的思念、孩童、耕种，增加生活气息`],
-          rhyme: '咏春常用「an」韵（天、山、烟、寒等），an韵明亮开阔，契合春日气息',
-          rhymeEx: ['an韵：天、山、烟、寒、斓', 'ang韵：长、香、忙、苍、妆'],
-          avoid: ['开篇就是「春天真美」「春光明媚」等空洞感叹', '把所有春日意象（春风春雨春花春鸟）全塞进去，没有重点', '只有景没有情，写成春日天气预报']
-        },
-        山水: {
-          intro: `${genre}写山水，核心是「山高水长、境随心转」。起句从山脚水边具体景观切入，承句以移步换景或仰视俯察展开，转句可借山水言志或引入飞鸟行人，合句以「无人」「独坐」等结穴，留白深远。`,
-          examples: [['白日依山尽', '王之涣《登鹳雀楼》'], ['空山不见人', '王维《鹿柴》'], ['千山鸟飞绝', '柳宗元《江雪》'], ['两岸猿声啼不住', '李白《早发白帝城》']],
-          tips: [`以动写静：「鸟鸣山更幽」「空谷传声」比直接说山很静更有张力`, `远近层次：近处奇石细草，远处飞鸟孤云，构建三维空间感`, `转句可引入「人」：山中行人、渔樵问答、江上渔火，以人衬山之静`, `结尾留白：不必把山水写尽，「独坐」「忘言」「不知归路」更耐读`],
-          rhyme: '山水诗常用「e/ie」韵（色、壑、泽、白等），韵致幽深，契合山林气息',
-          rhymeEx: ['e韵：色、壑、泽、白、鹤', 'ao韵：高、涛、皓、骚、毫'],
-          avoid: ['按游记顺序罗列山名水名，写成地理介绍', '全诗只有山水没有「我」，失去诗人主体', '结尾强行升华到治国平天下，转得生硬']
-        },
-        怀古: {
-          intro: `${genre}写怀古，贵在「借古讽今、寄意深远」。起句常从古迹或古人切入，承句回顾历史事件或古人境遇，转句宕开一笔写当下或感慨，合句以理语或情语收束，发人深省。`,
-          examples: [['旧时王谢堂前燕', '刘禹锡《乌衣巷》'], ['东风不与周郎便', '杜牧《赤壁》'], ['至今思项羽', '李清照《夏日绝句》'], ['隔江犹唱后庭花', '杜牧《泊秦淮》']],
-          tips: [`选好角度：不必全面评价古人，选取一个细节、一个决定、一个物件，以小见大`, `古今对比：把古人处境与当下打通，在「变与不变」中找立意`, `转句是关键：怀古诗的转句往往宕开议论，从叙事转向感慨，点明主旨`, `结尾可用反问或假设句：「如果……」「何须……」，增加思辨力量`],
-          rhyme: '怀古常用「a」韵（沙、斜、花、家等），声调铿锵，契合深沉感慨',
-          rhymeEx: ['a韵：沙、斜、花、家、嗟', 'ia韵：霞、遐、夸、槎'],
-          avoid: ['写成历史复述，没有诗人立场和感慨', '堆砌古人古事却没有统一主题，形同史料', '结尾直接说「我们要学习古人精神」，说教味太重']
-        },
-        闺怨: {
-          intro: `${genre}写闺怨，宜「借女子之口、写人间别情」。起句可写春日高楼、妆奁夜色等闺阁意象，承句铺陈思念，转句宕开写对方或梦境，合句以景结情或以心理描写收尾，留有余韵。`,
-          examples: [['闺中少妇不知愁', '王昌龄《闺怨》'], ['独在闺中望明月', '李白《子夜吴歌》'], ['玉户帘中卷不去', '张若虚《春江花月夜》'], ['泪眼问花花不语', '欧阳修《蝶恋花》']],
-          tips: [`写闺怨不要只写「想丈夫」：可通过妆扮变化（懒梳头、眉不画）、时令更替（花开花落）来暗示`, `转句可宕入对方视角：他此刻在做什么？这种「不对称」比自言自语更有张力`, `善用「梦」意象：梦里相聚、梦醒更孤，虚实相生增加层次`, `结尾以物结情：落花、孤灯、秋月、残照，以景写情胜于直说`],
-          rhyme: '闺怨常用「u」韵（书、疏、孤、图等），韵致幽细，契合婉约情感',
-          rhymeEx: ['u韵：书、疏、孤、图、湖', 'ou韵：楼、愁、舟、幽'],
-          avoid: ['写成思妇独白，从头到尾都是「我想你」，没有层次', '把女子写成怨妇形象，缺乏尊严和人格', '结尾「早日归来」等套话，太直白']
-        }
-      };
-
-      // 模糊匹配：看主题中是否包含关键词
-      let matched = null;
-      for (const key of Object.keys(themeMap)) {
-        if (t.includes(key) || kwStr.includes(key)) {
-          matched = themeMap[key];
-          break;
-        }
-      }
-
-      if (matched) {
-        const mappedExamples = matched.examples.map(([ex, meta]) => ({
-          position: '', role: '', description: '', example: ex, themeHint: meta
-        }));
-        const lineRoles = ['第一句（起）', '第二句（承）', '第三句（转）', '第四句（合）'];
-        const lineRolesShort = ['起', '承', '转', '合'];
-        const lineDescs = [
-          `紧扣「${t}」主题：分析这一主题最适合从哪个具体画面或角度开篇（时令景物、空间环境、人物状态等）`,
-          `紧扣「${t}」主题：承接起句后如何展开描写，层层铺陈 ${t} 的意境或情感`,
-          `紧扣「${t}」主题：转句如何打破前两句的平稳（时空跳跃、情感反转、以动写静等）`,
-          `紧扣「${t}」主题：合句如何收束全诗、升华情感（情景交融、以景结情、余韵悠长）`
-        ];
-        const hintPrefixes = ['先写', '用', '从', '以'];
-
-        return {
-          name: genre,
-          lines: lineCount,
-          charactersPerLine: charCount,
-          rhymeScheme: charCount === 5 ? '二四句押韵' : '二四句押韵',
-          introduction: matched.intro,
-          structure: lineRoles.map((pos, i) => ({
-            position: pos,
-            role: lineRolesShort[i],
-            description: lineDescs[i],
-            example: matched.examples[i][0],
-            themeHint: matched.examples[i][1]
-          })),
-          tips: matched.tips,
-          rhyme: matched.rhyme,
-          rhymeExamples: matched.rhymeEx,
-          keywordSuggestions: kw.slice(0, 3).map(kwItem => ({
-            keyword: kwItem,
-            usage: `紧扣「${t}」主题：这个词在诗中适合放在哪一句、用什么方式呈现，融入 ${t} 的意境`
-          })),
-          avoid: matched.avoid,
-          advancedTips: [
-            `紧扣「${t}」主题：以动写静手法——用具体动态意象反衬 ${t} 主题的静谧或寂寥`,
-            `紧扣「${t}」主题：虚实相生——眼前实景与心中虚景交织，丰富诗歌层次感`,
-            `紧扣「${t}」主题：对写法——写对方视角或对方所在地，增强 ${t} 的情感张力`
-          ]
-        };
-      }
-
-      // 未匹配到具体主题时的通用 fallback（比之前好）
-      const coreTheme = t || '一般主题';
-      return {
-        name: genre,
-        lines: lineCount,
-        charactersPerLine: charCount,
-        rhymeScheme: charCount === 5 ? '二四句押韵' : '二四句押韵',
-        introduction: `${genre}是古典诗歌的经典形式，讲究起承转合、情景交融。在「${coreTheme}」主题下创作时，要善于选取与主题最契合的具体意象，避免空洞抒情。${charCount}字一句，字字需锤炼。`,
-        structure: [
-          { position: '第一句（起）', role: '起', description: `紧扣「${coreTheme}」主题：起句如何切入，从哪个具体画面或角度落笔（如时令景物、空间一瞬、人物神态），避免泛泛而言`, example: '（请参考与「' + coreTheme + '」相近主题的经典诗作起句）', themeHint: `先定「${coreTheme}」主题下的核心意象，再由此展开` },
-          { position: '第二句（承）', role: '承', description: `紧扣「${coreTheme}」主题：承接起句的意象，进一步描写或深化，注意层层递进，不要原地踏步`, example: '（请参考相近主题的经典承句）', themeHint: `选择能深化「${coreTheme}」意境的具体意象承接` },
-          { position: '第三句（转）', role: '转', description: `紧扣「${coreTheme}」主题：转句是全诗的关键，需要打破前两句的平稳，可从视角切换、时空跳跃、情感转折等角度求变`, example: '（请参考相近主题的经典转句）', themeHint: `从「${coreTheme}」的另一面或对立面寻求转折` },
-          { position: '第四句（合）', role: '合', description: `紧扣「${coreTheme}」主题：合句如何收束全诗、升华主旨，可用情景交融、以景结情或直抒胸臆，忌空喊口号`, example: '（请参考相近主题的经典合句）', themeHint: `以最能概括「${coreTheme}」情感的意象定格全诗` }
-        ],
-        tips: [
-          `紧扣「${coreTheme}」：选取3-4个与主题最相关的核心意象，不要面面俱到`,
-          `紧扣「${coreTheme}」：用具体画面代替抽象情感词（不说「我很惆怅」，而写惆怅时的景物）`,
-          `紧扣「${coreTheme}」：注意起承转合的节奏分配，不要四句都在说同一件事`,
-          `紧扣「${coreTheme}」：注意${charCount}字一句的字数限制，每个字都要有存在价值`,
-          `紧扣「${coreTheme}」：选择与主题情感契合的韵部，韵脚和谐能强化意境`
-        ],
-        rhyme: `围绕「${coreTheme}」主题选择韵部：豪放主题可用 ang/eng 韵（开阔洪亮），婉约主题可用 i/u/ing 韵（幽细悠长），凄凉主题可用 an/en 韵（沉郁厚重）`,
-        rhymeExamples: [`ang韵：适合开阔壮美类「${coreTheme}」主题`, `i韵：适合婉约细腻类「${coreTheme}」主题`],
-        keywordSuggestions: kw.slice(0, 3).map(kwItem => ({
-          keyword: kwItem,
-          usage: `紧扣「${coreTheme}」主题：这个关键词适合用在承句或转句中，配合其他意象共同呈现 ${coreTheme}`
-        })),
-        avoid: [
-          `写「${coreTheme}」时直接抒发抽象情感（愁、喜、悲、乐）而不借助具体意象`,
-          `写「${coreTheme}」时堆砌相关意象却没有一条情感主线串联`,
-          `写「${coreTheme}」时四句都在一个层面（全是写景或全是抒情），缺乏起伏层次`
-        ],
-        advancedTips: [
-          `紧扣「${coreTheme}」：以动写静手法——用具体动态反衬主题的静谧感或内心的波澜`,
-          `紧扣「${coreTheme}」：虚实相生——眼前实景与心中虚景交织，丰富层次感`,
-          `紧扣「${coreTheme}」：对写法——从对方视角写，增强主题情感的张力`
-        ]
-      };
-    };
-
-    // 加载结构引导
-    const loadStructure = async () => {
+    const loadStructure = () => {
       localLoading.value = true;
-
-      try {
-        const response = await api.creationWorkbench.getStructureGuide({
-          genre: props.genre,
-          theme: props.theme,
-          keywords: props.keywords,
-          mood: props.mood
-        });
-        const result = response.data || response;
-        structure.value = result;
-      } catch (error) {
-        console.error('加载结构引导失败:', error);
-        structure.value = buildThemeFallback(props.theme, props.genre, props.keywords, props.mood);
-      } finally {
+      
+      setTimeout(() => {
+        structure.value = buildStructureData(props.genre, props.theme, props.keywords, props.mood);
         localLoading.value = false;
-      }
+      }, 100);
     };
 
-    // 当genre或theme变化时自动加载
     watch([() => props.genre, () => props.theme], () => {
       if (props.genre && props.theme) {
         loadStructure();
       }
     });
 
-    // 组件挂载时自动加载
     onMounted(() => {
       if (props.genre && props.theme) {
         loadStructure();

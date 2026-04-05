@@ -1278,7 +1278,7 @@ export default {
           const questionContent = `${wq.beforeBlank}【${wq.correctChar}】${wq.afterBlank}`;
 
           try {
-            await fetch(`${apiBaseUrl}/wrong-questions/add`, {
+            const response = await fetch(`${apiBaseUrl}/wrong-questions/add`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1292,9 +1292,14 @@ export default {
                 level: 1,
                 full_poem: wq.originalQuestion?.answer || '',
                 author: wq.originalQuestion?.author || '',
-                title: wq.originalQuestion?.title || ''
+                title: wq.originalQuestion?.poem || wq.originalQuestion?.title || ''
               })
             });
+
+            const result = await response.json();
+            if (!response.ok) {
+              console.error('添加错题失败:', result);
+            }
           } catch (e) {
             console.error('添加错题失败:', e);
           }

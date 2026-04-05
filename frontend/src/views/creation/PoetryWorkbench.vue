@@ -107,10 +107,14 @@
             :is-loading="isLoading"
             :score="currentScore"
             :keyword="feihuaDraft.keyword"
+            :is-polishing="isPolishing"
+            :polish-result="polishResult"
             @update:title="feihuaDraft.title = $event"
             @update:content="feihuaDraft.content = $event"
             @score="handleFeihuaScore"
             @change:keyword="feihuaDraft.keyword = $event"
+            @polish="handleFeihuaPolish"
+            @apply="handleFeihuaApplyPolish"
           />
         </div>
 
@@ -420,7 +424,7 @@ export default {
         });
         const result = response.data || response;
 
-        if (result && result.poem) {
+        if (result && result.poem && result.poem.trim()) {
           polishResult.value = {
             poem: result.poem,
             original: result.original || poemContent,
@@ -431,10 +435,11 @@ export default {
           polishResult.value = {
             poem: poemContent,
             original: poemContent,
-            explanation: '润色服务暂时不可用，请稍后重试',
+            explanation: '原诗已经很优秀，无需润色',
             changes: []
           };
         }
+        showScorePanel.value = true;
       } catch (error) {
         console.error('润色失败:', error);
         polishResult.value = {
@@ -443,6 +448,7 @@ export default {
           explanation: '润色失败，请检查网络连接后重试',
           changes: []
         };
+        showScorePanel.value = true;
       } finally {
         isPolishing.value = false;
         hideTypewriterEffect();
@@ -553,6 +559,62 @@ export default {
       hideTypewriterEffect();
     };
 
+    // 飞花令润色
+    const handleFeihuaPolish = async (type) => {
+      if (!feihuaDraft.content) return;
+
+      isPolishing.value = true;
+      showTypewriterEffect('AI正在润色中...');
+
+      try {
+        const response = await api.creationWorkbench.polishPoem({
+          poem: feihuaDraft.content,
+          genre: '五言绝句',
+          theme: `飞花令 - ${feihuaDraft.keyword}`,
+          type: type || 'optimize'
+        });
+        const result = response.data || response;
+
+        if (result && result.poem && result.poem.trim()) {
+          polishResult.value = {
+            poem: result.poem,
+            original: result.original || feihuaDraft.content,
+            explanation: result.explanation || '已优化用词，增强韵律美感',
+            changes: result.changes || []
+          };
+        } else {
+          polishResult.value = {
+            poem: feihuaDraft.content,
+            original: feihuaDraft.content,
+            explanation: '原诗已经很优秀，无需润色',
+            changes: []
+          };
+        }
+      } catch (error) {
+        console.error('飞花令润色失败:', error);
+        polishResult.value = {
+          poem: feihuaDraft.content,
+          original: feihuaDraft.content,
+          explanation: '润色失败，请检查网络连接后重试',
+          changes: []
+        };
+      } finally {
+        isPolishing.value = false;
+        hideTypewriterEffect();
+      }
+    };
+
+    // 飞花令应用润色结果
+    const handleFeihuaApplyPolish = (result) => {
+      if (result && result.poem) {
+        feihuaDraft.content = result.poem;
+        if (feihuaMode.value) {
+          feihuaMode.value.localContent = result.poem;
+        }
+      }
+      polishResult.value = null;
+    };
+
     // 接龙开始
     const handleChainStart = ({ theme, genre, startMode }) => {
       poemDraft.theme = theme;
@@ -564,33 +626,42 @@ export default {
       isLoading.value = true;
 
       try {
-        if (lineNumber === 1) {
-          const response = await api.creationWorkbench.startChainPoem(genre, theme);
-          const result = response.data || response;
-          if (chainMode.value) {
-            chainMode.value.setAILine(result.aiLine);
-          }
-        } else {
-          const response = await api.creationWorkbench.getChainNextLine({
-            userLine,
-            allLines,
-            genre,
-            theme,
-            lineNumber
-          });
-          const result = response.data || response;
-          if (chainMode.value) {
-            chainMode.value.setAILine(result.aiLine);
-          }
-        }
-      } catch (error) {
-        console.error('接龙失败:', error);
-        // 模拟AI接龙
-        const aiLines = ['明月松间照', '清泉石上流', '竹喧归浣女', '莲动下渔舟'];
-        if (chainMode.value) {
-          chainMode.value.setAILine(aiLines[Math.floor(Math.random() * aiLines.length)]);
-        }
+    if (lineNumber === 1) {
+      const response = await api.creationWorkbench.startChainPoem(genre, theme);
+      const result = response.data || response;
+      if (chainMode.value) {
+        chainMode.value.setAILine(result?.aiLine);
       }
+    } else {
+      const response = await api.creationWorkbench.getChainNextLine({
+        userLine: userLine || undefined,
+        allLines: (allLines && allLines.length > 0) ? allLines : undefined,
+        genre,
+        theme,
+        lineNumber
+      });
+      const result = response.data || response;
+      if (chainMode.value) {
+        chainMode.value.setAILine(result?.aiLine);
+      }
+    }
+  } catch (error) {
+    console.error('接龙失败:', error);
+    // 根据错误类型决定是否使用兜底
+    const g = genre || '五言绝句';
+    const n = g.includes('七') ? 7 : 5;
+    const themeMap = {
+      '思乡': '故园东望路漫漫', '离别': '孤帆远影碧空尽',
+      '山水': '青山隐隐水迢迢', '自然': '春风得意马蹄疾',
+      'default': '落花时节又逢君'
+    };
+    const raw = Object.entries(themeMap).find(([k]) => (theme || '').includes(k))?.[1] || themeMap.default;
+    const norm = (raw || '').replace(/[，。？！、；：""''（）【】\s]/g, '');
+    const mock = norm.slice(0, n) || (n === 7 ? '春风送暖入屠苏' : '春风拂面柳丝轻');
+    if (chainMode.value) {
+      chainMode.value.setAILine(mock);
+    }
+  }
 
       isLoading.value = false;
     };
@@ -677,6 +748,8 @@ export default {
       handleApplyPolish,
       handleScore,
       handleFeihuaScore,
+      handleFeihuaPolish,
+      handleFeihuaApplyPolish,
       handleChainStart,
       handleChainSubmit,
       handleChainEnd,

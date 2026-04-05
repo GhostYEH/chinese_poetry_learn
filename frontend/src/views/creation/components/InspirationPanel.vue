@@ -64,10 +64,17 @@
         <span class="btn-content">
           <span class="btn-icon" v-if="!isLoading">✦</span>
           <span class="loading-spinner" v-else></span>
-          <span class="btn-text">{{ isLoading ? 'AI构思中...' : '生成灵感' }}</span>
+          <span class="btn-text">{{ isLoading ? 'AI正在构思中...' : '生成灵感' }}</span>
         </span>
         <span class="btn-glow" v-if="!isLoading && localTheme.trim()"></span>
       </button>
+
+      <!-- AI加载提示 -->
+      <div v-if="isLoading" class="ai-loading-tip">
+        <span class="tip-icon">⏳</span>
+        <span class="tip-text">AI正在根据「{{ localTheme }}」主题构思创意...</span>
+        <span class="tip-note">预计需要10-60秒，请稍候</span>
+      </div>
     </div>
 
     <!-- 灵感结果展示 -->

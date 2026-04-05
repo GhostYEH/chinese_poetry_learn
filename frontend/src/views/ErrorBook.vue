@@ -396,22 +396,53 @@ export default {
         loading.value = true;
         // 并行加载错题本数据和复习统计数据
         const [errorBookData, reviewStats] = await Promise.all([
-          api.challenge.getErrorBook(),
+          api.challenge.getErrorBook().catch(() => []),
           api.wrongQuestions.getStats().catch(() => ({ pending: 0, mastered: 0, total: 0 }))
         ]);
 
-        // 合并数据：用 wrong_questions 表的详细数据补充 errorBook
-        const reviewMap = {};
-        // getQuestions 返回的是 wrong_questions 表的数据
+        // 获取 wrong_questions 表的数据
+        let reviewQuestions = [];
         try {
-          const reviewQuestions = await api.wrongQuestions.getQuestions(100);
-          reviewQuestions.forEach(q => { reviewMap[q.id] = q; });
+          reviewQuestions = await api.wrongQuestions.getQuestions(100);
         } catch {}
 
-        errors.value = (errorBookData || []).map(item => ({
-          ...item,
-          ...(reviewMap[item.id] || reviewMap[item.question_id] || {})
-        }));
+        // 合并两个数据源
+        const allErrors = [];
+        const addedQuestions = new Set();
+
+        // 添加 user_error_book 的数据
+        (errorBookData || []).forEach(item => {
+          const questionKey = item.question_content || item.question || '';
+          if (!addedQuestions.has(questionKey)) {
+            allErrors.push({
+              ...item,
+              question: item.question_content || item.question,
+              source: 'challenge'
+            });
+            addedQuestions.add(questionKey);
+          }
+        });
+
+        // 添加 wrong_questions 的数据
+        (reviewQuestions || []).forEach(item => {
+          const questionKey = item.question || '';
+          if (!addedQuestions.has(questionKey)) {
+            allErrors.push({
+              ...item,
+              source: 'parkour'
+            });
+            addedQuestions.add(questionKey);
+          }
+        });
+
+        // 按时间排序
+        allErrors.sort((a, b) => {
+          const timeA = new Date(a.added_at || a.last_wrong_time || a.created_at || 0).getTime();
+          const timeB = new Date(b.added_at || b.last_wrong_time || b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+
+        errors.value = allErrors;
 
         await nextTick();
         initTrendChart();

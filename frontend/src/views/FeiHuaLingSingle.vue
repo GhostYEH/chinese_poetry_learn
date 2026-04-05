@@ -479,11 +479,11 @@ export default {
         delay: 0.2
       },
       { 
-        id: 'master', 
-        name: '诗词大师', 
+        id: 'ranking', 
+        name: '排位赛', 
         icon: '🏆',
-        desc: '专业难度，考验真正实力',
-        difficulty: '专业',
+        desc: '在线对战提升段位，证明实力',
+        difficulty: '竞技',
         color: '#f87171',
         time: 30,
         delay: 0.3
@@ -670,6 +670,11 @@ export default {
         router.push('/feihualing/online')
         return
       }
+      // 如果选择排位赛，跳转到排位赛页面
+      if (selectedMode.value === 'ranking') {
+        router.push('/feihua-ranking')
+        return
+      }
       inSetup.value = true
     }
 
@@ -680,7 +685,7 @@ export default {
     const startGame = () => {
       if (!selectedKeyword.value) return
       
-      const limits = { single: 60, online: 45, challenge: 45, master: 30 }
+      const limits = { single: 60, online: 45, challenge: 45, ranking: 30 }
       timeLimit.value = limits[selectedMode.value] || 60
       
       gameStarted.value = true
@@ -798,7 +803,7 @@ export default {
       // 验证通过
       usedPoems.value.push(validation.poem.poem)
 
-      const baseScore = selectedMode.value === 'master' ? 30 : selectedMode.value === 'challenge' ? 20 : 10
+      const baseScore = selectedMode.value === 'ranking' ? 30 : selectedMode.value === 'challenge' ? 20 : 10
       score.value += baseScore
 
       poemHistory.value.push({

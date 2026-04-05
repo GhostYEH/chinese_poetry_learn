@@ -284,9 +284,18 @@
 
           <!-- 操作按钮 -->
           <div class="gameover-actions">
-            <button class="action-btn review-btn" @click="showReview">
-              <span class="btn-icon">📋</span>
-              <span class="btn-text">查看复盘</span>
+            <button
+              v-if="wrongCaughtLog.length > 0"
+              class="action-btn error-book-btn"
+              :class="{ 'all-added': allErrorsAddedToBook }"
+              :disabled="isAddingAllToBook || allErrorsAddedToBook"
+              @click="addAllErrorsToBook"
+            >
+              <span class="btn-icon">{{ isAddingAllToBook ? '⏳' : '📚' }}</span>
+              <span class="btn-text">
+                {{ isAddingAllToBook ? '添加中...' : (allErrorsAddedToBook ? '已加入错题本' : '一键加入错题本') }}
+              </span>
+              <span class="btn-count" v-if="!allErrorsAddedToBook">({{ wrongCaughtLog.length }}条)</span>
             </button>
             <button class="action-btn primary-btn" @click="restartGame">
               <span class="btn-icon">🔄</span>
@@ -471,7 +480,6 @@
 import { ref, onMounted, onUnmounted, onActivated, computed, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import questionsData from '@/data/poetryQuestions.json';
-import levelsData from '@/data/poetryLevels.json';
 
 const API_BASE = 'http://localhost:3000/api/card-game';
 
@@ -558,7 +566,11 @@ export default {
     // ==================== 卡片 ====================
     let cards = [];
     let cardIdCounter = 0;
-    let spawnedThisRound = new Set();
+    // 从API获取的题目（带难度梯度 1-200关）
+    let questionBank = [];
+    let spawnedCorrect = new Set();
+    let spawnedWrong = new Set();
+    let poemSpawnTime = new Map();
     let wrongCardPool = [];
     let wrongCaughtLog = [];
 
@@ -576,6 +588,8 @@ export default {
     const reviewLoading = ref(false);
     const isAddingAll = ref(false);
     const addedSuccess = ref(false);
+    const isAddingAllToBook = ref(false);
+    const allErrorsAddedToBook = ref(false);
     const toast = ref({ show: false, text: '', type: 'info', combo: 0 });
     let toastTimer = null;
 
@@ -651,22 +665,54 @@ export default {
     };
 
     const getQuestionsByLevel = () => {
-      const level = gameLevel.value;
-      const levelData = levelsData.find(l => l.level === level);
-      return levelData ? levelData.questions : questionsData;
+      return questionBank;
     };
 
-    // ==================== 卡片生成 ====================
-    const buildWrongPool = () => {
+    // 根据题库构建错误选项池
+    const buildWrongPoolFromBank = () => {
+      if (!questionBank || questionBank.length === 0) return [];
       const pool = [];
-      questionsData.forEach((q) => {
-        q.options.forEach((opt) => {
-          if (opt !== q.answer) pool.push({ text: opt, poem: q });
-        });
+      const allAnswers = questionBank.map((q) => q.answer);
+      questionBank.forEach((q) => {
+        const otherAnswers = allAnswers.filter((a) => a !== q.answer);
+        const shuffled = [...otherAnswers].sort(() => Math.random() - 0.5);
+        const wrongCount = Math.random() < 0.5 ? 1 : 2;
+        for (let i = 0; i < wrongCount && i < shuffled.length; i++) {
+          pool.push({ lowerText: shuffled[i], poem: q });
+        }
       });
       return pool;
     };
 
+    // 从API获取带难度梯度的题库（200关题库）
+    const fetchQuestionBank = async (difficulty) => {
+      try {
+        const resp = await fetch(`${API_BASE}/questions?difficulty=${difficulty}&startLevel=1&count=60`);
+        const json = await resp.json();
+        if (json.success && json.questions && json.questions.length > 0) {
+          questionBank = json.questions;
+        } else {
+          questionBank = buildLocalQuestionBank();
+        }
+      } catch (e) {
+        console.warn('从API获取题目失败，使用本地题库:', e);
+        questionBank = buildLocalQuestionBank();
+      }
+    };
+
+    // 从本地 JSON 构建题库（降级用）
+    const buildLocalQuestionBank = () => {
+      return questionsData.map((q) => ({
+        question: q.question,
+        answer: q.answer,
+        poem: q.poem,
+        author: q.author,
+        level: 1,
+        difficulty: 'easy'
+      }));
+    };
+
+    // ==================== 卡片生成 ====================
     const createCard = (forceCorrect) => {
       const params = getDifficultyParams();
       const levelQuestions = getQuestionsByLevel();
@@ -677,33 +723,59 @@ export default {
         const activeCards = cards.filter((c) => !c.collected);
         const correctActive = activeCards.filter((c) => c.isCorrect).length;
         const wrongActive = activeCards.filter((c) => !c.isCorrect).length;
-        if (correctActive > wrongActive + 1) isCorrect = false;
-        else if (wrongActive > correctActive + 1) isCorrect = true;
-        else isCorrect = Math.random() < 0.5;
+        // 严格保持50/50：如果正确卡>错误卡，强制生成错误卡；反之亦然
+        if (correctActive > wrongActive) {
+          isCorrect = false;
+        } else if (wrongActive > correctActive) {
+          isCorrect = true;
+        } else {
+          isCorrect = Math.random() < 0.5;
+        }
       }
 
       let q, lowerText;
 
+      const now = Date.now();
+      const POEM_COOLDOWN = 30000;
+
+      const isPoemAvailable = (poemTitle) => {
+        const lastSpawn = poemSpawnTime.get(poemTitle);
+        if (!lastSpawn) return true;
+        return now - lastSpawn > POEM_COOLDOWN;
+      };
+
       if (isCorrect) {
-        const available = levelQuestions.filter(q => !spawnedThisRound.has(q.question));
+        const available = levelQuestions.filter(q =>
+          !spawnedCorrect.has(q.question) && isPoemAvailable(q.poem || q.question)
+        );
         if (available.length === 0) {
-          spawnedThisRound.clear();
+          spawnedCorrect.clear();
+          const availableAfterClear = levelQuestions.filter(q => isPoemAvailable(q.poem || q.question));
+          if (availableAfterClear.length === 0) {
+            poemSpawnTime.clear();
+          }
           return createCard(true);
         }
         q = available[Math.floor(Math.random() * available.length)];
-        spawnedThisRound.add(q.question);
+        spawnedCorrect.add(q.question);
+        poemSpawnTime.set(q.poem || q.question, now);
         lowerText = q.answer;
       } else {
-        if (wrongCardPool.length === 0) wrongCardPool = buildWrongPool();
+        if (wrongCardPool.length === 0) wrongCardPool = buildWrongPoolFromBank();
         const shuffled = [...wrongCardPool].sort(() => Math.random() - 0.5);
-        const wrongOfCurrent = cards.filter((c) => c.isCorrect && !c.collected).map((c) => c.lowerText);
+        // wrongOfCurrent: 已出现过的下句，用于去重
+        const wrongOfCurrent = cards.filter((c) => !c.collected).map((c) => c.lowerText);
         const available = shuffled.filter(
-          (w) => !spawnedThisRound.has(w.poem.question) && !wrongOfCurrent.includes(w.text)
+          (w) => !spawnedWrong.has(w.lowerText) && !wrongOfCurrent.includes(w.lowerText)
         );
-        if (available.length === 0) return createCard(true);
+        if (available.length === 0) {
+          // 强制回到正确卡，防止卡住
+          return createCard(true);
+        }
         const chosen = available[0];
-        lowerText = chosen.text;
+        lowerText = chosen.lowerText;
         q = chosen.poem;
+        spawnedWrong.add(chosen.lowerText);
       }
 
       const x = 50 + Math.random() * (CANVAS_W - CARD_W - 100);
@@ -878,7 +950,7 @@ export default {
       ctx.rotate(card.rot || 0);
       ctx.translate(-(x + w / 2), -(y + h / 2));
 
-      // 外发光 - 统一为金色光晕
+      // 外发光效果：统一金色光晕
       if (glow > 0 && !collected) {
         ctx.shadowColor = 'rgba(244, 208, 63, 0.6)';
         ctx.shadowBlur = 30 * glow;
@@ -944,26 +1016,22 @@ export default {
       ctx.textBaseline = 'middle';
       ctx.fillText(upperText, x + rollW + (w - rollW) / 2, y + h * 0.28, w - rollW - 20);
 
-      // 下句 - 统一为白色/浅色
-      ctx.font = `bold ${Math.min(14, Math.max(10, (w - rollW - 28) / lowerText.length * 1.7))}px 'STSong','SimSun','Noto Serif SC',serif`;
-      ctx.fillStyle = collected
+      // 下句文字：统一浅金色
+      const lowerColor = collected
         ? 'rgba(255, 255, 255, 0.3)'
         : '#f0d78c';
+      ctx.font = `bold ${Math.min(14, Math.max(10, (w - rollW - 28) / lowerText.length * 1.7))}px 'STSong','SimSun','Noto Serif SC',serif`;
+      ctx.fillStyle = lowerColor;
       ctx.fillText(lowerText, x + rollW + (w - rollW) / 2, y + h * 0.72, w - rollW - 20);
 
-      // 正确/错误标记 - 统一为金色圆形
+      // 正确/错误角标：统一浅金色小圆点
       if (!collected) {
-        const tagX = x + w - 30;
+        const tagX = x + w - 20;
         const tagY = y + 14;
-        ctx.fillStyle = 'rgba(244, 208, 63, 0.3)';
+        ctx.fillStyle = 'rgba(244, 208, 63, 0.4)';
         ctx.beginPath();
-        ctx.arc(tagX, tagY, 10, 0, Math.PI * 2);
+        ctx.arc(tagX, tagY, 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#f4d03f';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('●', tagX, tagY);
       }
 
       ctx.restore();
@@ -1266,11 +1334,17 @@ export default {
       player.vx = 0;
       player.bounce = 0;
       player.trail = [];
-      spawnedThisRound.clear();
-      wrongCardPool = buildWrongPool();
+      spawnedCorrect.clear();
+      spawnedWrong.clear();
+      poemSpawnTime.clear();
       wrongCaughtLog = [];
       reviewErrors.value = [];
+      allErrorsAddedToBook.value = false;
       cardIdCounter = 0;
+
+      // 从API获取带难度梯度的题库
+      await fetchQuestionBank(diff.value, 1);
+      wrongCardPool = buildWrongPoolFromBank();
 
       gameStartTime = Date.now();
       elapsedTimer = setInterval(() => {
@@ -1452,6 +1526,41 @@ export default {
       }
     };
 
+    const addAllErrorsToBook = async () => {
+      if (isAddingAllToBook.value || allErrorsAddedToBook.value) return;
+      if (wrongCaughtLog.length === 0) return;
+      
+      isAddingAllToBook.value = true;
+
+      for (const err of wrongCaughtLog) {
+        try {
+          const userId = getUserId();
+          const resp = await fetch(`${API_BASE}/add-to-review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: userId,
+              questionText: err.questionText,
+              correctAnswer: err.correctAnswer,
+              userAnswer: err.userAnswer
+            })
+          });
+          const json = await resp.json();
+          if (!json.success) {
+            console.error('添加错题失败:', json.message);
+          }
+        } catch (e) {
+          console.error('添加错题失败', e);
+        }
+      }
+
+      isAddingAllToBook.value = false;
+      allErrorsAddedToBook.value = true;
+      addedSuccess.value = true;
+      setTimeout(() => { addedSuccess.value = false; }, 3000);
+      showToast(`已成功添加 ${wrongCaughtLog.length} 条错题到错题本！`, 'success');
+    };
+
     // ==================== 保存记录 ====================
     const saveRecord = async () => {
       const errorsPayload = wrongCaughtLog.map((e) => ({
@@ -1578,8 +1687,9 @@ export default {
       combo, maxCombo, scoreAnim,
       DIFFICULTIES,
       reviewErrors, reviewLoading, isAddingAll, allAddedToReview,
+      isAddingAllToBook, allErrorsAddedToBook, wrongCaughtLog,
       toast, addedSuccess,
-      formatTime, getPetalStyle, showReview, addSingleToErrorBook, addAllToErrorBook,
+      formatTime, getPetalStyle, showReview, addSingleToErrorBook, addAllToErrorBook, addAllErrorsToBook,
       startGame, resumeGame, restartGame, quitGame, nextLevel
     };
   }
@@ -2609,6 +2719,35 @@ export default {
 .action-btn.review-btn:hover {
   transform: translateY(-2px);
   background: linear-gradient(135deg, rgba(96, 165, 250, 0.4), rgba(59, 130, 246, 0.3));
+}
+
+.action-btn.error-book-btn {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(22, 163, 74, 0.2));
+  color: #4ade80;
+  border: 2px solid rgba(34, 197, 94, 0.4);
+}
+
+.action-btn.error-book-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.4), rgba(22, 163, 74, 0.3));
+  box-shadow: 0 8px 30px rgba(34, 197, 94, 0.3);
+}
+
+.action-btn.error-book-btn.all-added {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(22, 163, 74, 0.15));
+  border-color: rgba(34, 197, 94, 0.3);
+  color: rgba(74, 222, 128, 0.6);
+  cursor: default;
+}
+
+.action-btn.error-book-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-count {
+  font-size: 12px;
+  opacity: 0.7;
 }
 
 .action-btn.secondary-btn {

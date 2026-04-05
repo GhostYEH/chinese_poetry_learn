@@ -1,43 +1,56 @@
 {
-  "appId": "com.chinesepoetry.desktop",
-  "productName": "中国诗词学习系统",
+  "appId": "com.poetry.zhixue",
+  "productName": "智韵灵犀",
+  "copyright": "Copyright © 2024",
   "directories": {
-    "output": "ele_build",
-    "buildResources": "electron/assets"
+    "output": "release",
+    "buildResources": "electron/build"
   },
   "files": [
-    "electron/**/*",
+    "electron/main.js",
     "backend/**/*",
-    "!backend/node_modules",
+    "!backend/node_modules/.cache/**/*",
+    "!backend/src/**/*",
+    "poetry/**/*",
+    "nodejs/**/*",
     "package.json"
   ],
-  "win": {
-    "target": [
-      {
-        "target": "portable",
-        "arch": [
-          "x64"
-        ]
-      }
-    ]
-  },
-  "mac": {
-    "target": [
-      "dmg",
-      "zip"
-    ]
-  },
-  "linux": {
-    "target": [
-      "AppImage",
-      "deb"
-    ],
-    "category": "Education"
-  },
   "extraResources": [
+    {
+      "from": "nodejs",
+      "to": "nodejs"
+    },
     {
       "from": "poetry",
       "to": "poetry"
     }
-  ]
+  ],
+  "asar": false,
+  "win": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "backend/public/run.jpg",
+    "artifactName": "${productName}-${version}-${arch}-portable.exe"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-portable.exe"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "backend/public/run.jpg",
+    "uninstallerIcon": "backend/public/run.jpg",
+    "installerHeaderIcon": "backend/public/run.jpg",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "智韵灵犀"
+  }
 }

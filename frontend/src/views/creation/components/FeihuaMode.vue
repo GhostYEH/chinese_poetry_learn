@@ -141,8 +141,12 @@
         <PoemScorer
           :score="score"
           :show-close="false"
-          :show-polish="false"
+          :show-polish="true"
           :show-actions="false"
+          :is-polishing="isPolishing"
+          :polish-result="polishResult"
+          @polish="handlePolish"
+          @apply="handleApplyPolish"
         />
       </div>
     </transition>
@@ -170,9 +174,17 @@ export default {
     keyword: {
       type: String,
       default: ''
+    },
+    isPolishing: {
+      type: Boolean,
+      default: false
+    },
+    polishResult: {
+      type: Object,
+      default: null
     }
   },
-  emits: ['update:title', 'update:content', 'score', 'change:keyword'],
+  emits: ['update:title', 'update:content', 'score', 'change:keyword', 'polish', 'apply'],
   setup(props, { emit }) {
     const currentKeyword = ref(props.keyword);
     const selectedDifficulty = ref('中等');
@@ -263,6 +275,20 @@ export default {
       emit('update:content', '');
     };
 
+    // 润色处理
+    const handlePolish = (type) => {
+      emit('polish', type);
+    };
+
+    // 应用润色结果
+    const handleApplyPolish = (result) => {
+      if (result && result.poem) {
+        localContent.value = result.poem;
+        emit('update:content', result.poem);
+      }
+      showScore.value = false;
+    };
+
     // 监听props变化
     watch(() => props.keyword, (newKeyword) => {
       if (newKeyword) {
@@ -288,7 +314,9 @@ export default {
       showScore,
       getRandomKeyword,
       checkKeywordCount,
-      clearContent
+      clearContent,
+      handlePolish,
+      handleApplyPolish
     };
   }
 };

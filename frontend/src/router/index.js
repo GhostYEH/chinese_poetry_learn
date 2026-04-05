@@ -79,7 +79,7 @@ const routes = [
   {
     path: '/feihualing/online',
     name: 'FeiHuaLingOnline',
-    component: () => import('../views/FeiHuaLingMultiplayer.vue'),
+    component: () => import('../views/FeiHuaLingOnline.vue'),
     meta: {
       title: '在线飞花令 - 古诗词学习系统',
       requiresAuth: true
@@ -248,6 +248,15 @@ const routes = [
     component: () => import('../views/ChallengeRank.vue'),
     meta: {
       title: '闯关排名 - 古诗词学习系统',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/challenge/battle-online',
+    name: 'ChallengeBattleOnline',
+    component: () => import('../views/ChallengeBattleOnline.vue'),
+    meta: {
+      title: '闯关对战邀请 - 古诗词学习系统',
       requiresAuth: true
     }
   },

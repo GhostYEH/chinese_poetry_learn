@@ -2,9 +2,13 @@
   <div class="feihua-online">
     <!-- 顶部导航 -->
     <div class="nav-header">
-      <h1 class="page-title">飞花令 - 在线对战</h1>
+      <h1 class="page-title">
+        <span v-if="isRankingMode" class="title-ranking">🏆 排位赛</span>
+        <span v-else class="title-online">飞花令 - 在线对战</span>
+      </h1>
       <div class="nav-links">
         <router-link to="/feihualing/single" class="nav-link">单人模式</router-link>
+        <router-link to="/feihua-ranking" class="nav-link ranking-link">排位赛</router-link>
       </div>
     </div>
 
@@ -13,22 +17,30 @@
       <!-- 难度选择 -->
       <div v-if="!selectedDifficulty" class="difficulty-select">
         <h2>选择难度</h2>
+        <div v-if="isFromRanking && currentUserRank" class="current-rank-display">
+          <span class="rank-label">当前段位：</span>
+          <span class="rank-badge" :style="{ color: getRankColor(currentUserRank.rank_level) }">
+            {{ getRankIcon(currentUserRank.rank_level) }} {{ currentUserRank.rank_level || '青铜' }}
+          </span>
+          <span class="rank-rating">{{ currentUserRank.rating || 0 }}分</span>
+        </div>
         <div class="difficulty-options">
           <div
             v-for="diff in difficulties"
             :key="diff.level"
             class="difficulty-card"
+            :class="{ 'ranking-card': diff.level === 'ranking' }"
             @click="selectDifficulty(diff.level)"
           >
             <h3>{{ diff.name }}</h3>
             <p>{{ diff.description }}</p>
-            <p class="time-limit">时限：{{ diff.timeLimit }}秒</p>
+            <p class="time-limit">时限：{{ diff.timeLimit }}秒/回合</p>
           </div>
         </div>
       </div>
 
-      <!-- 令字选择 -->
-      <div v-else-if="!selectedKeyword" class="keyword-select">
+      <!-- 令字选择（非排位赛模式需手动选择，排位赛自动抽取） -->
+      <div v-if="selectedDifficulty && selectedDifficulty !== 'ranking' && !selectedKeyword" class="keyword-select">
         <h2>选择令字</h2>
         <div class="keyword-options">
           <button
@@ -54,14 +66,19 @@
       </div>
 
       <!-- 在线用户列表 -->
-      <div v-else class="online-users-section">
+      <div v-if="selectedDifficulty && selectedKeyword && !inGame" class="online-users-section">
         <div class="current-setting">
           <p>难度：{{ getDifficultyName(selectedDifficulty) }}</p>
           <p>令字：<span class="keyword-badge">{{ selectedKeyword }}</span></p>
           <button class="change-btn" @click="resetSelection">重新选择</button>
         </div>
 
-        <h2>在线玩家</h2>
+        <div class="online-users-header">
+          <h2>在线玩家</h2>
+          <button class="refresh-btn" @click="refreshOnlineUsers" :disabled="isRefreshing">
+            {{ isRefreshing ? '刷新中...' : '刷新' }}
+          </button>
+        </div>
         <div v-if="onlineUsers.length === 0" class="empty-users">
           <p>暂无在线玩家</p>
           <p class="tip">邀请好友一起来玩吧！</p>
@@ -100,9 +117,9 @@
       <div class="modal-content">
         <h3>收到对战邀请</h3>
         <div class="inviter-info">
-          <p><strong>{{ invitation.inviterName }}</strong> 邀请你进行飞花令对战</p>
-          <p>班级：{{ invitation.inviterClassId || '未设置' }}</p>
-          <p>最高记录：{{ invitation.inviterMaxRounds || 0 }}轮</p>
+          <p><strong>{{ invitation.from?.username || invitation.inviterName }}</strong> 邀请你进行飞花令对战</p>
+          <p>班级：{{ invitation.from?.classId || invitation.inviterClassId || '未设置' }}</p>
+          <p>最高记录：{{ invitation.from?.maxRounds || invitation.inviterMaxRounds || 0 }}轮</p>
           <p>令字：<span class="keyword-badge">{{ invitation.keyword }}</span></p>
           <p>难度：{{ getDifficultyName(invitation.difficulty) }}</p>
         </div>
@@ -113,25 +130,23 @@
       </div>
     </div>
 
-    <!-- 游戏房间 - 重新布局，所有内容在一页内 -->
+    <!-- 游戏房间 - 轮流飞花令 -->
     <div v-if="inGame" class="game-room">
-      <!-- 第一行：顶部信息栏（令字 + 回合 + 计时 + 离开） -->
+      <!-- 第一行：顶部信息栏 -->
       <div class="game-top-bar">
-        <div class="keyword-hero">
-          <span class="hero-label">令</span>
-          <span class="hero-keyword">{{ gameData.keyword }}</span>
-          <span class="hero-label">字</span>
-        </div>
-        <div class="game-meta">
-          <span class="round-tag">第 {{ gameData.currentRound }} 回合</span>
+        <div class="round-info">
+          <span class="round-tag">第 {{ gameData.currentRound }} 轮</span>
           <span class="time-tag" :class="{ 'time-warning': timeLeft <= 10 }">
             {{ timeLeft }}s
           </span>
         </div>
+        <div class="keyword-display">
+          令字：<span class="keyword-hero">{{ gameData.keyword }}</span>
+        </div>
         <button class="leave-btn" @click="leaveGame">离开</button>
       </div>
 
-      <!-- 第二行：玩家卡片（左右布局） -->
+      <!-- 第二行：玩家比分卡片 -->
       <div class="players-row">
         <div
           v-for="(player, index) in gameData.players"
@@ -145,6 +160,9 @@
           <div class="player-top">
             <div class="player-avatar-small">
               {{ player.username.charAt(0).toUpperCase() }}
+              <span v-if="isRankingMode && player.rankLevel" class="rank-badge-mini" :style="{ background: getRankColor(player.rankLevel) }">
+                {{ getRankIcon(player.rankLevel) }}
+              </span>
             </div>
             <div class="player-name-line">
               <span class="player-name">{{ player.username }}</span>
@@ -152,70 +170,60 @@
               <span v-if="player.userId === currentUserId" class="me-tag">我</span>
             </div>
           </div>
-          <div class="player-stats">
-            <span class="stat-score">{{ player.score }}分</span>
-            <span class="stat-throw">扔题 {{ player.remainingThrows }}/{{ player.throwCount }}</span>
+          <div class="player-score-display">
+            <span class="score-correct">{{ player.score || 0 }} 分</span>
           </div>
         </div>
       </div>
 
-      <!-- 第三行：已用诗句 + 输入区（左右分栏） -->
+      <!-- 第三行：题目面板 + 输入区域 -->
       <div class="game-main-area">
-        <!-- 左侧：已用诗句 -->
+        <!-- 已用诗句面板 -->
         <div class="used-poems-panel">
           <div class="panel-header">
             <span class="panel-title">已用诗句</span>
-            <span class="panel-count">{{ gameData.usedPoems.length }}句</span>
+            <span class="panel-count">共 {{ gameData.usedPoems?.length || 0 }} 句</span>
           </div>
           <div class="poems-scroll-area">
-            <div v-if="gameData.usedPoems.length === 0" class="poems-empty">
-              等待首句诗词...
+            <div v-if="!gameData.usedPoems || gameData.usedPoems.length === 0" class="poems-empty">
+              还没有诗句，开始吧！
             </div>
-            <div
-              v-for="(poem, index) in gameData.usedPoems"
-              :key="index"
-              class="poem-line"
-            >
-              <span class="poem-num">{{ index + 1 }}</span>
-              <div class="poem-content">
-                <span class="poem-text">{{ poem.original }}</span>
-                <span class="poem-author">— {{ poem.submittedByName }}</span>
+            <div v-else>
+              <div v-for="(poem, index) in gameData.usedPoems" :key="index" class="poem-line">
+                <span class="poem-num">{{ index + 1 }}.</span>
+                <div class="poem-content">
+                  <span class="poem-text">{{ poem.original }}</span>
+                  <span class="poem-author">— {{ poem.submittedByName }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 右侧：输入区域 -->
+        <!-- 输入面板 -->
         <div class="input-panel">
           <template v-if="isMyTurn">
             <div class="input-prompt">
-              请说出含 <strong class="prompt-keyword">{{ gameData.keyword }}</strong> 字的诗句
+              请写出包含令字「<span class="prompt-keyword">{{ gameData.keyword }}</span>」的诗句
             </div>
             <div class="input-row">
               <input
                 v-model="answerInput"
                 type="text"
                 class="answer-input"
-                :placeholder="`例如：含「${gameData.keyword}」字的诗句`"
-                @keyup.enter="submitPoem"
+                placeholder="输入诗句..."
+                @keyup.enter="submitAnswer"
                 :disabled="answerSubmitting"
                 autofocus
               />
               <button
                 class="submit-btn"
-                @click="submitPoem"
+                @click="submitAnswer"
                 :disabled="answerSubmitting || !answerInput.trim()"
               >
                 {{ answerSubmitting ? '验证中...' : '提交' }}
               </button>
             </div>
-            <button
-              class="throw-btn"
-              @click="throwQuestion"
-              :disabled="myThrowCount <= 0"
-            >
-              扔题 ({{ myThrowCount }})
-            </button>
           </template>
           <template v-else>
             <div class="waiting-panel">
@@ -223,10 +231,19 @@
                 <span class="pulse-ring"></span>
                 <span class="pulse-dot"></span>
               </div>
-              <p class="waiting-text">等待对方作答...</p>
+              <p class="waiting-text">等待 {{ getOpponentName }} 答题...</p>
               <p class="waiting-hint">对方还有 <span class="time-remain">{{ timeLeft }}</span> 秒</p>
             </div>
           </template>
+        </div>
+      </div>
+
+      <!-- 答题结果提示 -->
+      <div v-if="showAnswerResult" class="answer-result-overlay" :class="answerResultClass">
+        <div class="result-card">
+          <div class="result-icon">{{ answerResult.isCorrect ? '✓' : '✗' }}</div>
+          <p class="result-text">{{ answerResult.message }}</p>
+          <p v-if="answerResult.aiResult" class="result-reason">{{ answerResult.aiResult.reason }}</p>
         </div>
       </div>
     </div>
@@ -236,9 +253,24 @@
       <div class="modal-content">
         <h3>{{ gameResult.isWinner ? '恭喜获胜！' : '很遗憾，你输了' }}</h3>
         <div class="result-info">
-          <p>总回合数：{{ gameResult.totalRounds }}</p>
-          <p v-if="gameResult.reason === 'timeout'">原因：对方超时</p>
-          <p v-else-if="gameResult.reason === 'disconnect'">原因：对方断线</p>
+          <p>胜者：{{ gameResult.winner?.username || gameResult.winner?.userId }} ({{ gameResult.winnerScore || 0 }}分)</p>
+          <p>败者：{{ gameResult.loser?.username || gameResult.loser?.userId }} ({{ gameResult.loserScore || 0 }}分)</p>
+          <p>共 {{ gameResult.totalRounds || 0 }} 轮</p>
+          <p v-if="gameResult.reason">原因：{{ getReasonText(gameResult.reason) }}</p>
+        </div>
+        <div v-if="gameResult.isRanking && rankingChange" class="ranking-change">
+          <div class="change-item">
+            <span class="change-label">积分变化</span>
+            <span class="change-value" :style="{ color: rankingChange.ratingChange >= 0 ? '#4ade80' : '#f87171' }">
+              {{ rankingChange.ratingChange >= 0 ? '+' : '' }}{{ rankingChange.ratingChange }}分
+            </span>
+          </div>
+          <div class="change-item" v-if="rankingChange.newLevel">
+            <span class="change-label">当前段位</span>
+            <span class="change-value rank-display" :style="{ color: getRankColor(rankingChange.newLevel) }">
+              {{ getRankIcon(rankingChange.newLevel) }} {{ rankingChange.newLevel }}
+            </span>
+          </div>
         </div>
         <button class="confirm-btn" @click="closeResult">确定</button>
       </div>
@@ -255,74 +287,124 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import feihualingSocket from '@/services/feihualingSocket'
+import api from '@/services/api'
 
 const router = useRouter()
 
-// 用户信息
-const currentUserId = ref(null)
-const currentUsername = ref('')
-
-// 在线用户列表
+const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
+const currentUserId = ref(storedUser?.id?.toString() || null)
+const currentUsername = ref(storedUser?.username || '')
 const onlineUsers = ref([])
 
-// 难度选择
 const selectedDifficulty = ref(null)
 const difficulties = [
   { level: 'easy', name: '入门', description: '任意位置包含令字即可', timeLimit: 60 },
   { level: 'medium', name: '进阶', description: '令字位置轮流变化', timeLimit: 45 },
-  { level: 'hard', name: '专业', description: '令字位置严格限制', timeLimit: 30 }
+  { level: 'hard', name: '专业', description: '令字位置严格限制', timeLimit: 30 },
+  { level: 'ranking', name: '🏆 排位赛', description: '在线对战提升段位，证明实力', timeLimit: 30, isRanking: true }
 ]
 
-// 令字选择
+const isFromRanking = ref(false)
+const isRankingMode = computed(() => selectedDifficulty.value === 'ranking')
+
 const selectedKeyword = ref(null)
 const customKeyword = ref('')
-const recommendedKeywords = ['春', '花', '月', '风', '雨', '山', '水', '云', '雪', '夜', '酒', '鸟', '秋', '江', '人', '天']
+const recommendedKeywords = ref(['春', '花', '月', '风', '雨', '山', '水', '云', '雪', '夜', '酒', '鸟', '秋', '江', '人', '天'])
 
-// 邀请相关
 const showInvitation = ref(false)
 const invitation = ref({})
 
-// 游戏相关
 const inGame = ref(false)
+const currentUserRank = ref(null)
 const gameData = ref({
   roomId: null,
   keyword: '',
   difficulty: '',
+  isRanking: false,
   players: [],
   currentTurn: 0,
   currentRound: 1,
   usedPoems: [],
-  timeLimit: 60
+  timeLimit: 30
 })
 
-// 计时器
-const timeLeft = ref(60)
+const showAnswerResult = ref(false)
+const answerResult = ref({})
+const answerResultClass = ref('')
+
+const timeLeft = ref(30)
 let timer = null
 
-// 输入相关
 const answerInput = ref('')
 const answerSubmitting = ref(false)
+const isValidating = ref(false)
 
-// 结果相关
 const showResult = ref(false)
 const gameResult = ref({})
+const rankingChange = ref(null)
 
-// 错误提示
 const errorMessage = ref('')
 let errorTimer = null
+const isRefreshing = ref(false)
 
-// 计算属性
+const refreshOnlineUsers = () => {
+  isRefreshing.value = true
+  feihualingSocket.refreshOnlineUsers()
+  setTimeout(() => {
+    isRefreshing.value = false
+  }, 1000)
+}
+
 const isMyTurn = computed(() => {
   if (!gameData.value.players.length) return false
-  return gameData.value.players[gameData.value.currentTurn]?.userId === currentUserId.value
+  const currentPlayer = gameData.value.players[gameData.value.currentTurn]
+  if (!currentPlayer) return false
+  // 确保类型一致，都转为字符串比较
+  const turnUserId = String(currentPlayer.userId || currentPlayer.id || '')
+  const myUserId = String(currentUserId.value || '')
+  console.log('[飞花令] isMyTurn检查:', { 
+    turnUserId, 
+    myUserId, 
+    currentTurn: gameData.value.currentTurn,
+    players: gameData.value.players 
+  })
+  return turnUserId === myUserId && myUserId !== ''
 })
 
-const myThrowCount = computed(() => {
-  const myPlayer = gameData.value.players.find(p => p.userId === currentUserId.value)
-  return myPlayer?.remainingThrows || 0
+const getOpponentName = computed(() => {
+  const myUserId = String(currentUserId.value || '')
+  const opponent = gameData.value.players.find(p => String(p.userId || p.id) !== myUserId)
+  return opponent?.username || '对方'
 })
 
-// 方法
+const getRankColor = (rankLevel) => {
+  const colors = {
+    '青铜': '#cd7f32',
+    '白银': '#c0c0c0',
+    '黄金': '#ffd700',
+    '铂金': '#e5e4e2',
+    '钻石': '#b9f2ff',
+    '大师': '#9932cc',
+    '宗师': '#ff4500',
+    '王者': '#ff0000'
+  }
+  return colors[rankLevel] || '#a855f7'
+}
+
+const getRankIcon = (rankLevel) => {
+  const icons = {
+    '青铜': '🥉',
+    '白银': '🥈',
+    '黄金': '🥇',
+    '铂金': '💎',
+    '钻石': '💠',
+    '大师': '🏆',
+    '宗师': '👑',
+    '王者': '🌟'
+  }
+  return icons[rankLevel] || '🥉'
+}
+
 const getDifficultyName = (level) => {
   const diff = difficulties.find(d => d.level === level)
   return diff ? diff.name : level
@@ -330,6 +412,12 @@ const getDifficultyName = (level) => {
 
 const selectDifficulty = (level) => {
   selectedDifficulty.value = level
+  
+  if (level === 'ranking') {
+    const randomIndex = Math.floor(Math.random() * recommendedKeywords.value.length)
+    selectedKeyword.value = recommendedKeywords.value[randomIndex]
+    console.log(`[排位赛] 自动随机令字: ${selectedKeyword.value}`)
+  }
 }
 
 const selectKeyword = (keyword) => {
@@ -364,7 +452,7 @@ const inviteUser = (user) => {
 const acceptInvitation = () => {
   feihualingSocket.acceptInvitation(
     invitation.value.inviteId,
-    invitation.value.inviterId,
+    invitation.value.from?.userId || invitation.value.inviterId,
     invitation.value.keyword,
     invitation.value.difficulty
   )
@@ -374,43 +462,30 @@ const acceptInvitation = () => {
 const rejectInvitation = () => {
   feihualingSocket.rejectInvitation(
     invitation.value.inviteId,
-    invitation.value.inviterId
+    invitation.value.from?.userId || invitation.value.inviterId
   )
   showInvitation.value = false
 }
 
-const submitPoem = () => {
+const submitAnswer = () => {
   if (!answerInput.value.trim()) return
 
   answerSubmitting.value = true
-  feihualingSocket.submitPoem(gameData.value.roomId, answerInput.value.trim())
-
-  setTimeout(() => {
-    answerSubmitting.value = false
-  }, 1000)
-}
-
-const throwQuestion = () => {
-  if (myThrowCount.value <= 0) {
-    showError('扔题次数已用完')
-    return
-  }
-
-  feihualingSocket.throwQuestion(gameData.value.roomId)
+  feihualingSocket.submitAnswer(gameData.value.roomId, answerInput.value.trim())
 }
 
 const leaveGame = () => {
   if (confirm('确定要离开游戏吗？离开将判负。')) {
-    const myIndex = gameData.value.players.findIndex(p => p.userId === currentUserId.value)
-    const otherIndex = myIndex === 0 ? 1 : 0
-
-    feihualingSocket.gameOver(
-      gameData.value.roomId,
-      gameData.value.players[otherIndex].userId,
-      currentUserId.value,
-      'leave'
-    )
-
+    const myPlayer = gameData.value.players.find(p => p.userId === currentUserId.value)
+    const opponent = gameData.value.players.find(p => p.userId !== currentUserId.value)
+    if (myPlayer && opponent) {
+      feihualingSocket.gameOver(
+        gameData.value.roomId,
+        opponent.userId,
+        currentUserId.value,
+        'leave'
+      )
+    }
     inGame.value = false
     resetSelection()
   }
@@ -418,8 +493,21 @@ const leaveGame = () => {
 
 const closeResult = () => {
   showResult.value = false
+  showAnswerResult.value = false
   inGame.value = false
   resetSelection()
+}
+
+const getReasonText = (reason) => {
+  const reasonMap = {
+    'wrong_answer': '答错',
+    'timeout': '超时',
+    'disconnected': '对手断线',
+    'leave': '主动离开',
+    'score': '分数更高',
+    'tie': '平局'
+  }
+  return reasonMap[reason] || reason || '正常结束'
 }
 
 const showError = (message) => {
@@ -433,7 +521,7 @@ const showError = (message) => {
 const startTimer = () => {
   if (timer) clearInterval(timer)
 
-  timeLeft.value = gameData.value.timeLimit
+  timeLeft.value = gameData.value.timeLimit || 30
 
   timer = setInterval(() => {
     timeLeft.value--
@@ -452,14 +540,22 @@ const stopTimer = () => {
   }
 }
 
-// Socket事件处理
 const setupSocketListeners = () => {
   feihualingSocket.on('authenticated', (data) => {
-    currentUserId.value = data.userId
+    currentUserId.value = String(data.userId)
     currentUsername.value = data.username
+    setTimeout(() => {
+      feihualingSocket.refreshOnlineUsers()
+    }, 300)
+  })
+
+  feihualingSocket.on('online-list-update', (users) => {
+    console.log('[飞花令] 收到在线用户列表:', users)
+    onlineUsers.value = users
   })
 
   feihualingSocket.on('online-users', (users) => {
+    console.log('[飞花令] 收到在线用户列表(兼容):', users)
     onlineUsers.value = users
   })
 
@@ -473,63 +569,164 @@ const setupSocketListeners = () => {
   })
 
   feihualingSocket.on('game-start', (data) => {
+    console.log('[飞花令] 游戏开始:', data)
+    console.log('[飞花令] 当前用户ID:', currentUserId.value)
+    
+    // 后端发送的数据是包裹在 data.room 中的
+    const roomData = data.room || data
+    
     gameData.value = {
-      roomId: data.room?.id || data.roomId,
-      keyword: data.keyword || data.room?.keyword || '',
-      difficulty: data.difficulty || data.room?.difficulty || '',
-      players: data.players || data.room?.players || [],
-      currentTurn: data.currentTurn ?? data.room?.currentTurn ?? 0,
-      currentRound: data.currentRound ?? data.room?.currentRound ?? 1,
-      usedPoems: data.usedPoems || [],
-      timeLimit: data.timeLimit || data.room?.turnTimeLimit || 60
+      roomId: roomData.id || roomData.roomId,
+      keyword: roomData.keyword || '',
+      difficulty: roomData.difficulty || '',
+      isRanking: roomData.isRanking || false,
+      players: (roomData.players || []).map(p => ({
+        ...p,
+        userId: String(p.userId || p.id),
+        score: 0
+      })),
+      currentTurn: roomData.currentTurn ?? 0,
+      currentRound: roomData.currentRound ?? 1,
+      usedPoems: roomData.usedPoems || [],
+      timeLimit: roomData.turnTimeLimit || roomData.timeLimit || 30
     }
+    
+    console.log('[飞花令] 游戏数据:', gameData.value)
     inGame.value = true
     showInvitation.value = false
     answerInput.value = ''
+    stopTimer()
     startTimer()
+
+    if (roomData.isRanking) {
+      loadPlayersRankInfo(roomData.players || [])
+    }
+  })
+
+  const loadPlayersRankInfo = async (players) => {
+    for (const player of players) {
+      try {
+        const res = await api.feihuaRanking.getUserRank(player.userId || player.id)
+        if (res?.data) {
+          const playerIndex = gameData.value.players.findIndex(p => (p.userId || p.id) === (player.userId || player.id))
+          if (playerIndex !== -1) {
+            gameData.value.players[playerIndex].rankLevel = res.data.rank_level
+            gameData.value.players[playerIndex].rating = res.data.rating
+          }
+        }
+      } catch (e) {
+        console.log('获取玩家段位失败:', e)
+      }
+    }
+  }
+
+  feihualingSocket.on('validating', () => {
+    isValidating.value = true
+    stopTimer()
+  })
+
+  feihualingSocket.on('timer-tick', (data) => {
+    if (data && typeof data.remaining === 'number') {
+      timeLeft.value = data.remaining
+    }
   })
 
   feihualingSocket.on('poem-submitted', (data) => {
-    gameData.value.currentTurn = data.currentTurn
-    gameData.value.currentRound = data.currentRound
-    gameData.value.usedPoems = data.usedPoems || []
-    gameData.value.players = data.players || []
-    gameData.value.timeLimit = data.timeLimit || gameData.value.timeLimit
-    answerInput.value = ''
-    startTimer()
-  })
+    answerSubmitting.value = false
+    isValidating.value = false
 
-  feihualingSocket.on('question-thrown', (data) => {
-    gameData.value.currentTurn = data.currentTurn
-    gameData.value.players = data.players || []
-    showError(`${data.playerName || '对方'} 使用了扔题特权`)
-    startTimer()
+    if (data.isCorrect) {
+      showAnswerResult.value = true
+      answerResult.value = {
+        isCorrect: true,
+        message: '回答正确！',
+        aiResult: data.aiResult
+      }
+      answerResultClass.value = 'result-correct'
+
+      setTimeout(() => {
+        showAnswerResult.value = false
+        // 更新当前轮次
+        gameData.value.currentRound = data.currentRound ?? gameData.value.currentRound
+        // 更新已用诗句
+        if (data.usedPoems) {
+          gameData.value.usedPoems = data.usedPoems
+        }
+        // 更新玩家分数
+        if (data.players) {
+          gameData.value.players = data.players.map(p => ({
+            ...p,
+            userId: String(p.userId || p.id)
+          }))
+        }
+        // 切换到下一回合
+        gameData.value.currentTurn = data.currentTurn ?? 0
+        answerInput.value = ''
+        stopTimer()
+        startTimer()
+      }, 1000)
+    }
   })
 
   feihualingSocket.on('game-result', (data) => {
     stopTimer()
+    answerSubmitting.value = false
+    isValidating.value = false
+
+    console.log('[飞花令] game-result 事件:', data)
+    console.log('[飞花令] 当前用户ID:', currentUserId.value)
+
+    // 统一使用 flat 字段，兼容旧格式
+    const winnerUserId = String(data.winnerId ?? data.winner?.userId)
+    const loserUserId = String(data.loserId ?? data.loser?.userId)
+    const winnerName = data.winnerName ?? data.winner?.username
+    const loserName = data.loserName ?? data.loser?.username
+    console.log('[飞花令] 胜负判定:', { winnerUserId, myUserId: currentUserId.value, isWinner: winnerUserId === String(currentUserId.value) })
 
     gameResult.value = {
-      isWinner: data.winnerId === currentUserId.value,
+      isWinner: winnerUserId === String(currentUserId.value),
+      winner: { userId: winnerUserId, username: winnerName },
+      loser: { userId: loserUserId, username: loserName },
+      winnerScore: data.winnerScore ?? 0,
+      loserScore: data.loserScore ?? 0,
       totalRounds: data.totalRounds,
-      reason: data.reason
+      reason: data.reason,
+      isRanking: data.isRanking
     }
+    
+    if (data.rankingChange) {
+      rankingChange.value = data.rankingChange
+    }
+    
     showResult.value = true
   })
 
-  feihualingSocket.on('opponent-disconnected', () => {
+  feihualingSocket.on('opponent-disconnected', (data) => {
     stopTimer()
 
     gameResult.value = {
       isWinner: true,
+      winner: data.winner,
       totalRounds: gameData.value.currentRound,
-      reason: 'disconnect'
+      reason: '对手断线',
+      isRanking: gameData.value.isRanking
     }
+    
+    if (data.rankingChange) {
+      rankingChange.value = data.rankingChange
+    }
+    
     showResult.value = true
   })
 
   feihualingSocket.on('error', (error) => {
-    showError(error.message || '发生错误')
+    answerSubmitting.value = false
+    isValidating.value = false
+    showError(error.error || error.message || '发生错误')
+    
+    if (!error.isDuplicate) {
+      startTimer()
+    }
   })
 
   feihualingSocket.on('disconnected', () => {
@@ -540,7 +737,6 @@ const setupSocketListeners = () => {
   })
 }
 
-// 生命周期
 onMounted(() => {
   const token = localStorage.getItem('token')
   if (!token) {
@@ -548,9 +744,32 @@ onMounted(() => {
     return
   }
 
-  feihualingSocket.connect(token)
   setupSocketListeners()
+  feihualingSocket.connect(token)
+
+  const fromRanking = sessionStorage.getItem('feihua_ranking_mode')
+  if (fromRanking === 'true') {
+    isFromRanking.value = true
+    selectedDifficulty.value = 'ranking'
+    const randomIndex = Math.floor(Math.random() * recommendedKeywords.value.length)
+    selectedKeyword.value = recommendedKeywords.value[randomIndex]
+    console.log(`[飞花令] 从排位赛页面进入，自动随机令字: ${selectedKeyword.value}`)
+    sessionStorage.removeItem('feihua_ranking_mode')
+  }
+
+  loadCurrentUserRank()
 })
+
+const loadCurrentUserRank = async () => {
+  try {
+    const res = await api.feihuaRanking.getMe()
+    if (res?.data) {
+      currentUserRank.value = res.data
+    }
+  } catch (e) {
+    console.log('获取段位信息失败:', e)
+  }
+}
 
 onUnmounted(() => {
   stopTimer()
@@ -560,7 +779,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ===== 基础布局 ===== */
 .feihua-online {
   min-height: 100vh;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
@@ -569,7 +787,6 @@ onUnmounted(() => {
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-/* ===== 顶部导航 ===== */
 .nav-header {
   display: flex;
   justify-content: space-between;
@@ -586,6 +803,9 @@ onUnmounted(() => {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
+}
+
+.title-ranking, .title-online {
   background: linear-gradient(90deg, #f5af19, #f12711);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -611,7 +831,12 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ===== Lobby 样式 ===== */
+.nav-link.ranking-link {
+  background: rgba(245, 175, 25, 0.2);
+  border-color: rgba(245, 175, 25, 0.4);
+  color: #f5af19;
+}
+
 .lobby {
   max-width: 900px;
   margin: 0 auto;
@@ -672,7 +897,49 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* 令字选择 */
+.current-rank-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: rgba(245, 175, 25, 0.1);
+  border: 1px solid rgba(245, 175, 25, 0.3);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.rank-label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.rank-badge {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.rank-rating {
+  color: #f4d03f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.difficulty-card.ranking-card {
+  background: linear-gradient(135deg, rgba(245, 175, 25, 0.3), rgba(241, 39, 17, 0.3));
+  border: 1px solid rgba(245, 175, 25, 0.5);
+}
+
+.difficulty-card.ranking-card:hover {
+  background: linear-gradient(135deg, rgba(245, 175, 25, 0.5), rgba(241, 39, 17, 0.5));
+  border-color: rgba(245, 175, 25, 0.7);
+  box-shadow: 0 8px 32px rgba(245, 175, 25, 0.3);
+}
+
+.difficulty-card.ranking-card h3 {
+  color: #f5af19;
+}
+
 .keyword-options {
   display: flex;
   flex-wrap: wrap;
@@ -763,7 +1030,6 @@ onUnmounted(() => {
   color: #fff;
 }
 
-/* 当前设置 */
 .current-setting {
   background: rgba(0, 0, 0, 0.2);
   padding: 16px 20px;
@@ -792,11 +1058,43 @@ onUnmounted(() => {
   font-size: 16px;
 }
 
-/* 在线用户 */
 .empty-users {
   text-align: center;
   padding: 40px;
   color: rgba(255, 255, 255, 0.5);
+}
+
+.online-users-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.online-users-header h2 {
+  margin: 0;
+}
+
+.refresh-btn {
+  padding: 8px 16px;
+  background: rgba(102, 126, 234, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(102, 126, 234, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: rgba(102, 126, 234, 0.4);
+  border-color: rgba(102, 126, 234, 0.6);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .tip {
@@ -901,7 +1199,6 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* ===== 邀请弹窗 ===== */
 .invitation-modal, .result-modal {
   position: fixed;
   top: 0;
@@ -992,7 +1289,37 @@ onUnmounted(() => {
   font-size: 15px;
 }
 
-/* ===== 游戏房间 — 核心重布局 ===== */
+.ranking-change {
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.change-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.change-label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.change-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.change-value.rank-display {
+  font-size: 20px;
+}
+
 .game-room {
   max-width: 900px;
   margin: 0 auto;
@@ -1001,7 +1328,6 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-/* 顶部信息栏 */
 .game-top-bar {
   display: flex;
   align-items: center;
@@ -1012,41 +1338,25 @@ onUnmounted(() => {
   border-radius: 16px;
   padding: 16px 24px;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
-/* 令字醒目展示 */
-.keyword-hero {
+.round-info {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: linear-gradient(135deg, rgba(245, 175, 25, 0.2), rgba(241, 39, 17, 0.2));
-  border: 2px solid rgba(245, 175, 25, 0.6);
-  border-radius: 14px;
-  padding: 8px 20px;
 }
 
-.hero-label {
-  font-size: 18px;
-  color: rgba(255, 255, 255, 0.7);
-  font-weight: 400;
+.keyword-display {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.8);
 }
 
-.hero-keyword {
-  font-size: 40px;
+.keyword-hero {
+  font-size: 28px;
   font-weight: 700;
   color: #f5af19;
-  text-shadow: 0 0 20px rgba(245, 175, 25, 0.5);
-  line-height: 1;
-  min-width: 52px;
-  text-align: center;
-}
-
-.game-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  justify-content: center;
+  text-shadow: 0 0 15px rgba(245, 175, 25, 0.5);
 }
 
 .round-tag {
@@ -1097,7 +1407,6 @@ onUnmounted(() => {
   background: rgba(244, 67, 54, 0.35);
 }
 
-/* 玩家卡片行 */
 .players-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1142,6 +1451,21 @@ onUnmounted(() => {
   font-size: 18px;
   font-weight: 600;
   flex-shrink: 0;
+  position: relative;
+}
+
+.rank-badge-mini {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border: 2px solid #1a1a2e;
 }
 
 .player-card-compact.current-turn .player-avatar-small {
@@ -1178,24 +1502,16 @@ onUnmounted(() => {
   border-radius: 10px;
 }
 
-.player-stats {
-  display: flex;
-  gap: 16px;
+.player-score-display {
   padding-left: 54px;
 }
 
-.stat-score {
-  color: #4fc3f7;
-  font-size: 14px;
+.score-correct {
+  color: #4ade80;
+  font-size: 15px;
   font-weight: 600;
 }
 
-.stat-throw {
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 13px;
-}
-
-/* 主内容区：已用诗句 + 输入 */
 .game-main-area {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1203,7 +1519,6 @@ onUnmounted(() => {
   align-items: start;
 }
 
-/* 已用诗句面板 */
 .used-poems-panel {
   background: rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(16px);
@@ -1301,7 +1616,6 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
-/* 输入面板 */
 .input-panel {
   background: rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(16px);
@@ -1311,6 +1625,73 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.question-display {
+  text-align: center;
+  padding: 16px;
+  background: rgba(102, 126, 234, 0.15);
+  border-radius: 12px;
+  border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.question-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.question-text {
+  font-size: 18px;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.progress-info {
+  padding: 16px;
+}
+
+.player-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.player-progress:last-child {
+  margin-bottom: 0;
+}
+
+.progress-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  min-width: 60px;
+}
+
+.progress-bar-container {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-score {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-score {
+  font-size: 14px;
+  color: #4ade80;
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
 }
 
 .input-prompt {
@@ -1387,30 +1768,70 @@ onUnmounted(() => {
   transform: none;
 }
 
-.throw-btn {
-  padding: 12px;
-  background: rgba(255, 152, 0, 0.15);
-  color: #ffb347;
-  border: 1px solid rgba(255, 152, 0, 0.3);
-  border-radius: 12px;
+.answer-result-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+  pointer-events: none;
+}
+
+.result-card {
+  background: rgba(30, 30, 60, 0.98);
+  padding: 32px 48px;
+  border-radius: 20px;
+  text-align: center;
+  animation: resultPop 0.4s ease;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.result-correct .result-card {
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 40px rgba(74, 222, 128, 0.2);
+}
+
+.result-wrong .result-card {
+  border-color: rgba(248, 113, 113, 0.5);
+  box-shadow: 0 0 40px rgba(248, 113, 113, 0.2);
+}
+
+@keyframes resultPop {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.result-icon {
+  font-size: 48px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.result-correct .result-icon {
+  color: #4ade80;
+}
+
+.result-wrong .result-icon {
+  color: #f87171;
+}
+
+.result-text {
+  color: #fff;
+  font-size: 18px;
+  margin: 0 0 8px 0;
+}
+
+.result-reason {
+  color: rgba(255, 255, 255, 0.6);
   font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-  width: 100%;
+  margin: 0;
 }
 
-.throw-btn:hover:not(:disabled) {
-  background: rgba(255, 152, 0, 0.25);
-  border-color: rgba(255, 152, 0, 0.5);
-}
-
-.throw-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* 等待面板 */
 .waiting-panel {
   display: flex;
   flex-direction: column;
@@ -1475,7 +1896,6 @@ onUnmounted(() => {
   font-size: 15px;
 }
 
-/* 错误提示 */
 .error-toast {
   position: fixed;
   bottom: 30px;
@@ -1498,7 +1918,6 @@ onUnmounted(() => {
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* ===== 响应式 ===== */
 @media (max-width: 768px) {
   .feihua-online {
     padding: 12px;
@@ -1514,30 +1933,16 @@ onUnmounted(() => {
     justify-content: center;
   }
 
-  .hero-keyword {
-    font-size: 32px;
-  }
-
   .players-row {
     grid-template-columns: 1fr;
   }
 
-  .player-stats {
+  .player-score-display {
     padding-left: 0;
   }
 
   .game-main-area {
     grid-template-columns: 1fr;
-  }
-
-  .keyword-hero {
-    order: -1;
-    width: 100%;
-    justify-content: center;
-  }
-
-  .used-poems-panel {
-    max-height: 220px;
   }
 }
 </style>

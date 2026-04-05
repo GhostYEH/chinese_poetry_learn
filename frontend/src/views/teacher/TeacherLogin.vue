@@ -122,6 +122,12 @@
               </span>
             </button>
 
+            <!-- 测试账号一键登录 -->
+            <button type="button" class="test-login-btn" @click="handleTestLogin" :disabled="loading">
+              <span class="test-icon">🧪</span>
+              <span>测试账号一键登录</span>
+            </button>
+
             <div class="card-links">
               <p class="link-item">
                 还没有账号？ <router-link to="/teacher/register" class="link-emphasis">教师注册</router-link>
@@ -240,6 +246,12 @@ const handleLogin = async () => {
 const switchToStudentLogin = () => {
   localStorage.setItem('currentLoginType', 'student')
   router.push('/login')
+}
+
+const handleTestLogin = async () => {
+  form.value.username = 'jiaoshi'
+  form.value.password = '123456'
+  await handleLogin()
 }
 </script>
 
@@ -678,6 +690,40 @@ const switchToStudentLogin = () => {
 .login-btn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.test-login-btn {
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  color: rgba(139, 69, 19, 0.7);
+  border: 1.5px dashed rgba(205, 133, 63, 0.4);
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: 'SimSun', 'STSong', serif;
+  letter-spacing: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+  margin-top: 8px;
+}
+
+.test-login-btn:hover:not(:disabled) {
+  background: rgba(205, 133, 63, 0.08);
+  border-color: rgba(205, 133, 63, 0.6);
+  color: #8b4513;
+}
+
+.test-login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.test-icon {
+  font-size: 16px;
 }
 
 .btn-bg-effect {

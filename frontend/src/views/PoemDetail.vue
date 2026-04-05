@@ -1,5 +1,5 @@
 <template>
-  <div class="poem-detail" :class="{ 'immersive-mode': isImmersiveMode }" @click="closeCharInfo">
+  <div class="poem-detail" :class="{ 'immersive-mode': isImmersiveMode }">
     <!-- 划词选择弹窗 -->
     <div
       v-if="selectionPopup.show"
@@ -119,24 +119,7 @@
         <div class="poem-text" :class="{ 'blurred': recitationMode }" id="poem-text-area">
           <p v-for="(line, index) in poemLines" :key="index" class="poem-line">
             <template v-for="(char, charIndex) in line" :key="charIndex">
-              <span
-            v-if="char >= '\u4e00' && char <= '\u9fff'"
-            class="poem-char"
-            @click.stop="showCharInfo(char, charIndex, index, $event)"
-            :data-char="char"
-          >
-                {{ char }}
-                <div v-if="selectedChar === char && selectedCharIndex === charIndex && selectedLineIndex === index" class="char-info" :class="{ below: charInfoBelow }" :style="charInfoStyle">
-                  <div v-if="charLoading && selectedChar === char" class="char-loading">
-                    <div class="loading-spinner"></div>
-                    <span>解析中...</span>
-                  </div>
-                  <div v-else>
-                    <div class="char-phonetic">{{ charInfo.phonetic || '注音' }}</div>
-                    <div class="char-meaning">{{ charInfo.meaning || '注释' }}</div>
-                  </div>
-                </div>
-              </span>
+              <span v-if="char >= '\u4e00' && char <= '\u9fff'" class="poem-char">{{ char }}</span>
               <span v-else class="poem-punctuation">{{ char }}</span>
             </template>
           </p>
@@ -801,22 +784,6 @@ export default {
       similarPoems: [],
       // 诗人头像
       authorAvatar: null,
-      // 字符信息
-      selectedChar: null,
-      selectedCharIndex: -1,
-      selectedLineIndex: -1,
-      charInfo: {
-        phonetic: '',
-        meaning: ''
-      },
-      // 字符信息缓存
-      charCache: {},
-      // 字符加载状态
-      charLoading: false,
-      // 字符请求锁，防止重复请求
-      charRequestLock: {},
-      // 预加载状态
-      preloadingChars: false,
       // 学习时长相关
       studyStartTime: null,
       studyTimer: null,
@@ -845,15 +812,6 @@ export default {
         lineNumber: null,
         totalLines: null
       },
-      // 字符信息弹窗位置
-      charInfoStyle: {
-        position: 'fixed',
-        left: '0px',
-        top: '0px',
-        transform: 'translate(-50%, -100%)'
-      },
-      charInfoBelow: false,  // 注释框是否显示在字符下方
-      charElementRef: null,
       // 意境图
       sceneImageLoading: false,
       sceneImageToast: {
@@ -900,12 +858,6 @@ export default {
     this.tutorMessages = []
     this.tutorQuestion = ''
     this.tutorLoading = false
-    
-    // 清理字符缓存
-    this.charCache = {}
-    this.selectedChar = null
-    this.selectedCharIndex = -1
-    this.selectedLineIndex = -1
     
     next()
   },
@@ -1087,7 +1039,6 @@ export default {
     },
     // 进入沉浸式学习模式
     enterImmersiveMode() {
-      // 先触发进入动画，再显示内容（避免旧内容闪一下）
       this.contentEntering = false
       this.$nextTick(() => {
         this.isImmersiveMode = true
@@ -1152,6 +1103,28 @@ export default {
         this.userInput = []
         this.showResult = []
         this.isCorrect = []
+        // 重置诗词创作背景状态
+        this.poemBackground = null
+        this.poemBackgroundTips = null
+        this.poemBackgroundLoading = false
+        this.poemBackgroundError = ''
+        // 重置诗词趣味故事状态
+        this.poemStory = null
+        this.poemStoryLoading = false
+        this.poemStoryError = ''
+        // 重置诵读技巧指南状态
+        this.recitationGuide = null
+        this.recitationGuideLoading = false
+        this.recitationGuideError = ''
+        // 重置AI助教聊天记录
+        this.tutorMessages = []
+        this.tutorQuestion = ''
+        this.tutorLoading = false
+        // 重置背诵检测状态
+        this.reciteInput = ''
+        this.reciteResult = null
+        this.reciteLoading = false
+        this.wrongBookAdded = false
         
         let { id } = this.$route.params
         
@@ -1186,8 +1159,6 @@ export default {
         this.fetchSimilarPoems()
         // 获取诗人头像
         this.loadAuthorAvatar(data.author)
-        // 预加载字符信息
-        this.preloadCharInfo()
         // 重置旧诗的背景图状态，避免旧意境图残留
         this.backgroundImage = null
         this.bgImageFadingIn = false
@@ -1248,8 +1219,8 @@ export default {
           signal: this.abortController.signal
         }
         
-        // 设置10秒超时
-        const timeoutId = setTimeout(() => this.abortController.abort(), 10000);
+        // 设置60秒超时（与后端超时一致）
+        const timeoutId = setTimeout(() => this.abortController.abort(), 60000);
         
         try {
           // 使用批量API端点，只发送一个请求
@@ -1707,7 +1678,11 @@ export default {
 
         if (response.ok) {
           const data = await response.json()
-          this.recitationGuide = data.guide || {}
+          if (data && data.rhythm) {
+            this.recitationGuide = data
+          } else {
+            this.recitationGuide = this.getBuiltinRecitationGuide(this.poem.title, this.poem.content)
+          }
         } else {
           this.recitationGuide = this.getBuiltinRecitationGuide(this.poem.title, this.poem.content)
         }
@@ -2085,40 +2060,80 @@ export default {
     
     // 停止背诵模式（输入框失去焦点时）
     stopRecitationMode() {
-      // 只有当输入框为空时才停止背诵模式
-      // 这样用户在切换到其他输入框时原诗仍然保持模糊
       if (!this.reciteInput.trim()) {
         this.recitationMode = false;
       }
     },
     
-    // 获取诗人头像（暂时禁用API调用，使用默认图片）
+    // 获取诗人头像（使用阿里云百炼文生图API生成）
     async getAuthorAvatar(author) {
       try {
-        // 检查缓存
-        const cacheKey = `author_avatar_${author}`;
+        const CACHE_VERSION = 'v2';
+        const cacheKey = `author_avatar_${CACHE_VERSION}_${author}`;
+        
         const cachedAvatar = localStorage.getItem(cacheKey);
         if (cachedAvatar) {
           return cachedAvatar;
         }
         
-        // 直接使用默认头像，避免API速率限制
-        const defaultAvatar = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(author + ' 中国古代诗人 肖像画 风格 水墨画')}&image_size=square`;
+        this.clearOldAuthorAvatarCacheOnce(CACHE_VERSION);
         
-        // 缓存默认头像URL
-        localStorage.setItem(cacheKey, defaultAvatar);
+        const response = await fetch(`${API_BASE_URL}/api/ai/author-avatar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ author })
+        });
         
-        return defaultAvatar;
+        const data = await response.json();
+        
+        if (data.success && data.url) {
+          localStorage.setItem(cacheKey, data.url);
+          return data.url;
+        }
+        
+        console.warn('诗人头像生成失败:', data.message);
+        return this.getDefaultAvatar(author);
       } catch (error) {
-        // 网络请求失败，使用默认头像
         console.error('获取诗人头像失败:', error);
-        return `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(author + ' 中国古代诗人 肖像画 风格 水墨画')}&image_size=square`;
+        return this.getDefaultAvatar(author);
       }
+    },
+    
+    // 只清理一次旧版本的诗人头像缓存
+    clearOldAuthorAvatarCacheOnce(currentVersion) {
+      const CLEANUP_FLAG = `author_avatar_cleanup_${currentVersion}`;
+      if (localStorage.getItem(CLEANUP_FLAG)) {
+        return;
+      }
+      
+      try {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('author_avatar_') && !key.includes(`_${currentVersion}_`) && !key.includes('cleanup_')) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        if (keysToRemove.length > 0) {
+          console.log('已清理旧版诗人头像缓存:', keysToRemove.length, '个');
+        }
+        localStorage.setItem(CLEANUP_FLAG, 'done');
+      } catch (e) {
+        console.warn('清理缓存失败:', e);
+      }
+    },
+    
+    // 获取默认头像（当AI生成失败时使用）
+    getDefaultAvatar(author) {
+      const seed = author.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      return `https://api.dicebear.com/7.x/personas/svg?seed=${seed}&backgroundColor=f5e6d3`;
     },
     
     // 获取诗人简介
     getAuthorBio(author) {
-      // 这里可以根据诗人名字返回简介，实际项目中可以从API获取
       const authorBios = {
         '李白': '李白（701年—762年），字太白，号青莲居士，又号“谪仙人”，唐代伟大的浪漫主义诗人，被后人誉为“诗仙”，与杜甫并称为“李杜”。其诗风格豪放飘逸，想象丰富，语言流转自然，音律和谐多变。',
         '杜甫': '杜甫（712年—770年），字子美，自号少陵野老，唐代伟大的现实主义诗人，与李白合称“李杜”。被后人称为“诗圣”，他的诗被称为“诗史”。其诗风格沉郁顿挫，反映社会现实，关心民生疾苦。',
@@ -2141,13 +2156,10 @@ export default {
       if (!this.poem) return;
       
       try {
-        // 这里可以根据诗人或风格获取相似诗词，实际项目中可以从API获取
-        // 这里使用模拟数据
         const response = await fetch(`${API_BASE_URL}/api/poems`);
         const allPoems = await response.json();
         
         // 基于风格相似性获取诗词
-        // 这里简单实现：根据朝代和标签来判断风格相似性
         this.similarPoems = allPoems
           .filter(p => p.id !== this.poem.id)
           .map(poem => {
@@ -2185,336 +2197,6 @@ export default {
     async loadAuthorAvatar(author) {
       if (!author) return;
       this.authorAvatar = await this.getAuthorAvatar(author);
-    },
-    
-    // 预加载字符信息
-    async preloadCharInfo() {
-      if (!this.poem || !this.poem.content) return;
-      
-      this.preloadingChars = true;
-      try {
-        // 提取诗词中的所有汉字
-        const chars = new Set();
-        for (const line of this.poemLines) {
-          for (const char of line) {
-            if (char >= '\u4e00' && char <= '\u9fff') {
-              chars.add(char);
-            }
-          }
-        }
-        
-        const charArray = Array.from(chars);
-        
-        // 检查是否所有字符都已在缓存中
-        const allCached = charArray.every(char => {
-          return this.charCache[char] || this.getCharFromLocalCache(char);
-        });
-        
-        if (allCached) {
-          // 所有字符都已缓存，无需预加载
-          console.log('所有字符信息已缓存，跳过预加载');
-          // 将本地缓存同步到内存缓存
-          charArray.forEach(char => {
-            const cachedInfo = this.getCharFromLocalCache(char);
-            if (cachedInfo) {
-              this.charCache[char] = cachedInfo;
-            }
-          });
-          this.preloadingChars = false;
-          return;
-        }
-        
-        console.log('开始预加载字符信息，共', charArray.length, '个汉字');
-        
-        // 使用批量接口预加载所有字符信息
-        try {
-          const response = await fetch(`${API_BASE_URL}/api/ai/char-info/batch`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              poem: this.poem.content,
-              title: this.poem.title,
-              author: this.poem.author
-            })
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            if (data.results) {
-              // 处理批量结果
-              for (const [char, content] of Object.entries(data.results)) {
-                try {
-                  const charInfo = JSON.parse(content);
-                  // 存储到内存缓存
-                  this.charCache[char] = charInfo;
-                  // 存储到本地缓存
-                  this.saveCharToLocalCache(char, charInfo);
-                } catch (parseError) {
-                  console.error('解析字符信息失败:', parseError);
-                }
-              }
-              console.log('批量预加载字符信息完成');
-            }
-          } else {
-            console.error('批量预加载字符信息失败:', response.status);
-            // 批量接口失败时，回退到逐个预加载
-            for (const char of charArray) {
-              if (!this.charCache[char] && !this.getCharFromLocalCache(char)) {
-                await this.fetchCharInfo(char);
-              }
-            }
-          }
-        } catch (error) {
-          console.error('批量预加载字符信息失败:', error);
-          // 批量接口失败时，回退到逐个预加载
-          for (const char of charArray) {
-            if (!this.charCache[char] && !this.getCharFromLocalCache(char)) {
-              await this.fetchCharInfo(char);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('预加载字符信息失败:', error);
-      } finally {
-        this.preloadingChars = false;
-      }
-    },
-    
-    // 显示字符信息
-    async showCharInfo(char, charIndex, lineIndex, event) {
-      // 取消之前的选中状态
-      if (this.selectedChar === char && this.selectedCharIndex === charIndex && this.selectedLineIndex === lineIndex) {
-        this.selectedChar = null;
-        this.selectedCharIndex = -1;
-        this.selectedLineIndex = -1;
-        return;
-      }
-
-      // 设置新的选中状态
-      this.selectedChar = char;
-      this.selectedCharIndex = charIndex;
-      this.selectedLineIndex = lineIndex;
-
-      // 直接使用鼠标点击位置定位注释框
-      this.$nextTick(() => {
-        const charSpan = event?.target?.closest('.poem-char');
-        if (charSpan) {
-          // 直接使用鼠标点击的坐标
-          const clickX = event.clientX;
-          const clickY = event.clientY;
-
-          // 注释框尺寸
-          const popupWidth = 180;
-          const popupHeight = 130;
-
-          // 获取视口尺寸
-          const viewportWidth = window.innerWidth;
-          const viewportHeight = window.innerHeight;
-
-          // 水平边界检测
-          let left = clickX;
-          if (left - popupWidth / 2 < 10) {
-            left = popupWidth / 2 + 10;
-          }
-          if (left + popupWidth / 2 > viewportWidth - 10) {
-            left = viewportWidth - popupWidth / 2 - 10;
-          }
-
-          // 垂直边界检测（上方空间不足时显示在下方）
-          let below = false;
-          let top = clickY;
-          if (clickY < popupHeight + 20) {
-            // 空间不足，显示在下方
-            top = clickY + 10;
-            below = true;
-          } else {
-            // 正常显示在上方
-            top = clickY - 10;
-          }
-
-          this.charInfoStyle = {
-            position: 'fixed',
-            top: `${top}px`,
-            left: `${left}px`,
-            transform: below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
-          };
-          this.charInfoBelow = below;
-        }
-      });
-
-      // 检查本地缓存
-      const cachedInfo = this.getCharFromLocalCache(char);
-      if (cachedInfo) {
-        this.charInfo = cachedInfo;
-        this.charCache[char] = cachedInfo;
-        return;
-      }
-
-      // 检查内存缓存
-      if (this.charCache[char]) {
-        this.charInfo = this.charCache[char];
-        return;
-      }
-
-      // 获取字符信息
-      await this.fetchCharInfo(char);
-    },
-    
-    // 从本地存储获取字符信息
-    getCharFromLocalCache(char) {
-      try {
-        const cacheKey = `char_info_${char}`;
-        const cachedData = localStorage.getItem(cacheKey);
-        if (cachedData) {
-          const parsedData = JSON.parse(cachedData);
-          // 检查是否过期（7天）
-          const now = Date.now();
-          if (parsedData.timestamp && (now - parsedData.timestamp) < 7 * 24 * 60 * 60 * 1000) {
-            return {
-              phonetic: parsedData.phonetic,
-              meaning: parsedData.meaning
-            };
-          } else {
-            // 过期，删除缓存
-            localStorage.removeItem(cacheKey);
-          }
-        }
-      } catch (error) {
-        console.error('读取本地缓存失败:', error);
-      }
-      return null;
-    },
-    
-    // 保存字符信息到本地存储
-    saveCharToLocalCache(char, charInfo) {
-      try {
-        const cacheKey = `char_info_${char}`;
-        const data = {
-          ...charInfo,
-          timestamp: Date.now()
-        };
-        localStorage.setItem(cacheKey, JSON.stringify(data));
-      } catch (error) {
-        console.error('保存本地缓存失败:', error);
-      }
-    },
-    
-    // 获取字符信息
-    async fetchCharInfo(char) {
-      // 检查请求锁，防止重复请求
-      if (this.charRequestLock[char]) {
-        // 等待请求完成
-        while (this.charRequestLock[char]) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        // 请求完成后，从缓存获取结果
-        if (this.charCache[char]) {
-          this.charInfo = this.charCache[char];
-        }
-        return;
-      }
-      
-      // 设置请求锁
-      this.charRequestLock[char] = true;
-      this.charLoading = true;
-      
-      try {
-        // 构建 prompt 格式："xxx故事中的xxxx句中的x字的读音和释义"
-        const poemTitle = this.poem?.title || '古诗';
-        // 找到包含该字符的诗句
-        let currentLine = '';
-        for (const line of this.poemLines) {
-          if (line.includes(char)) {
-            currentLine = line;
-            break;
-          }
-        }
-        const prompt = `${poemTitle}中的"${currentLine}"句中的"${char}"字的读音和释义`;
-        
-        // 调用 API 获取字符信息
-        try {
-          const response = await fetch(`${API_BASE_URL}/api/ai/char-info`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ prompt })
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            // 解析 API 响应，提取读音和释义
-            if (data.content) {
-              try {
-                // 尝试解析JSON格式的响应
-                const charInfo = JSON.parse(data.content);
-                
-                // 存储到内存缓存
-                this.charCache[char] = charInfo;
-                // 存储到本地缓存
-                this.saveCharToLocalCache(char, charInfo);
-                // 更新当前显示的字符信息
-                this.charInfo = charInfo;
-              } catch (parseError) {
-                console.error('解析字符信息失败:', parseError);
-                // 解析失败，使用默认值
-                const charInfo = {
-                  phonetic: '未知',
-                  meaning: '解析失败，请重试'
-                };
-                this.charCache[char] = charInfo;
-                this.charInfo = charInfo;
-              }
-            } else {
-              // API 响应格式不正确，使用默认值
-              const charInfo = {
-                phonetic: '未知',
-                meaning: '暂无注释'
-              };
-              this.charCache[char] = charInfo;
-              this.charInfo = charInfo;
-            }
-          } else {
-            // API 调用失败，使用默认值
-            const charInfo = {
-              phonetic: '未知',
-              meaning: '解析失败，请重试'
-            };
-            this.charCache[char] = charInfo;
-            this.charInfo = charInfo;
-          }
-        } catch (error) {
-          console.error('API调用失败:', error);
-          // 网络错误，使用默认值
-          const charInfo = {
-            phonetic: '未知',
-            meaning: '网络错误，请重试'
-          };
-          this.charCache[char] = charInfo;
-          this.charInfo = charInfo;
-        }
-      } catch (error) {
-        console.error('获取字符信息失败:', error);
-        const charInfo = {
-          phonetic: '未知',
-          meaning: '获取失败，请重试'
-        };
-        this.charCache[char] = charInfo;
-        this.charInfo = charInfo;
-      } finally {
-        // 释放请求锁
-        this.charRequestLock[char] = false;
-        this.charLoading = false;
-      }
-    },
-    
-    // 关闭字符信息
-    closeCharInfo() {
-      this.selectedChar = null;
-      this.selectedCharIndex = -1;
-      this.selectedLineIndex = -1;
     },
 
     /** 从选区起点找到所在诗句行 DOM 与行号（1-based） */
@@ -2691,7 +2373,6 @@ export default {
         const data = await response.json();
 
         if (data.success && data.url) {
-          // 先隐藏旧图，再设置新图（由 @load 触发 fade-in 渐变效果）
           this.bgImageFadingIn = false;
           this.backgroundImage = data.url;
           this.sceneImageToast = { show: true, message: '意境渐染，画面已更新', type: 'success' };
@@ -2960,24 +2641,6 @@ export default {
   box-shadow: 0 10px 28px rgba(244, 67, 54, 0.5);
 }
 
-.char-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px;
-  gap: 8px;
-  color: var(--secondary-color);
-}
-
-.char-loading .loading-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(33, 150, 243, 0.3);
-  border-top: 2px solid var(--secondary-color);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
@@ -3120,72 +2783,11 @@ export default {
 }
 
 .poem-char {
-  position: relative;
-  cursor: pointer;
   padding: 0 2px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-}
-
-.poem-char:hover {
-  background-color: rgba(255, 255, 0, 0.2);
 }
 
 .poem-punctuation {
   margin: 0 2px;
-}
-
-.char-info {
-  /* 移除固定定位样式，由JS动态计算 */
-  z-index: 9999;
-  background: var(--glass-background);
-  backdrop-filter: blur(calc(var(--glass-blur) + 8px));
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 8px));
-  color: #333;
-  padding: 12px;
-  padding-top: 16px;
-  border-radius: 12px;
-  min-width: 160px;
-  text-align: left;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  word-wrap: break-word;
-  max-width: 200px;
-}
-
-.char-info::after {
-  content: '';
-  position: absolute;
-  width: 0;
-  height: 0;
-  /* 上方显示时：箭头在底部中间，指向鼠标点击位置 */
-  bottom: -10px;
-  left: 50%;
-  transform: translateX(-50%);
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 10px solid rgba(255, 255, 255, 0.95);
-}
-
-/* 下方显示时使用向上的箭头 */
-.char-info.below::after {
-  top: -10px;
-  bottom: auto;
-  border-top: none;
-  border-bottom: 10px solid rgba(255, 255, 255, 0.95);
-}
-
-.char-phonetic {
-  font-size: 16px;
-  margin-bottom: 8px;
-  color: var(--primary-color);
-  font-weight: 600;
-}
-
-.char-meaning {
-  font-size: 13px;
-  line-height: 1.4;
-  color: #555;
 }
 
 /* AI助教聊天容器样式 */

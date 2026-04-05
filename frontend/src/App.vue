@@ -514,7 +514,7 @@ export default {
       // 其他可能的身份相关数据
       localStorage.removeItem('redirectPath')
       localStorage.removeItem('authToken')
-      // 注意：不清除 currentLoginType，以保持当前登录类型
+      // 注意：不清除 currentLoginType
     },
     // 完全清除所有数据（用于切换登录类型时）
     clearAllData() {

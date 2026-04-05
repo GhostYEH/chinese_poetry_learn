@@ -4,13 +4,13 @@
       <div class="loading-spinner"></div>
       <p>数据加载中...</p>
     </div>
-    <div v-else ref="chartRef" class="chart-wrapper" :style="{ height: height }">
+    <div v-show="!loading" ref="chartRef" class="chart-wrapper" :style="{ height: height }">
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 
 const props = defineProps({
@@ -36,14 +36,19 @@ const chartRef = ref(null)
 let chart = null
 
 const initChart = () => {
-  if (chartRef.value) {
+  if (chartRef.value && !chart) {
     chart = echarts.init(chartRef.value)
     updateChart()
   }
 }
 
 const updateChart = () => {
-  if (!chart) return
+  if (!chart) {
+    initChart()
+    return
+  }
+  
+  if (!props.data || Object.keys(props.data).length === 0) return
   
   const options = {
     color: ['#8b4513', '#cd853f', '#d2b48c', '#deb887', '#f5deb3', '#ffe4b5'],
@@ -105,7 +110,7 @@ const updateChart = () => {
     ...props.data
   }
   
-  chart.setOption(options)
+  chart.setOption(options, true)
 }
 
 const handleResize = () => {
@@ -114,24 +119,37 @@ const handleResize = () => {
 
 watch(() => props.data, () => {
   nextTick(() => {
-    updateChart()
-  })
-}, { deep: true })
-
-watch(() => props.loading, () => {
-  nextTick(() => {
     if (!props.loading) {
+      initChart()
       updateChart()
     }
   })
+}, { deep: true })
+
+watch(() => props.loading, (newVal) => {
+  if (!newVal) {
+    nextTick(() => {
+      initChart()
+      updateChart()
+    })
+  }
 })
 
 onMounted(() => {
-  initChart()
+  if (!props.loading) {
+    initChart()
+  }
   window.addEventListener('resize', handleResize)
 })
 
-// 暴露方法
+onUnmounted(() => {
+  if (chart) {
+    chart.dispose()
+    chart = null
+  }
+  window.removeEventListener('resize', handleResize)
+})
+
 defineExpose({
   update: updateChart,
   resize: handleResize

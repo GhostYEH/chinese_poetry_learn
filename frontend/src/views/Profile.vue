@@ -135,7 +135,7 @@
                 <circle v-for="(p, i) in trendDots.learning" :key="'ld'+i" :cx="p.x" :cy="p.y" r="3.5" fill="#667eea" class="chart-dot"/>
                 <circle v-for="(p, i) in trendDots.challenge" :key="'cd'+i" :cx="p.x" :cy="p.y" r="3.5" fill="#f093fb" class="chart-dot"/>
                 <!-- X轴标签 -->
-                <text v-for="(label, i) in trendLabels" :key="'tl'+i" :x="i * (trendWidth / (trendLabels.length - 1))" y="175" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="10">{{ label }}</text>
+                <text v-for="(label, i) in trendLabels" :key="'tl'+i" :x="i * (trendWidth / Math.max(trendLabels.length - 1, 1))" y="175" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="10">{{ label }}</text>
               </svg>
             </div>
           </div>
@@ -484,8 +484,8 @@ const trendLabels = computed(() => {
 const trendPoints = computed(() => {
   const learnData = activityData.value.learningActivity || []
   const chalData = activityData.value.challengeActivity || []
-  const maxLearn = Math.max(...learnData.map(d => d.count), 1)
-  const maxChal = Math.max(...chalData.map(d => d.count), 1)
+  const maxLearn = Math.max(...learnData.map(d => d.count ?? 0), 1)
+  const maxChal = Math.max(...chalData.map(d => d.count ?? 0), 1)
   const w = trendWidth.value
   const h = 140
 
@@ -493,7 +493,8 @@ const trendPoints = computed(() => {
     if (!data || data.length === 0) return ''
     const pts = data.map((d, i) => {
       const x = (i / Math.max(data.length - 1, 1)) * w
-      const y = h - (d[field] / maxVal) * (h - 20)
+      const val = d[field] ?? 0
+      const y = h - (val / maxVal) * (h - 20)
       return `${x},${y}`
     })
     return pts.join(' ')
@@ -508,8 +509,8 @@ const trendPoints = computed(() => {
 const trendDots = computed(() => {
   const learnData = activityData.value.learningActivity || []
   const chalData = activityData.value.challengeActivity || []
-  const maxLearn = Math.max(...learnData.map(d => d.count), 1)
-  const maxChal = Math.max(...chalData.map(d => d.count), 1)
+  const maxLearn = Math.max(...learnData.map(d => d.count ?? 0), 1)
+  const maxChal = Math.max(...chalData.map(d => d.count ?? 0), 1)
   const w = trendWidth.value
   const h = 140
 
@@ -517,7 +518,7 @@ const trendDots = computed(() => {
     if (!data || data.length === 0) return []
     return data.map((d, i) => ({
       x: (i / Math.max(data.length - 1, 1)) * w,
-      y: h - (d.count / maxVal) * (h - 20)
+      y: h - ((d.count ?? 0) / maxVal) * (h - 20)
     }))
   }
 
@@ -562,14 +563,13 @@ const donutSegments = computed(() => {
 })
 
 // ===== 雷达图数据 =====
-const RADAR_COLORS = ['#667eea', '#f093fb', '#a8edea', '#fee140', '#84fab0']
+const RADAR_COLORS = ['#667eea', '#f093fb', '#a8edea', '#fee140']
 
 const radarAxes = [
-  { label: '背诵', angle: -90, key: 'recitation' },
-  { label: '理解', angle: -18, key: 'comprehension' },
-  { label: '创作', angle: 54, key: 'creation' },
-  { label: '闯关', angle: 126, key: 'challenge' },
-  { label: '记忆', angle: 198, key: 'memory' },
+  { label: '记忆', angle: -90, key: 'memory' },
+  { label: '理解', angle: 0, key: 'understanding' },
+  { label: '应用', angle: 90, key: 'application' },
+  { label: '创作', angle: 180, key: 'creativity' },
 ]
 
 const radarAxesComputed = computed(() => {
@@ -586,14 +586,12 @@ const radarAxesComputed = computed(() => {
 })
 
 const radarValues = computed(() => {
-  const o = statsData.value.overview || {}
-  const weekly = statsData.value.weeklyStats || {}
+  const ability = statsData.value.abilityModel || {}
   return [
-    Math.min(Math.round((o.poemsStudied || 0) / 100 * 100), 100),
-    Math.min(Math.round((weekly.avg_accuracy || 0) * 100), 100),
-    Math.min(Math.round((o.creations || 0) / 20 * 100), 100),
-    Math.min(Math.round((o.challengeLevel || 0) / 50 * 100), 100),
-    Math.min(Math.round((weekly.poems_learned || 0) / 30 * 100), 100),
+    ability.memory || 0,
+    ability.understanding || 0,
+    ability.application || 0,
+    ability.creativity || 0,
   ]
 })
 

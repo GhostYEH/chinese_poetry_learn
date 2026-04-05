@@ -469,8 +469,21 @@ export default {
       socket.value.on('game-start', (data) => {
         showWaitingModal.value = false;
         showInvitationModal.value = false;
-        currentRoom.value = data.room;
-        startLocalTimer(data.room.turnTimeLimit || 30);
+        currentRoom.value = {
+          id: data.roomId,
+          keyword: data.keyword,
+          difficulty: data.difficulty,
+          isRanking: data.isRanking,
+          players: data.players,
+          currentTurn: data.currentTurn,
+          currentRound: 1,
+          usedPoems: [],
+          turnTimeLimit: data.timeLimit || 30,
+          currentQuestion: data.currentQuestion,
+          currentQuestionIndex: data.currentQuestionIndex,
+          totalQuestions: data.totalQuestions
+        };
+        startLocalTimer(data.timeLimit || 30);
       });
 
       socket.value.on('validating', () => {
@@ -543,7 +556,9 @@ export default {
 
       socket.value.on('game-result', (data) => {
         stopLocalTimer();
-        gameWinner.value = data.winner;
+        const winnerUserId = data.winnerId ?? data.winner?.userId;
+        const winnerName = data.winnerName ?? data.winner?.username;
+        gameWinner.value = { userId: winnerUserId, username: winnerName };
         gameEndReason.value = data.reason || '';
         showGameEndModal.value = true;
         // 同步完整 room 状态，避免 game-start 缓存残留

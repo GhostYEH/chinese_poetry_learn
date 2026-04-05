@@ -122,32 +122,14 @@
               >
                 {{ isReading && readingPoemId === dailyPoem.id ? '⏹ 停止' : '🔊 朗读' }}
               </button>
-              <button class="ai-explain-btn" @click.stop="explainDailyPoem">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
-                AI 讲解
+              <button class="start-learn-btn" @click.stop="navigateToDetail(dailyPoem.id)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                开始学习
               </button>
               <div class="daily-action-tip">点击卡片查看详情</div>
             </div>
           </div>
         </div>
-        <!-- AI 讲解弹窗 -->
-        <transition name="ai-modal">
-          <div class="ai-explain-modal" v-if="showAiExplain" @click.self="closeAiExplain">
-            <div class="ai-explain-content">
-              <div class="ai-explain-header">
-                <h3>📜 AI 智能讲解</h3>
-                <button class="ai-close-btn" @click="closeAiExplain">×</button>
-              </div>
-              <div class="ai-explain-body" v-if="aiExplanation">
-                <p class="ai-explain-text">{{ aiExplanation }}</p>
-              </div>
-              <div class="ai-explain-loading" v-else>
-                <div class="loading-spinner"></div>
-                <span>AI 正在解读这首诗...</span>
-              </div>
-            </div>
-          </div>
-        </transition>
       </div>
       <div v-else class="daily-loading">
         <div class="loading-spinner large"></div>
@@ -299,10 +281,11 @@
           </template>
         </div>
         <div v-if="filteredPoems.length > 0" class="load-more">
-          <button class="load-more-btn" @click="loadMore" :disabled="loadingMore">
+          <button v-if="hasMore" class="load-more-btn" @click="loadMore" :disabled="loadingMore">
             <span v-if="loadingMore" class="loading-spinner small"></span>
             {{ loadingMore ? '加载中...' : '加载更多' }}
           </button>
+          <p v-else class="no-more">已经到底了~</p>
         </div>
       </main>
 
@@ -401,8 +384,6 @@ export default {
       isReading: false,
       readingPoemId: null,
       speechUtterance: null,
-      showAiExplain: false,
-      aiExplanation: '',
       // 一言
       hitokotoText: '心有猛虎，细嗅蔷薇',
       hitokotoFrom: '余光中',
@@ -412,6 +393,7 @@ export default {
       authors: [],
       loading: true,
       loadingMore: false,
+      hasMore: true,
       error: '',
       searchQuery: '',
       dynastyFilter: '',
@@ -555,34 +537,6 @@ export default {
           content: '床前明月光，疑是地上霜。\n举头望明月，低头思故乡。'
         }
       }
-    },
-    async explainDailyPoem() {
-      if (!this.dailyPoem) return
-      this.showAiExplain = true
-      this.aiExplanation = ''
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/ai/explain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            poem: this.dailyPoem.content,
-            title: this.dailyPoem.title,
-            author: this.dailyPoem.author
-          })
-        })
-        if (res.ok) {
-          const data = await res.json()
-          this.aiExplanation = data.explanation || data.text || '暂无解读内容'
-        } else {
-          this.aiExplanation = '暂无解读内容，请稍后再试。'
-        }
-      } catch (e) {
-        this.aiExplanation = 'AI 讲解服务暂时不可用。'
-      }
-    },
-    closeAiExplain() {
-      this.showAiExplain = false
-      this.aiExplanation = ''
     },
     // 一言
     async fetchHitokoto() {
@@ -728,7 +682,13 @@ export default {
         if (this.page === 1) this.loading = true
         this.error = ''
         let url = `${API_BASE_URL}/api/poems?page=${this.page}&pageSize=${this.pageSize}&_=${Date.now()}`
-        if (!this.searchQuery && !this.dynastyFilter && !this.authorFilter) {
+        if (this.dynastyFilter) {
+          url += `&dynasty=${encodeURIComponent(this.dynastyFilter)}`
+        }
+        if (this.authorFilter) {
+          url += `&author=${encodeURIComponent(this.authorFilter)}`
+        }
+        if (!this.dynastyFilter && !this.authorFilter) {
           url += '&random=true'
         }
         const controller = new AbortController()
@@ -737,14 +697,17 @@ export default {
         clearTimeout(timeout)
         if (!response.ok) throw new Error('获取诗词列表失败')
         const data = await response.json()
+        
+        this.hasMore = data.length === this.pageSize
+        
         if (this.page === 1) {
           this.poems = data
+          this.filteredPoems = data
           this.extractAuthors()
-          this.filterPoems()
         } else {
           this.poems = [...this.poems, ...data]
+          this.filteredPoems = this.poems
           this.extractAuthors()
-          this.filterPoems()
         }
       } catch (err) {
         this.error = err.message
@@ -754,7 +717,7 @@ export default {
       }
     },
     loadMore() {
-      if (this.loadingMore) return
+      if (this.loadingMore || !this.hasMore) return
       this.loadingMore = true
       this.page++
       this.fetchPoems()
@@ -777,19 +740,18 @@ export default {
       this.authors = Array.from(authorSet).sort()
     },
     filterPoems() {
-      let filtered = [...this.poems]
-      if (this.dynastyFilter) {
-        filtered = filtered.filter(poem => poem.dynasty === this.dynastyFilter)
-      }
-      if (this.authorFilter) {
-        filtered = filtered.filter(poem => poem.author === this.authorFilter)
-      }
-      this.filteredPoems = filtered
+      this.page = 1
+      this.poems = []
+      this.hasMore = true
+      this.fetchPoems()
     },
     resetFilters() {
       this.dynastyFilter = ''
       this.authorFilter = ''
-      this.filterPoems()
+      this.page = 1
+      this.poems = []
+      this.hasMore = true
+      this.fetchPoems()
     },
     // 朗读
     toggleRead(poem) {
@@ -1303,9 +1265,9 @@ export default {
   border-color: rgba(205, 133, 63, 0.5);
   transform: translateY(-2px);
 }
-.ai-explain-btn {
+.start-learn-btn {
   padding: 10px 24px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, #4facfe, #00f2fe);
   color: white;
   border: none;
   border-radius: 50px;
@@ -1318,9 +1280,9 @@ export default {
   gap: 6px;
   white-space: nowrap;
 }
-.ai-explain-btn:hover {
+.start-learn-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.35);
+  box-shadow: 0 8px 24px rgba(79, 172, 254, 0.35);
 }
 .daily-action-tip {
   font-size: 11px;
@@ -1328,75 +1290,6 @@ export default {
   font-family: 'Noto Sans SC', sans-serif;
   text-align: center;
 }
-/* AI 弹窗 */
-.ai-explain-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.ai-explain-content {
-  background: rgba(255, 252, 240, 0.98);
-  border-radius: 20px;
-  max-width: 600px;
-  width: 100%;
-  max-height: 70vh;
-  overflow: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(205, 133, 63, 0.2);
-}
-.ai-explain-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px;
-  border-bottom: 1px solid rgba(205, 133, 63, 0.1);
-}
-.ai-explain-header h3 {
-  margin: 0;
-  font-size: 18px;
-  color: #8b4513;
-  font-family: 'Noto Serif SC', serif;
-}
-.ai-close-btn {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: rgba(205, 133, 63, 0.1);
-  border-radius: 50%;
-  font-size: 20px;
-  color: #8b4513;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  line-height: 1;
-}
-.ai-close-btn:hover { background: rgba(205, 133, 63, 0.2); }
-.ai-explain-body { padding: 24px; }
-.ai-explain-text {
-  font-size: 15px;
-  color: #555;
-  line-height: 1.8;
-  font-family: 'SimSun', 'STSong', serif;
-  white-space: pre-wrap;
-  margin: 0;
-}
-.ai-explain-loading {
-  padding: 40px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  color: #888;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-.ai-modal-enter-active, .ai-modal-leave-active { transition: opacity 0.3s ease; }
-.ai-modal-enter-from, .ai-modal-leave-to { opacity: 0; }
 .daily-loading {
   text-align: center;
   padding: 60px;
@@ -1885,6 +1778,12 @@ export default {
   transform: translateY(-2px);
 }
 .load-more-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.no-more {
+  text-align: center;
+  color: #999;
+  font-size: 14px;
+  padding: 20px 0;
+}
 
 /* 右侧统计数据 */
 .stats-vertical-list {

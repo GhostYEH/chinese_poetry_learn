@@ -46,7 +46,7 @@
 
     <div class="chart-row">
       <div class="chart-half">
-        <h3>班级内部学生能力分布</h3>
+        <h3>平均能力分布</h3>
         <TeacherChart 
           :type="'radar'"
           :data="studentAbilityChartData"
@@ -147,7 +147,7 @@ const className = computed(() => `第${classId.value}班`)
 const classData = ref({})
 const classRank = ref(0)
 const students = ref([])
-const loading = ref(false)
+const loading = ref(true)
 const showQuickViewModal = ref(false)
 const quickViewStudent = ref(null)
 
@@ -271,8 +271,21 @@ const learningTrendChartData = computed(() => {
   }
 })
 
-// 学生能力分布雷达图数据
+// 班级平均能力分布雷达图数据
 const studentAbilityChartData = computed(() => {
+  const studentCount = students.value.length || 1
+  
+  const avgPoemCount = students.value.reduce((sum, s) => sum + (s.poem_count || 0), 0) / studentCount
+  const avgStudyTime = students.value.reduce((sum, s) => sum + (s.total_study_time || 0), 0) / studentCount
+  const avgPoemRate = avgPoemCount / 10 * 100
+  
+  const avgAbility = {
+    poemCount: Math.min(Math.round(avgPoemCount * 0.8), 100),
+    studyTime: Math.min(Math.round(avgStudyTime / 30), 100),
+    frequency: Math.min(Math.round(avgPoemRate), 100),
+    activity: Math.min(Math.round(60 + (avgPoemCount / 100) * 30), 100)
+  }
+  
   return {
     radar: {
       indicator: [
@@ -285,7 +298,8 @@ const studentAbilityChartData = computed(() => {
       splitNumber: 5,
       axisName: {
         color: '#8b4513',
-        fontFamily: 'SimSun, STSong, serif'
+        fontFamily: 'SimSun, STSong, serif',
+        fontSize: 13
       },
       splitLine: {
         lineStyle: {
@@ -306,17 +320,29 @@ const studentAbilityChartData = computed(() => {
     },
     series: [
       {
-        name: '学生能力',
+        name: '班级平均能力',
         type: 'radar',
-        data: students.value.map((student, index) => ({
-          value: [
-            Math.min((student.poem_count || 0) * 0.8, 100),
-            Math.min(Math.round((student.total_study_time || 0) / 30), 100),
-            Math.min(Math.round((student.poem_count || 0) / 10 * 100), 100),
-            Math.floor(Math.random() * 50) + 50
-          ],
-          name: student.username
-        })),
+        data: [
+          {
+            value: [
+              avgAbility.poemCount,
+              avgAbility.studyTime,
+              avgAbility.frequency,
+              avgAbility.activity
+            ],
+            name: '班级平均',
+            areaStyle: {
+              color: 'rgba(205, 133, 63, 0.3)'
+            },
+            lineStyle: {
+              color: '#cd853f',
+              width: 2
+            },
+            itemStyle: {
+              color: '#8b4513'
+            }
+          }
+        ],
         animationDuration: 1000,
         animationEasing: 'ease-out'
       }

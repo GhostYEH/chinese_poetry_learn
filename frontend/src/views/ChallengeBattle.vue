@@ -37,15 +37,15 @@
         <div class="glass-card mode-card dual-card">
           <div class="mode-icon dual-icon">战</div>
           <h2 class="mode-heading">双人对战</h2>
-          <p class="mode-desc">实时对战，系统从诗词库随机抽题，双方同题PK。30秒内诗词绝不重复，先答先判！</p>
+          <p class="mode-desc">实时对战，系统从诗词库随机抽题，双方轮流填空答题。答错或超时30秒直接判负！</p>
           <div class="rule-list">
-            <div class="rule-item"><span class="rule-icon">1</span><span class="rule-text">两人同答同一道题，先答先判</span></div>
-            <div class="rule-item"><span class="rule-icon">2</span><span class="rule-text">每题限时30秒，超时视为答错</span></div>
-            <div class="rule-item"><span class="rule-icon">3</span><span class="rule-text">共30题，正确数多者获胜</span></div>
-            <div class="rule-item"><span class="rule-icon">4</span><span class="rule-text">30秒内诗词绝不重复</span></div>
+            <div class="rule-item"><span class="rule-icon">1</span><span class="rule-text">两人轮流答题填空</span></div>
+            <div class="rule-item"><span class="rule-icon">2</span><span class="rule-text">每题限时30秒，超时判负</span></div>
+            <div class="rule-item"><span class="rule-icon">3</span><span class="rule-text">答错立即判负</span></div>
+            <div class="rule-item"><span class="rule-icon">4</span><span class="rule-text">共30题，全部答完则正确数多者胜</span></div>
           </div>
-          <button class="glass-button dual-start-btn" @click="joinDualMatch" :disabled="starting">
-            {{ starting ? '匹配中...' : '快速匹配' }}
+          <button class="glass-button dual-start-btn" @click="goToBattleOnline" :disabled="starting">
+            邀请对战
           </button>
         </div>
       </div>
@@ -87,7 +87,7 @@
     </div>
 
     <!-- 匹配等待界面 -->
-    <div v-else-if="matching" class="matching-panel">
+    <div v-if="matching" class="matching-panel">
       <div class="matching-card glass-card">
         <div class="matching-spinner"></div>
         <h2 class="matching-title">匹配中...</h2>
@@ -99,9 +99,8 @@
       </div>
     </div>
 
-    <!-- 游戏中 - 单人 -->
+    <!-- ========== 游戏中 - 单人 ========== -->
     <div v-else-if="gameStarted && gameMode === 'single'" class="game-room-fullscreen">
-      <!-- 顶部状态栏 -->
       <div class="game-hud-full">
         <div class="hud-left">
           <h1 class="game-title">闯关对战</h1>
@@ -119,7 +118,6 @@
         </div>
       </div>
 
-      <!-- 主游戏区域 -->
       <div class="game-main-area">
         <div class="timer-section">
           <div :class="['timer-ring', { 'warning': remainingTime <= 10, 'danger': remainingTime <= 5 }]">
@@ -127,7 +125,7 @@
               <circle class="timer-bg" cx="50" cy="50" r="45" />
               <circle class="timer-progress" cx="50" cy="50" r="45"
                 :stroke-dasharray="circumference"
-                :stroke-dashoffset="timerOffset" />
+                :stroke-dashoffset=" timerOffset" />
             </svg>
             <div class="timer-text">
               <span class="timer-number">{{ remainingTime }}</span>
@@ -186,24 +184,25 @@
       </transition>
     </div>
 
-    <!-- 游戏中 - 双人 -->
+    <!-- ========== 游戏中 - 双人 ========== -->
     <div v-else-if="gameStarted && gameMode === 'dual'" class="game-room-fullscreen dual-mode">
-      <!-- 顶部状态栏 -->
       <div class="game-hud-full">
         <div class="hud-left">
           <h1 class="game-title">双人对战</h1>
-          <span class="round-badge">第 {{ dualRound }} / 30轮</span>
+          <span class="round-badge">第 {{ dualRound }} / 30题</span>
         </div>
         <div class="hud-center">
           <div class="dual-scores">
-            <div class="dual-player-score">
+            <div class="dual-player-score" :class="{ 'is-current-turn': isMyTurn }">
               <span class="dual-player-name">{{ myPlayer.username }}</span>
               <span class="dual-correct">{{ myPlayer.correct }} 正确</span>
+              <span v-if="isMyTurn" class="turn-indicator">轮到你了</span>
             </div>
             <span class="vs-badge">VS</span>
-            <div class="dual-player-score opponent">
+            <div class="dual-player-score opponent" :class="{ 'is-current-turn': !isMyTurn }">
               <span class="dual-player-name">{{ opponentPlayer?.username || '等待对手...' }}</span>
               <span class="dual-correct">{{ opponentPlayer?.correct ?? '-' }} 正确</span>
+              <span v-if="!isMyTurn && opponentPlayer?.username" class="turn-indicator">轮到对方</span>
             </div>
           </div>
         </div>
@@ -212,7 +211,6 @@
         </div>
       </div>
 
-      <!-- 主游戏区域 -->
       <div class="game-main-area">
         <div class="timer-section">
           <div :class="['timer-ring', { 'warning': dualRemainingTime <= 10, 'danger': dualRemainingTime <= 5 }]">
@@ -230,6 +228,7 @@
         </div>
 
         <div class="question-area">
+          <!-- 题目卡片 -->
           <div v-if="dualQuestion" class="question-card">
             <div class="question-meta">
               <span class="question-type">{{ dualQuestion.type || '诗词接句' }}</span>
@@ -238,29 +237,41 @@
             <div class="question-text">{{ dualQuestion.question }}</div>
           </div>
 
-          <div class="answer-section">
-            <input v-model="dualAnswer" type="text" class="answer-input"
-              placeholder="请输入答案" @keyup.enter="submitDualAnswer"
-              ref="dualAnswerInput" :disabled="dualAnswerFeedback !== null" />
-            <button class="submit-btn" @click="submitDualAnswer"
-              :disabled="!dualAnswer.trim() || dualSubmitting || dualAnswerFeedback !== null">
+          <!-- 我的答题区（轮到自己的时候显示） -->
+          <div v-if="isMyTurn" class="answer-section">
+            <input
+              v-model="dualAnswer"
+              type="text"
+              class="answer-input"
+              placeholder="请输入答案"
+              @keyup.enter="submitDualAnswer"
+              ref="dualAnswerInput"
+              :disabled="dualSubmitting"
+            />
+            <button
+              class="submit-btn"
+              @click="submitDualAnswer"
+              :disabled="!dualAnswer.trim() || dualSubmitting"
+            >
               {{ dualSubmitting ? '判定中...' : '提交答案' }}
             </button>
           </div>
 
-          <!-- 双人答题状态 -->
-          <div v-if="dualAnswerFeedback" class="dual-answer-status">
-            <div class="dual-status-item my-status" :class="dualAnswerFeedback.myCorrect ? 'correct' : 'wrong'">
-              <span class="status-name">{{ myPlayer.username }}</span>
-              <span class="status-result">{{ dualAnswerFeedback.myCorrect ? '✓ 正确' : '✗ 错误' }}</span>
+          <!-- 等待对方答题区（不是自己的时候显示） -->
+          <div v-else class="waiting-opponent-section">
+            <div class="waiting-icon">
+              <div class="waiting-spinner-small"></div>
             </div>
-            <div class="dual-status-item opponent-status" :class="dualAnswerFeedback.opponentCorrect === null ? 'pending' : (dualAnswerFeedback.opponentCorrect ? 'correct' : 'wrong')">
-              <span class="status-name">{{ opponentPlayer?.username || '对手' }}</span>
-              <span class="status-result">
-                <template v-if="dualAnswerFeedback.opponentCorrect === null">等待中...</template>
-                <template v-else>{{ dualAnswerFeedback.opponentCorrect ? '✓ 正确' : '✗ 错误' }}</template>
-              </span>
-            </div>
+            <p class="waiting-text">等待 {{ opponentPlayer?.username || '对方' }} 答题中...</p>
+          </div>
+
+          <!-- 答题结果反馈 -->
+          <div v-if="dualAnswerFeedback" class="dual-feedback-card" :class="dualAnswerFeedback.isCorrect ? 'feedback-correct' : 'feedback-wrong'">
+            <div class="feedback-icon">{{ dualAnswerFeedback.isCorrect ? '✓' : '✗' }}</div>
+            <p class="feedback-title">{{ dualAnswerFeedback.isCorrect ? '回答正确！' : '回答错误' }}</p>
+            <p v-if="!dualAnswerFeedback.isCorrect" class="feedback-answer">
+              正确答案：<strong>{{ dualAnswerFeedback.correctAnswer }}</strong>
+            </p>
           </div>
         </div>
 
@@ -282,7 +293,7 @@
       </div>
     </div>
 
-    <!-- 游戏结束 -->
+    <!-- ========== 游戏结束 ========== -->
     <div v-if="gameEnded" class="modal-overlay">
       <div class="modal-content glass-card result-modal">
         <!-- 单人结束 -->
@@ -320,20 +331,20 @@
 
         <!-- 双人结束 -->
         <template v-if="gameMode === 'dual'">
-          <h3 class="modal-title">{{ dualResult?.winner?.tie ? '平局！' : (dualResult?.winner?.id === myUserId ? '你赢了！' : '你输了') }}</h3>
+          <h3 class="modal-title">{{ isTie ? '平局！' : (iWon ? '你赢了！' : '你输了') }}</h3>
           <div class="dual-result-scores">
-            <div class="dual-result-player" :class="dualResult?.winner?.id === myUserId ? 'winner' : ''">
+            <div class="dual-result-player" :class="iWon ? 'winner' : ''">
               <div class="result-player-name">{{ myPlayer.username }}</div>
               <div class="result-player-score">{{ myPlayer.correct }} 正确</div>
             </div>
             <div class="dual-result-vs">VS</div>
-            <div class="dual-result-player" :class="dualResult?.winner?.id !== myUserId && !dualResult?.winner?.tie ? 'winner' : ''">
+            <div class="dual-result-player" :class="!isTie && !iWon ? 'winner' : ''">
               <div class="result-player-name">{{ opponentPlayer?.username || '对手' }}</div>
               <div class="result-player-score">{{ opponentPlayer?.correct || 0 }} 正确</div>
             </div>
           </div>
           <div class="result-accuracy">
-            共 {{ dualResult?.totalRounds || 30 }} 轮
+            共 {{ dualResult?.totalQuestions || 30 }} 题
           </div>
         </template>
 
@@ -351,7 +362,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import io from 'socket.io-client';
 
@@ -363,25 +374,19 @@ export default {
     const router = useRouter();
     const socket = ref(null);
 
-    // 登录状态
+    // ========== 状态 ==========
     const isLoggedIn = ref(false);
     const myUserId = ref(null);
     const myUsername = ref('');
-
-    // 开始界面
     const starting = ref(false);
     const history = ref([]);
     const historyLoading = ref(false);
-
-    // 匹配
     const matching = ref(false);
-
-    // 游戏状态
     const gameStarted = ref(false);
-    const gameMode = ref('single'); // 'single' | 'dual'
+    const gameMode = ref('single');
     const roomId = ref(null);
 
-    // 单人模式状态
+    // 单人模式
     const currentRound = ref(1);
     const currentQuestion = ref(null);
     const remainingTime = ref(30);
@@ -392,7 +397,7 @@ export default {
     const correctCount = ref(0);
     const wrongCount = ref(0);
 
-    // 双人模式状态
+    // 双人模式
     const dualRound = ref(1);
     const dualQuestion = ref(null);
     const dualRemainingTime = ref(30);
@@ -402,6 +407,10 @@ export default {
     const dualRoomId = ref(null);
     const myPlayer = ref({ id: null, username: '', correct: 0 });
     const opponentPlayer = ref(null);
+    const currentQuestionIndex = ref(0);
+    const totalQuestions = ref(30);
+    const myPlayerIndex = ref(0);
+    const currentTurn = ref(0);
 
     // 结束状态
     const gameEnded = ref(false);
@@ -419,39 +428,65 @@ export default {
     const dualAnswerInput = ref(null);
 
     const circumference = 2 * Math.PI * 45;
-    const timerOffset = computed(() => circumference * (1 - remainingTime.value / totalTime));
-    const dualTimerOffset = computed(() => circumference * (1 - dualRemainingTime.value / totalTime));
+    const timerOffset = computed(() => {
+      const time = remainingTime.value ?? 30;
+      const total = totalTime || 30;
+      return circumference * (1 - time / total);
+    });
+    const dualTimerOffset = computed(() => {
+      const time = dualRemainingTime.value ?? 30;
+      const total = totalTime || 30;
+      return circumference * (1 - time / total);
+    });
 
+    // ========== 辅助函数 ==========
     const showToast = (message, type = 'info', duration = 3000) => {
       toast.value = { show: true, message, type };
       setTimeout(() => { toast.value.show = false; }, duration);
     };
 
+    const idsEqual = (id1, id2) => {
+      if (id1 === undefined || id1 === null || id2 === undefined || id2 === null) return false;
+      return String(id1) === String(id2);
+    };
+
+    // 是否轮到自己（基于题目索引和自己在玩家数组中的位置）
+    const isMyTurn = computed(() => {
+      if (!myPlayerIndex.value && myPlayerIndex.value !== 0) return true;
+      return currentQuestionIndex.value % 2 === myPlayerIndex.value;
+    });
+
+    // ========== 路由 ==========
     const goLogin = () => {
       localStorage.setItem('redirectPath', '/challenge/battle');
       router.push('/login');
     };
     const goBack = () => router.push('/challenge');
+    const goToBattleOnline = () => router.push('/challenge/battle-online');
     const goToReview = () => router.push('/challenge/error-book');
 
+    // ========== Socket 初始化 ==========
     const initSocket = () => {
+      if (socket.value && socket.value.connected) return;
+      if (socket.value) { socket.value.disconnect(); socket.value = null; }
+
       socket.value = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
 
       socket.value.on('connect', () => {
         console.log('[ChallengeBattle] Socket已连接');
         const token = localStorage.getItem('token');
         if (token) socket.value.emit('authenticate', { token });
-        socket.value.emit('challenge-match-count');
       });
 
       socket.value.on('authenticated', (data) => {
-        myUserId.value = data.userId;
+        console.log('[ChallengeBattle] 认证成功:', data);
+        myUserId.value = data.userId?.toString();
         myUsername.value = data.username;
         myPlayer.value = { id: data.userId, username: data.username, correct: 0 };
         loadHistory();
       });
 
-      // ========== 单人模式 ==========
+      // ========== 单人模式事件 ==========
       socket.value.on('challenge-started', (data) => {
         starting.value = false;
         roomId.value = data.roomId;
@@ -523,81 +558,10 @@ export default {
         wrongQuestions.value = data.wrongQuestions || [];
       });
 
-      // ========== 双人模式 ==========
-      socket.value.on('challenge-matchmaking-waiting', (data) => {
+      // ========== 双人模式事件 ==========
+      socket.value.on('challenge-matchmaking-waiting', () => {
         matching.value = true;
         starting.value = true;
-      });
-
-      socket.value.on('challenge-matchmaking-count', (data) => {
-        // 可用这个数字更新UI显示等待人数
-      });
-
-      socket.value.on('challenge-dual-started', (data) => {
-        matching.value = false;
-        starting.value = false;
-        gameMode.value = 'dual';
-        gameStarted.value = true;
-        gameEnded.value = false;
-        dualRoomId.value = data.id;
-        dualRound.value = data.currentRound;
-        dualQuestion.value = data.currentQuestion;
-        dualAnswerFeedback.value = null;
-        dualAnswer.value = '';
-
-        // 初始化双方玩家
-        const me = data.players.find(p => p.id === myUserId.value);
-        const other = data.players.find(p => p.id !== myUserId.value);
-        if (me) myPlayer.value = { ...me };
-        if (other) opponentPlayer.value = { ...other };
-
-        dualRemainingTime.value = totalTime;
-        startDualTimer();
-        setTimeout(() => dualAnswerInput.value?.focus(), 100);
-      });
-
-      socket.value.on('challenge-dual-answer-update', (data) => {
-        if (data.playerId === myUserId.value) {
-          if (data.isCorrect) myPlayer.value.correct++;
-          // 更新对手状态显示
-          dualAnswerFeedback.value = {
-            myCorrect: data.isCorrect,
-            opponentCorrect: null,
-            isTimeout: data.isTimeout
-          };
-          dualSubmitting.value = false;
-        } else {
-          if (data.isCorrect) opponentPlayer.value.correct++;
-          if (dualAnswerFeedback.value) {
-            dualAnswerFeedback.value.opponentCorrect = data.isCorrect;
-          }
-        }
-      });
-
-      socket.value.on('challenge-dual-next', (data) => {
-        dualQuestion.value = data.question;
-        dualRound.value = data.currentRound;
-        // 更新双方正确数
-        const me = data.players.find(p => p.id === myUserId.value);
-        const other = data.players.find(p => p.id !== myUserId.value);
-        if (me) myPlayer.value.correct = me.correct;
-        if (other) opponentPlayer.value = other;
-        dualAnswerFeedback.value = null;
-        dualAnswer.value = '';
-        dualRemainingTime.value = totalTime;
-        startDualTimer();
-        setTimeout(() => dualAnswerInput.value?.focus(), 100);
-      });
-
-      socket.value.on('challenge-dual-finished', (data) => {
-        stopDualTimer();
-        gameEnded.value = true;
-        dualResult.value = data;
-        // 更新最终正确数
-        const me = data.players.find(p => p.id === myUserId.value);
-        const other = data.players.find(p => p.id !== myUserId.value);
-        if (me) myPlayer.value.correct = me.correct;
-        if (other) opponentPlayer.value = other;
       });
 
       socket.value.on('challenge-matchmaking-cancelled', () => {
@@ -605,8 +569,144 @@ export default {
         starting.value = false;
       });
 
+      // 游戏开始（邀请对战 + 匹配对战共用）
+      socket.value.on('challenge-dual-started', (data) => {
+        console.log('[ChallengeBattle] 收到 challenge-dual-started:', data);
+        startDualGameFromData(data);
+      });
+
+      // 答案提交结果反馈
+      socket.value.on('poem-submitted', (data) => {
+        console.log('[ChallengeBattle] 收到 poem-submitted:', data);
+        if (gameMode.value !== 'dual') return;
+        if (data.currentQuestionIndex === undefined) return;
+
+        dualAnswerFeedback.value = {
+          isCorrect: data.isCorrect,
+          correctAnswer: data.correctAnswer,
+          currentQuestionIndex: data.currentQuestionIndex,
+          nextTurn: data.nextTurn
+        };
+
+        // 更新玩家分数
+        if (data.players) {
+          data.players.forEach(p => {
+            if (idsEqual(p.id, myUserId.value) || idsEqual(p.userId, myUserId.value)) {
+              myPlayer.value.correct = p.correctAnswers || 0;
+            } else {
+              if (!opponentPlayer.value) opponentPlayer.value = { username: p.username, correct: 0 };
+              opponentPlayer.value.correct = p.correctAnswers || 0;
+            }
+          });
+        }
+
+        // 更新当前题号和回合
+        if (data.nextQuestionIndex !== undefined) {
+          currentQuestionIndex.value = data.nextQuestionIndex;
+          currentTurn.value = data.nextTurn;
+          dualRound.value = data.nextQuestionIndex + 1;
+        }
+
+        dualSubmitting.value = false;
+        dualAnswer.value = '';
+
+        // 收到反馈后清除计时器
+        stopDualTimer();
+
+        // 1.5秒后清除反馈
+        setTimeout(() => {
+          dualAnswerFeedback.value = null;
+        }, 1500);
+      });
+
+      // 下一题
+      socket.value.on('challenge-dual-next', (data) => {
+        console.log('[ChallengeBattle] 收到 challenge-dual-next:', data);
+        if (gameMode.value !== 'dual') return;
+
+        dualQuestion.value = data.currentQuestion;
+        dualRound.value = (data.currentQuestionIndex || 0) + 1;
+        currentQuestionIndex.value = data.currentQuestionIndex || 0;
+        dualAnswerFeedback.value = null;
+        dualAnswer.value = '';
+
+        // 更新玩家分数
+        if (data.players) {
+          data.players.forEach(p => {
+            if (idsEqual(p.id, myUserId.value) || idsEqual(p.userId, myUserId.value)) {
+              myPlayer.value.correct = p.correctAnswers || 0;
+            } else {
+              if (!opponentPlayer.value) opponentPlayer.value = { username: p.username, correct: 0 };
+              opponentPlayer.value.correct = p.correctAnswers || 0;
+            }
+          });
+        }
+
+        // 重启计时器
+        dualRemainingTime.value = 30;
+        startDualTimer();
+        setTimeout(() => dualAnswerInput.value?.focus(), 100);
+      });
+
+      // 游戏结束
+      socket.value.on('challenge-dual-finished', (data) => {
+        console.log('[ChallengeBattle] 收到 challenge-dual-finished:', data);
+        stopDualTimer();
+        gameEnded.value = true;
+        dualResult.value = data;
+
+        // 更新最终分数
+        if (data.players) {
+          data.players.forEach(p => {
+            if (idsEqual(p.id, myUserId.value) || idsEqual(p.userId, myUserId.value)) {
+              myPlayer.value.correct = p.correctAnswers || p.correct || 0;
+            } else {
+              if (!opponentPlayer.value) opponentPlayer.value = { username: p.username, correct: 0 };
+              opponentPlayer.value.correct = p.correctAnswers || p.correct || 0;
+            }
+          });
+        }
+      });
+
+      // 对手断线等待重连
+      socket.value.on('opponent-reconnecting', (data) => {
+        console.log('[ChallengeBattle] 对手断线，等待重连:', data);
+        showToast(data.message || '对手断线中，等待重连...', 'warning');
+        stopDualTimer();
+      });
+
+      // 对手重连成功
+      socket.value.on('opponent-reconnected', (data) => {
+        console.log('[ChallengeBattle] 对手重连成功:', data);
+        showToast(data.message || '对手已重连，游戏继续', 'success');
+        currentQuestionIndex.value = data.currentQuestionIndex;
+        currentTurn.value = data.currentTurn;
+        if (data.players) {
+          data.players.forEach(p => {
+            if (idsEqual(p.id, myUserId.value) || idsEqual(p.userId, myUserId.value)) {
+              myPlayer.value.correct = p.correctAnswers || 0;
+            } else {
+              if (!opponentPlayer.value) opponentPlayer.value = { username: p.username, correct: 0 };
+              opponentPlayer.value.correct = p.correctAnswers || 0;
+            }
+          });
+        }
+        dualRemainingTime.value = 30;
+        startDualTimer();
+      });
+
+      // 计时器心跳（仅双人对战）
+      socket.value.on('challenge-dual-timer-tick', (data) => {
+        if (gameMode.value !== 'dual') return;
+        dualRemainingTime.value = data.remaining;
+        // 如果收到的题目索引和本地不一致，说明这是旧数据，忽略
+        if (data.currentQuestionIndex !== undefined && data.currentQuestionIndex !== currentQuestionIndex.value) {
+          return;
+        }
+      });
+
       socket.value.on('error', (data) => {
-        console.error('[ChallengeBattle] Socket错误:', data);
+        console.error('[ChallengeBattle] Socket错误:', JSON.stringify(data));
         showToast(data.error || '发生错误', 'error');
         starting.value = false;
         submitting.value = false;
@@ -615,7 +715,6 @@ export default {
 
       socket.value.on('disconnect', () => {
         console.log('[ChallengeBattle] Socket断开连接');
-        if (matching.value) cancelMatching();
       });
     };
 
@@ -650,33 +749,25 @@ export default {
     };
 
     // ========== 双人模式方法 ==========
-    const joinDualMatch = () => {
-      if (!socket.value?.connected) { showToast('网络未连接', 'error'); return; }
-      starting.value = true;
-      socket.value.emit('challenge-match-start', { userId: myUserId.value, username: myUsername.value });
-    };
-
-    const cancelMatching = () => {
-      socket.value?.emit('challenge-match-cancel');
-      matching.value = false;
-      starting.value = false;
-    };
-
     const submitDualAnswer = () => {
       if (!dualAnswer.value.trim() || dualSubmitting.value) return;
+      if (!isMyTurn.value) { showToast('还没轮到你答题', 'error'); return; }
       dualSubmitting.value = true;
       stopDualTimer();
-      socket.value.emit('challenge-dual-answer', { roomId: dualRoomId.value, answer: dualAnswer.value.trim() });
+      socket.value.emit('challenge-dual-invite-answer', {
+        roomId: dualRoomId.value,
+        answer: dualAnswer.value.trim()
+      });
     };
 
     const startDualTimer = () => {
       stopDualTimer();
-      dualRemainingTime.value = totalTime;
+      dualRemainingTime.value = 30;
       dualTimerInterval = setInterval(() => {
         if (dualRemainingTime.value > 0) dualRemainingTime.value--;
         else {
           stopDualTimer();
-          socket.value.emit('challenge-dual-timeout', { roomId: dualRoomId.value });
+          socket.value.emit('challenge-dual-invite-timeout', { roomId: dualRoomId.value });
         }
       }, 1000);
     };
@@ -685,7 +776,74 @@ export default {
       if (dualTimerInterval) { clearInterval(dualTimerInterval); dualTimerInterval = null; }
     };
 
-    // ========== 通用 ==========
+    // 从游戏开始数据初始化双人游戏
+    const startDualGameFromData = (data) => {
+      console.log('[ChallengeBattle] startDualGameFromData:', JSON.stringify(data));
+
+      if (!data) return;
+
+      // 重置所有状态
+      matching.value = false;
+      starting.value = false;
+      gameMode.value = 'dual';
+      gameStarted.value = true;
+      gameEnded.value = false;
+      dualRoomId.value = data.id;
+      currentQuestionIndex.value = data.currentQuestionIndex ?? 0;
+      totalQuestions.value = data.totalQuestions ?? 30;
+      dualRound.value = (data.currentQuestionIndex ?? 0) + 1;
+      dualQuestion.value = data.currentQuestion;
+      dualAnswerFeedback.value = null;
+      dualAnswer.value = '';
+      dualRemainingTime.value = data.timeLimit || 30;
+
+      // 确定自己在 players 数组中的位置
+      const players = data.players || [];
+      let myIdx = 0;
+      for (let i = 0; i < players.length; i++) {
+        if (idsEqual(players[i].id, myUserId.value) || idsEqual(players[i].userId, myUserId.value)) {
+          myIdx = i;
+          break;
+        }
+      }
+      myPlayerIndex.value = myIdx;
+
+      const me = players[myIdx];
+      const other = players.find((p, idx) => idx !== myIdx);
+
+      if (me) {
+        myPlayer.value = {
+          id: me.id || me.userId,
+          username: me.username,
+          correct: me.correctAnswers || 0
+        };
+      }
+      if (other) {
+        opponentPlayer.value = {
+          id: other.id || other.userId,
+          username: other.username,
+          correct: other.correctAnswers || 0
+        };
+      }
+
+      console.log('[ChallengeBattle] 我的索引:', myIdx, '当前回合判断:', currentQuestionIndex.value % 2, '===', myIdx, '?', isMyTurn.value);
+
+      startDualTimer();
+      setTimeout(() => dualAnswerInput.value?.focus(), 100);
+    };
+
+    // ========== 胜负判定 ==========
+    const iWon = computed(() => {
+      if (!dualResult.value?.winner) return false;
+      if (dualResult.value.winner.tie) return false;
+      return idsEqual(dualResult.value.winner.id, myUserId.value);
+    });
+
+    const isTie = computed(() => {
+      return dualResult.value?.winner?.tie === true;
+    });
+
+    // ========== 通用方法 ==========
     const retryGame = () => {
       gameEnded.value = false;
       gameStarted.value = false;
@@ -700,20 +858,21 @@ export default {
       myPlayer.value = { id: myUserId.value, username: myUsername.value, correct: 0 };
       opponentPlayer.value = null;
       dualResult.value = null;
-      if (gameMode.value === 'single') startSingleGame();
-      else joinDualMatch();
+      if (gameMode.value === 'single') {
+        startSingleGame();
+      } else {
+        returnToStart();
+      }
     };
 
     const confirmQuit = () => {
-      if (confirm('确定要结束吗？')) {
-        if (gameMode.value === 'single') {
-          stopSingleTimer();
-          socket.value?.emit('challenge-timeout', { roomId: roomId.value });
-        } else {
-          stopDualTimer();
-          // 双人退出需要通知对方，这里简化处理直接返回
-          returnToStart();
-        }
+      if (!confirm('确定要结束挑战吗？这将结束所有挑战。')) return;
+      stopSingleTimer();
+      stopDualTimer();
+      if (gameMode.value === 'single') {
+        socket.value?.emit('challenge-quit', { roomId: roomId.value, mode: 'single' });
+      } else {
+        socket.value?.emit('challenge-dual-invite-quit', { roomId: dualRoomId.value });
       }
     };
 
@@ -734,6 +893,7 @@ export default {
       myPlayer.value = { id: myUserId.value, username: myUsername.value, correct: 0 };
       opponentPlayer.value = null;
       dualResult.value = null;
+      currentQuestionIndex.value = 0;
       loadHistory();
     };
 
@@ -767,9 +927,28 @@ export default {
       }
     };
 
+    const checkPendingDualGame = () => {
+      const pendingGame = localStorage.getItem('pendingDualGame');
+      console.log('[ChallengeBattle] pendingGame:', pendingGame ? '存在' : '不存在');
+      if (pendingGame) {
+        localStorage.removeItem('pendingDualGame');
+        try {
+          const gameData = JSON.parse(pendingGame);
+          console.log('[ChallengeBattle] 解析游戏数据:', gameData);
+          nextTick().then(() => startDualGameFromData(gameData));
+        } catch (e) {
+          console.error('[ChallengeBattle] 解析游戏数据失败:', e);
+        }
+      }
+    };
+
     onMounted(() => {
       checkLogin();
-      if (isLoggedIn.value) initSocket();
+      console.log('[ChallengeBattle] onMounted, isLoggedIn:', isLoggedIn.value);
+      if (isLoggedIn.value) {
+        initSocket();
+        checkPendingDualGame();
+      }
     });
 
     onUnmounted(() => {
@@ -789,12 +968,14 @@ export default {
       userAnswer, submitting, answerFeedback, correctCount, wrongCount,
       dualRound, dualQuestion, dualRemainingTime, dualAnswer,
       dualSubmitting, dualAnswerFeedback, myPlayer, opponentPlayer,
+      currentQuestionIndex, myPlayerIndex,
       gameEnded, finalCorrect, finalWrong, finalTotal,
       wrongQuestions, dualResult,
       toast, answerInput, dualAnswerInput,
-      goLogin, goBack, goToReview,
-      startSingleGame, submitAnswer, joinDualMatch, cancelMatching,
-      submitDualAnswer, retryGame, confirmQuit, returnToStart, formatDate
+      goLogin, goBack, goToReview, goToBattleOnline,
+      startSingleGame, submitAnswer, cancelMatching: () => { matching.value = false; starting.value = false; },
+      submitDualAnswer, retryGame, confirmQuit, returnToStart, formatDate,
+      iWon, isTie, isMyTurn
     };
   }
 };
@@ -810,12 +991,8 @@ export default {
 .challenge-battle::before {
   content: '';
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100vw;
-  height: 100vh;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100vw; height: 100vh;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   z-index: -2;
   pointer-events: none;
@@ -823,12 +1000,8 @@ export default {
 .challenge-battle::after {
   content: '';
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100vw;
-  height: 100vh;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100vw; height: 100vh;
   background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><text x="50" y="50" font-family="SimSun" font-size="20" text-anchor="middle" fill="rgba(255,255,255,0.03)">诗</text></svg>') repeat;
   pointer-events: none;
   z-index: -1;
@@ -972,21 +1145,22 @@ export default {
 .dual-player-score.opponent .dual-player-name { color: rgba(255,255,255,0.7); }
 .dual-player-score.opponent .dual-correct { color: #a5b4fc; }
 .vs-badge { padding: 6px 16px; background: rgba(245,87,108,0.2); border: 1px solid rgba(245,87,108,0.3); border-radius: 12px; color: #fda4af; font-family: 'Noto Serif SC', serif; font-size: 14px; font-weight: bold; }
-
+.dual-player-score.is-current-turn { position: relative; }
+.turn-indicator { display: block; font-family: 'Noto Serif SC', serif; color: #fbbf24; font-size: 12px; margin-top: 4px; animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
 .hud-right { display: flex; align-items: center; }
 .quit-game-btn { padding: 10px 24px; background: rgba(239,68,68,0.2); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); border-radius: 12px; font-size: 14px; cursor: pointer; transition: all 0.3s ease; font-family: 'Noto Serif SC', serif; }
 .quit-game-btn:hover { background: rgba(239,68,68,0.3); }
 
 /* 主游戏区域 */
 .game-main-area { flex: 1; display: grid; grid-template-columns: 200px 1fr 240px; gap: 40px; padding: 40px 48px; align-items: start; }
-@media (max-width: 900px) { .game-main-area { grid-template-columns: 1fr; gap: 24px; padding: 24px; } .timer-section, .progress-section { position: static !important; flex-direction: row; justify-content: center; } }
+@media (max-width: 900px) { .game-main-area { grid-template-columns: 1fr; gap: 24px; padding: 24px; } }
 
 /* 计时器 */
 .timer-section { position: sticky; top: 40px; }
 .timer-ring { width: 160px; height: 160px; position: relative; background: rgba(255,255,255,0.05); border-radius: 50%; padding: 16px; box-sizing: border-box; }
 .timer-ring.warning .timer-number { color: #fbbf24; animation: pulse 0.5s ease-in-out infinite; }
 .timer-ring.danger .timer-number { color: #f87171; animation: pulse 0.3s ease-in-out infinite; }
-@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
 .timer-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .timer-bg { fill: none; stroke: rgba(255,255,255,0.1); stroke-width: 8; }
 .timer-progress { fill: none; stroke: #667eea; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
@@ -1013,22 +1187,24 @@ export default {
 .submit-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(102,126,234,0.4); }
 .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-/* 双人答题状态 */
-.dual-answer-status { display: flex; gap: 16px; }
-.dual-status-item { flex: 1; padding: 16px 20px; border-radius: 14px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.my-status { background: rgba(102,126,234,0.15); border: 1px solid rgba(102,126,234,0.3); }
-.my-status.correct { background: rgba(74,222,128,0.15); border-color: rgba(74,222,128,0.3); }
-.my-status.wrong { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.3); }
-.opponent-status { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); }
-.opponent-status.pending { opacity: 0.7; }
-.opponent-status.correct { background: rgba(74,222,128,0.15); border-color: rgba(74,222,128,0.3); }
-.opponent-status.wrong { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.3); }
-.status-name { font-family: 'Noto Serif SC', serif; color: rgba(255,255,255,0.8); font-size: 14px; }
-.status-result { font-family: 'Noto Serif SC', serif; font-size: 16px; font-weight: bold; }
-.my-status.correct .status-result { color: #4ade80; }
-.my-status.wrong .status-result { color: #f87171; }
-.opponent-status.correct .status-result { color: #4ade80; }
-.opponent-status.wrong .status-result { color: #f87171; }
+/* 等待对方答题区域 */
+.waiting-opponent-section { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; background: rgba(255,255,255,0.08); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; gap: 16px; }
+.waiting-icon { display: flex; align-items: center; justify-content: center; }
+.waiting-spinner-small { width: 48px; height: 48px; border: 3px solid rgba(102,126,234,0.3); border-top-color: #667eea; border-radius: 50%; animation: spin 1s linear infinite; }
+.waiting-text { font-family: 'Noto Serif SC', serif; color: rgba(255,255,255,0.8); font-size: 18px; margin: 0; }
+
+/* 双人答题反馈 */
+.dual-feedback-card { text-align: center; padding: 24px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(20px); }
+.dual-feedback-card.feedback-correct { border-color: rgba(74,222,128,0.5); background: linear-gradient(135deg, rgba(74,222,128,0.15), rgba(255,255,255,0.1)); }
+.dual-feedback-card.feedback-wrong { border-color: rgba(248,113,113,0.4); background: linear-gradient(135deg, rgba(248,113,113,0.15), rgba(255,255,255,0.1)); }
+.dual-feedback-card .feedback-icon { font-size: 40px; margin-bottom: 8px; }
+.feedback-correct .feedback-icon { color: #4ade80; }
+.feedback-wrong .feedback-icon { color: #f87171; }
+.dual-feedback-card .feedback-title { font-family: 'Noto Serif SC', serif; font-size: 20px; font-weight: bold; margin: 0 0 8px 0; }
+.feedback-correct .feedback-title { color: #4ade80; }
+.feedback-wrong .feedback-title { color: #f87171; }
+.dual-feedback-card .feedback-answer { font-family: 'Noto Serif SC', serif; color: rgba(255,255,255,0.8); font-size: 16px; margin: 0; }
+.dual-feedback-card .feedback-answer strong { color: #4ade80; }
 
 /* 右侧进度 */
 .progress-section { position: sticky; top: 40px; display: flex; flex-direction: column; gap: 20px; }

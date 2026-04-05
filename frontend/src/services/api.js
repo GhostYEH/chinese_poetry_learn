@@ -177,7 +177,8 @@ export const api = {
     aiSuggestions: () =>
       request('/learn/ai-suggestions', {
         method: 'POST',
-        body: JSON.stringify({})
+        body: JSON.stringify({}),
+        timeout: 90000
       })
   },
   
@@ -314,7 +315,8 @@ export const api = {
     getMe: () => request('/feihua-ranking/me'),
     getLeaderboard: (limit = 50, page = 1) => publicFetch(`/feihua-ranking/leaderboard?limit=${limit}&page=${page}`),
     getStats: () => publicFetch('/feihua-ranking/stats'),
-    getLevels: () => publicFetch('/feihua-ranking/levels')
+    getLevels: () => publicFetch('/feihua-ranking/levels'),
+    getUserRank: (userId) => request(`/feihua-ranking/user/${userId}`)
   },
 
   // 诗词创作挑战相关
@@ -334,55 +336,65 @@ export const api = {
 
   // 诗词创作工作台相关
   creationWorkbench: {
-    // 灵感生成 - 生成关键词
+    // 灵感生成 - 生成关键词 (AI生成需要约60秒)
     generateInspiration: (theme, genre) => request('/creation/inspiration/generate', {
       method: 'POST',
-      body: JSON.stringify({ theme, genre })
+      body: JSON.stringify({ theme, genre }),
+      timeout: 120000
     }),
-    // 结构引导 - 获取写作结构提示
+    // 结构引导 - 获取写作结构提示 (AI生成需要约60秒)
     getStructureGuide: (params) => request('/creation/structure/guide', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     }),
-    // AI生成完整诗词
+    // AI生成完整诗词 (AI生成需要约60秒)
     generatePoem: (params) => request('/creation/generate', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     }),
-    // AI续写推荐
+    // AI续写推荐 (AI生成需要约60秒)
     recommendNextLine: (params) => request('/creation/recommend/next-line', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     }),
     // 实时续写提示
     getRealtimeTips: (partialLine, genre) => request('/creation/realtime/tips', {
       method: 'POST',
-      body: JSON.stringify({ partialLine, genre })
+      body: JSON.stringify({ partialLine, genre }),
+      timeout: 60000
     }),
-    // 接龙创作 - 开始
+    // 接龙创作 - 开始 (AI生成需要约60秒)
     startChainPoem: (genre, theme) => request('/creation/chain/start', {
       method: 'POST',
-      body: JSON.stringify({ genre, theme })
+      body: JSON.stringify({ genre, theme }),
+      timeout: 120000
     }),
-    // 接龙创作 - 下一句
+    // 接龙创作 - 下一句 (AI生成需要约60秒)
     getChainNextLine: (params) => request('/creation/chain/next', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     }),
     // 飞花令 - 获取关键字
     getFeihuaKeyword: (difficulty) => request('/creation/feihua/keyword', {
       method: 'POST',
-      body: JSON.stringify({ difficulty })
+      body: JSON.stringify({ difficulty }),
+      timeout: 60000
     }),
-    // 飞花令评分
+    // 飞花令评分 (AI生成需要约60秒)
     scoreFeihuaPoem: (params) => request('/creation/feihua/score', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     }),
-    // 核心评分接口
+    // 核心评分接口 (AI生成需要约60秒)
     scorePoem: (params) => request('/creation/assist/score', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     }),
     // 保存作品
     saveWork: (workData) => request('/creation/works/save', {
@@ -394,12 +406,14 @@ export const api = {
     // 生成意境图
     generateImage: (params) => request('/creation/assist/generate-image', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 90000
     }),
-    // AI润色诗词
+    // AI润色诗词 (AI生成需要约60秒)
     polishPoem: (params) => request('/creation/polish', {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
+      timeout: 120000
     })
   },
 
@@ -428,7 +442,7 @@ export const api = {
     getData: () => request('/personalized', { timeout: 60000 }),
     getReviewRecommendations: () => request('/personalized/review', { timeout: 20000 }),
     getLearnRecommendations: () => request('/personalized/learn', { timeout: 20000 }),
-    getAIAnalysis: () => request('/personalized/analysis', { timeout: 60000 })
+    getAIAnalysis: (forceRefresh = false) => request(`/personalized/analysis${forceRefresh ? '?forceRefresh=true' : ''}`, { timeout: 60000 })
   },
 
   // 个人中心相关

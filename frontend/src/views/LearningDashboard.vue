@@ -365,11 +365,55 @@
           <div v-if="aiAdviceError" class="ai-advice-error" :class="{ 'no-key': aiAdviceErrorCode === 'NO_API_KEY' }">
             <p>{{ aiAdviceError }}</p>
             <p v-if="aiAdviceErrorCode === 'NO_API_KEY'" class="ai-advice-error-sub">
-              请在服务器环境变量中配置 <code>SILICONFLOW_API_KEY</code> 后重试。
+              请在服务器环境变量中配置 <code>ALIYUN_BAILIAN_API_KEY</code> 后重试。
             </p>
           </div>
+          <div v-if="aiAdviceData" class="ai-advice-cards">
+            <div class="advice-card summary">
+              <div class="advice-icon">📊</div>
+              <div class="advice-content">
+                <h4>学习概况</h4>
+                <p>{{ aiAdviceData.summary }}</p>
+              </div>
+            </div>
+            <div class="advice-card strength">
+              <div class="advice-icon">💪</div>
+              <div class="advice-content">
+                <h4>优势亮点</h4>
+                <p>{{ aiAdviceData.strength }}</p>
+              </div>
+            </div>
+            <div class="advice-card weakness">
+              <div class="advice-icon">🔍</div>
+              <div class="advice-content">
+                <h4>薄弱环节</h4>
+                <p>{{ aiAdviceData.weakness }}</p>
+              </div>
+            </div>
+            <div class="advice-card suggestion">
+              <div class="advice-icon">💡</div>
+              <div class="advice-content">
+                <h4>改进建议</h4>
+                <p>{{ aiAdviceData.suggestion }}</p>
+              </div>
+            </div>
+            <div class="advice-card plan">
+              <div class="advice-icon">📅</div>
+              <div class="advice-content">
+                <h4>本周计划</h4>
+                <p>{{ aiAdviceData.plan }}</p>
+              </div>
+            </div>
+            <div class="advice-card encourage">
+              <div class="advice-icon">🌟</div>
+              <div class="advice-content">
+                <h4>激励寄语</h4>
+                <p>{{ aiAdviceData.encourage }}</p>
+              </div>
+            </div>
+          </div>
           <div
-            v-if="aiAdviceDisplayed"
+            v-if="aiAdviceDisplayed && !aiAdviceData"
             class="ai-advice-typewriter ink-paper"
           >{{ aiAdviceDisplayed }}<span v-if="!typewriterDone" class="type-cursor" aria-hidden="true">▍</span></div>
           <div v-if="showFallbackSuggestions" class="suggestion-list fallback-suggestions">
@@ -636,12 +680,13 @@ const aiAdviceError = ref('')
 const aiAdviceErrorCode = ref('')
 const aiAdviceFull = ref('')
 const aiAdviceDisplayed = ref('')
+const aiAdviceData = ref(null)
 const typewriterDone = ref(true)
 const fallbackSuggestions = ref([])
 let typeTimer = null
 
 const showFallbackSuggestions = computed(
-  () => fallbackSuggestions.value.length > 0 && !aiAdviceFull.value && !aiAdviceLoading.value
+  () => fallbackSuggestions.value.length > 0 && !aiAdviceFull.value && !aiAdviceLoading.value && !aiAdviceData.value
 )
 
 const barHeightPercent = (score) => {
@@ -766,27 +811,33 @@ const fetchAiAdvice = async () => {
   fallbackSuggestions.value = []
   aiAdviceFull.value = ''
   aiAdviceDisplayed.value = ''
+  aiAdviceData.value = null
   typewriterDone.value = true
   try {
     const res = await api.learn.aiSuggestions()
     if (res.success && res.data?.content) {
-      aiAdviceFull.value = res.data.content
-      runTypewriter(res.data.content)
+      const content = res.data.content
+      if (typeof content === 'object' && content.summary) {
+        aiAdviceData.value = content
+        aiAdviceFull.value = 'loaded'
+      } else {
+        aiAdviceFull.value = content
+        runTypewriter(content)
+      }
     } else {
       throw new Error(res.message || '未返回建议内容')
     }
   } catch (e) {
     aiAdviceFull.value = ''
     aiAdviceDisplayed.value = ''
+    aiAdviceData.value = null
     typewriterDone.value = true
-    // 提取错误信息
     let errorMsg = e.message || '生成学习建议失败'
     if (e.code === 'NO_API_KEY' || errorMsg.includes('API') || errorMsg.includes('未配置')) {
       errorMsg = 'AI 服务暂不可用，已为您准备学习提示'
       aiAdviceErrorCode.value = 'NO_API_KEY'
     }
     aiAdviceError.value = errorMsg
-    // 确保始终显示备用建议
     fallbackSuggestions.value = buildFallbackSuggestions(dashboardData.value)
   } finally {
     aiAdviceLoading.value = false
@@ -2096,6 +2147,67 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.05);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+.ai-advice-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.advice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(255, 252, 240, 0.95) 0%, rgba(250, 245, 235, 0.9) 100%);
+  border: 1px solid rgba(139, 69, 19, 0.15);
+  border-radius: 10px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.advice-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.12);
+}
+
+.advice-card .advice-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.advice-card .advice-content h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #8b4513;
+  font-weight: 600;
+}
+
+.advice-card .advice-content p {
+  margin: 0;
+  font-size: 12px;
+  color: #5d4e37;
+  line-height: 1.5;
+}
+
+.advice-card.summary { border-left: 3px solid #4CAF50; }
+.advice-card.strength { border-left: 3px solid #2196F3; }
+.advice-card.weakness { border-left: 3px solid #FF9800; }
+.advice-card.suggestion { border-left: 3px solid #9C27B0; }
+.advice-card.plan { border-left: 3px solid #00BCD4; }
+.advice-card.encourage { border-left: 3px solid #E91E63; }
+
+@media (max-width: 900px) {
+  .ai-advice-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .ai-advice-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ai-advice-typewriter.ink-paper {

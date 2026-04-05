@@ -33,13 +33,17 @@ class FeihualingSocket {
       this.trigger('disconnected');
     });
 
-    // 初始化成功
-    this.socket.on('authenticated', (data) => {
+    // 初始化成功（后端发送 init 事件）
+    this.socket.on('init', (data) => {
       console.log('用户认证成功:', data);
       this.trigger('authenticated', data);
     });
 
-    // 在线用户列表更新
+    this.socket.on('online-list-update', (users) => {
+      this.trigger('online-list-update', users);
+    });
+
+    // 在线用户列表更新（兼容后端发送的 online-users 事件名）
     this.socket.on('online-users', (users) => {
       this.trigger('online-users', users);
     });
@@ -82,6 +86,26 @@ class FeihualingSocket {
     // 对手断线
     this.socket.on('opponent-disconnected', (data) => {
       this.trigger('opponent-disconnected', data);
+    });
+
+    // 验证中状态
+    this.socket.on('validating', () => {
+      this.trigger('validating');
+    });
+
+    // 计时器更新
+    this.socket.on('timer-tick', (data) => {
+      this.trigger('timer-tick', data);
+    });
+
+    // 计时器暂停
+    this.socket.on('timer-pause', () => {
+      this.trigger('timer-pause');
+    });
+
+    // 计时器继续
+    this.socket.on('timer-resume', (data) => {
+      this.trigger('timer-resume', data);
     });
 
     // 错误处理
@@ -128,11 +152,26 @@ class FeihualingSocket {
     });
   }
 
-  // 提交诗句
-  submitPoem(roomId, poem) {
+  // 刷新在线用户列表
+  refreshOnlineUsers() {
+    if (this.socket && this.connected) {
+      this.socket.emit('feihualing:get-online-users');
+    } else {
+      // Socket未连接时，稍后重试
+      console.log('[飞花令Socket] Socket未连接，延迟刷新在线用户列表');
+      setTimeout(() => {
+        if (this.socket && this.connected) {
+          this.socket.emit('feihualing:get-online-users');
+        }
+      }, 1000);
+    }
+  }
+
+  // 提交答案
+  submitAnswer(roomId, answer) {
     this.socket.emit('submit-poem', {
       roomId,
-      poem
+      poem: answer
     });
   }
 
