@@ -175,13 +175,8 @@ async function main() {
 
     let totalCount = 0;
     let processedFiles = 0;
-    const limitFiles = 50;
 
     for (const file of jsonFiles) {
-      if (processedFiles >= limitFiles) {
-        console.log(`\n已达到限制 ${limitFiles} 个文件，停止导入`);
-        break;
-      }
       
       try {
         const content = fs.readFileSync(file, 'utf-8');

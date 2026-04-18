@@ -86,12 +86,10 @@
               :genre="poemDraft.genre"
               :theme="poemDraft.theme"
               :keywords="poemDraft.keywords"
-              :is-generating="isGenerating"
               :is-polishing="isPolishing"
               @update:title="poemDraft.title = $event"
               @update:lines="poemDraft.lines = $event"
               @recommend="handleRecommend"
-              @generate="handleGeneratePoem"
               @polish="handlePolish"
               @score="handleScore"
               @save="handleSave"
@@ -240,7 +238,6 @@ export default {
 
     // 状态
     const isLoading = ref(false);
-    const isGenerating = ref(false);
     const isPolishing = ref(false);
     const showTypewriter = ref(false);
     const typewriterText = ref('');
@@ -367,45 +364,6 @@ export default {
             poemEditor.value.setRecommendations(mockRecs);
           }
         }
-      }
-    };
-
-    // AI生成完整诗词
-    const handleGeneratePoem = async ({ theme, genre, keywords, existingLines }) => {
-      isGenerating.value = true;
-      showTypewriterEffect('AI正在创作中...');
-
-      try {
-        const response = await api.creationWorkbench.generatePoem({
-          theme,
-          genre,
-          keywords,
-          structure: ''
-        });
-        const result = response.data || response;
-
-        if (result && result.poem) {
-          const newLines = result.poem.split('\n').filter(l => l.trim());
-          if (poemEditor.value) {
-            poemEditor.value.setLines(newLines);
-          }
-          if (result.title) {
-            poemDraft.title = result.title;
-            if (poemEditor.value) {
-              poemEditor.value.setTitle(result.title);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('生成诗词失败:', error);
-        // 模拟生成数据
-        const mockPoem = '春风拂面柳丝长\n桃花映日笑春光\n燕子归来寻旧垒\n碧水青山入梦乡';
-        if (poemEditor.value) {
-          poemEditor.value.setLines(mockPoem.split('\n'));
-        }
-      } finally {
-        isGenerating.value = false;
-        hideTypewriterEffect();
       }
     };
 
@@ -630,7 +588,8 @@ export default {
       const response = await api.creationWorkbench.startChainPoem(genre, theme);
       const result = response.data || response;
       if (chainMode.value) {
-        chainMode.value.setAILine(result?.aiLine);
+        const aiLineContent = result?.诗句 || result?.aiLine;
+        chainMode.value.setAILine(aiLineContent);
       }
     } else {
       const response = await api.creationWorkbench.getChainNextLine({
@@ -724,7 +683,6 @@ export default {
 
       // 状态
       isLoading,
-      isGenerating,
       isPolishing,
       showTypewriter,
       typewriterText,
@@ -743,7 +701,6 @@ export default {
       handleGenerateInspiration,
       handleInspirationNext,
       handleRecommend,
-      handleGeneratePoem,
       handlePolish,
       handleApplyPolish,
       handleScore,

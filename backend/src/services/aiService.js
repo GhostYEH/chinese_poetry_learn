@@ -12,8 +12,34 @@ function extractJSON(text) {
   const codeBlockMatch = s.match(/```(?:json)?\s*\n?([\s\S]+?)\n?```/);
   if (codeBlockMatch) s = codeBlockMatch[1].trim();
   
+  // 尝试直接解析
   try { return JSON.parse(s); } catch (_) {}
   
+  // 尝试修复格式错误的JSON
+  try {
+    // 移除字符串中的特殊字符和格式错误
+    let cleaned = s;
+    // 移除可能的格式错误标记
+    cleaned = cleaned.replace(/\{\d+已学习诗词：\d+/g, '');
+    cleaned = cleaned.replace(/\{\d+已学习诗词：\d+\}/g, '');
+    // 移除多余的逗号
+    cleaned = cleaned.replace(/,+/g, ',');
+    // 移除末尾的逗号
+    cleaned = cleaned.replace(/,\s*\}/g, '}');
+    // 移除多余的空格和换行
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    // 确保所有字符串都有闭合引号
+    cleaned = cleaned.replace(/"([^"]*)[^"\}](?=\s*\})/g, '"$1"');
+    // 尝试解析清理后的内容
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+      // 清理返回对象中的格式错误标记
+      cleanObject(parsed);
+      return parsed;
+    }
+  } catch (_) {}
+  
+  // 尝试匹配JSON对象
   const jsonPatterns = [
     /\{[\s\S]*?"keywords"[\s\S]*?\}/,
     /\{[\s\S]*?"poem"[\s\S]*?\}/,
@@ -32,21 +58,128 @@ function extractJSON(text) {
       try { 
         const parsed = JSON.parse(match[0]);
         if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          // 清理返回对象中的格式错误标记
+          cleanObject(parsed);
           return parsed;
         }
-      } catch (_) {}
+      } catch (_) {
+        // 尝试清理匹配到的内容
+        try {
+          let cleanedMatch = match[0];
+          cleanedMatch = cleanedMatch.replace(/\{\d+已学习诗词：\d+/g, '');
+          cleanedMatch = cleanedMatch.replace(/\{\d+已学习诗词：\d+\}/g, '');
+          cleanedMatch = cleanedMatch.replace(/,+/g, ',');
+          cleanedMatch = cleanedMatch.replace(/,\s*\}/g, '}');
+          cleanedMatch = cleanedMatch.replace(/\s+/g, ' ').trim();
+          cleanedMatch = cleanedMatch.replace(/"([^"]*)[^"\}](?=\s*\})/g, '"$1"');
+          const parsed = JSON.parse(cleanedMatch);
+          if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+            // 清理返回对象中的格式错误标记
+            cleanObject(parsed);
+            return parsed;
+          }
+        } catch (_) {}
+      }
     }
   }
   
+  // 尝试匹配JSON对象和数组
   const objMatch = s.match(/\{[\s\S]+\}/);
   if (objMatch) {
-    try { return JSON.parse(objMatch[0]); } catch (_) {}
+    try { 
+      const parsed = JSON.parse(objMatch[0]);
+      // 清理返回对象中的格式错误标记
+      cleanObject(parsed);
+      return parsed;
+    } catch (_) {}
   }
   const arrMatch = s.match(/\[[\s\S]+\]/);
   if (arrMatch) {
     try { return JSON.parse(arrMatch[0]); } catch (_) {}
   }
-  return null;
+  
+  // 如果所有尝试都失败，返回一个包含清理后内容的对象
+  const cleanedText = s.replace(/\{\d+已学习诗词：\d+/g, '').replace(/\{\d+已学习诗词：\d+\}/g, '').replace(/\s+/g, ' ').trim();
+  return { summary: cleanedText, error: 'JSON解析失败，返回清理后的内容' };
+}
+
+// 清理对象中的格式错误标记
+function cleanObject(obj) {
+  if (obj && typeof obj === 'object') {
+    if (Array.isArray(obj)) {
+      for (let i = 0; i < obj.length; i++) {
+        if (typeof obj[i] === 'object') {
+          cleanObject(obj[i]);
+        } else if (typeof obj[i] === 'string') {
+          obj[i] = obj[i].replace(/\{\d+已学习诗词：\d+/g, '').replace(/\{\d+已学习诗词：\d+\}/g, '').replace(/,+/g, ',').replace(/\s+/g, ' ').trim();
+        }
+      }
+    } else {
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          if (typeof obj[key] === 'string') {
+            obj[key] = obj[key].replace(/\{\d+已学习诗词：\d+/g, '').replace(/\{\d+已学习诗词：\d+\}/g, '').replace(/,+/g, ',').replace(/\s+/g, ' ').trim();
+          } else if (typeof obj[key] === 'object') {
+            cleanObject(obj[key]);
+          }
+        }
+      }
+    }
+  }
+}
+
+// 修复 keyword_analysis 数组格式
+function fixKeywordAnalysis(data) {
+  if (!data || !data.keyword_analysis) return data;
+  
+  let keywordArray = data.keyword_analysis;
+  
+  if (!Array.isArray(keywordArray)) {
+    return data;
+  }
+  
+  const fixedArray = [];
+  for (const item of keywordArray) {
+    if (typeof item !== 'object' || item === null) continue;
+    
+    const fixedItem = {
+      keyword: '',
+      description: '',
+      effect: ''
+    };
+    
+    if (item.keyword && typeof item.keyword === 'string') {
+      fixedItem.keyword = item.keyword.trim();
+    }
+    
+    if (item.description && typeof item.description === 'string') {
+      fixedItem.description = item.description.trim();
+    }
+    
+    if (item.effect && typeof item.effect === 'string') {
+      fixedItem.effect = item.effect.trim();
+    }
+    
+    if (item.interpret && typeof item.interpret === 'string') {
+      if (!fixedItem.description) {
+        fixedItem.description = item.interpret.trim();
+      } else if (!fixedItem.effect) {
+        fixedItem.effect = item.interpret.trim();
+      }
+    }
+    
+    if (fixedItem.keyword) {
+      fixedArray.push(fixedItem);
+    }
+  }
+  
+  data.keyword_analysis = fixedArray;
+  
+  if (data.effect && typeof data.effect === 'string') {
+    delete data.effect;
+  }
+  
+  return data;
 }
 
 // 调用AI生成JSON
@@ -155,7 +288,7 @@ async function callZhipuGenerateJSON(prompt, systemContent, options = {}) {
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const apiKey = config.zhipu.apiKey;
+      const apiKey = config.siliconflow.apiKey;
       if (!apiKey) {
         console.log('[aiService] 缺少硅基流动API密钥，返回null');
         return null;
@@ -179,7 +312,7 @@ async function callZhipuGenerateJSON(prompt, systemContent, options = {}) {
       }
 
       const requestData = {
-        model: config.zhipu.model,
+        model: config.siliconflow.model,
         messages: [
           { role: "system", content: systemContent },
           { role: "user", content: prompt }
@@ -192,9 +325,9 @@ async function callZhipuGenerateJSON(prompt, systemContent, options = {}) {
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), config.zhipu.timeout || 60000);
+      const timeoutId = setTimeout(() => controller.abort(), config.siliconflow.timeout || 60000);
 
-      const response = await fetch(config.zhipu.apiUrl, {
+      const response = await fetch(config.siliconflow.apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -255,122 +388,173 @@ async function callZhipuGenerateJSON(prompt, systemContent, options = {}) {
 
 module.exports.callZhipuGenerateJSON = callZhipuGenerateJSON;
 
+// 调用硅基流动生成JSON（通用）
+async function callSiliconFlowGenerateJSON(prompt, systemContent, options = {}) {
+  const MAX_RETRIES = 2;
+
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const apiKey = config.siliconflow.apiKey;
+      if (!apiKey) {
+        console.log('[aiService] 缺少硅基流动API密钥，返回null');
+        return null;
+      }
+
+      const temperatures = [0.7, 0.2, 0.05];
+      const defaultConfig = {
+        temperature: options.temperature || 0.7,
+        max_tokens: options.maxTokens || 500,
+        top_p: 0.7,
+        stream: false,
+        timeout: 60000
+      };
+      const finalConfig = { ...defaultConfig, ...options };
+      if (options.maxTokens != null) finalConfig.max_tokens = options.maxTokens;
+      if (attempt > 0) {
+        finalConfig.temperature = temperatures[Math.min(attempt, temperatures.length - 1)];
+        const delay = attempt === 1 ? 2000 : 4000;
+        console.log(`[aiService] 硅基流动重试第${attempt + 1}次，等待${delay}ms后重试，temperature=${finalConfig.temperature}`);
+        await sleep(delay);
+      }
+
+      const requestData = {
+        model: config.siliconflow.model,
+        messages: [
+          { role: "system", content: systemContent },
+          { role: "user", content: prompt }
+        ],
+        temperature: finalConfig.temperature,
+        max_tokens: finalConfig.max_tokens,
+        top_p: finalConfig.top_p,
+        stream: finalConfig.stream,
+        response_format: { type: "json_object" }
+      };
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), config.siliconflow.timeout || 60000);
+
+      const response = await fetch(config.siliconflow.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestData),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        console.error('[aiService] 硅基流动API请求失败:', response.status, errText);
+        
+        if (response.status === 429) {
+          const retryDelay = 5000;
+          console.log(`[aiService] 遇到速率限制，等待${retryDelay}ms后重试`);
+          await sleep(retryDelay);
+        }
+        
+        if (attempt === MAX_RETRIES) return null;
+        continue;
+      }
+
+      const responseData = await response.json();
+      const msg = responseData.choices?.[0]?.message || {};
+      const rawContent = (msg.content || msg.reasoning_content || '').trim();
+
+      console.log('[aiService] 硅基流动AI返回原始内容长度:', rawContent.length);
+      console.log('[aiService] 硅基流动AI返回原始内容:', rawContent);
+
+      const result = extractJSON(rawContent);
+      if (result) {
+        console.log('[aiService] 硅基流动JSON解析成功，字段:', Object.keys(result).join(', '));
+        return result;
+      }
+
+      console.warn('[aiService] 硅基流动JSON解析失败，原始内容:', rawContent.substring(0, 300));
+
+      if (attempt === MAX_RETRIES) {
+        console.error('[aiService] 硅基流动JSON解析重试全部失败');
+        return null;
+      }
+
+      console.warn(`[aiService] 硅基流动JSON解析失败，将重试`);
+
+    } catch (error) {
+      console.error(`[aiService] 调用硅基流动AI失败:`, error.message);
+      if (error.name === 'AbortError') {
+        console.warn('[aiService] 硅基流动请求超时被中止');
+      }
+      if (attempt === MAX_RETRIES) return null;
+    }
+  }
+  return null;
+}
+
+module.exports.callSiliconFlowGenerateJSON = callSiliconFlowGenerateJSON;
+
 // 构建AI讲解提示词
 function buildPrompt(poem, title, author, explanationType) {
   if (explanationType === "daily_life_explanation") {
-    return `
-      请赏析以下古诗文，重点从生活化诗意解释的角度进行分析：
-      将诗词意境转化为现代生活场景描述，让读者更容易理解
-      
-      古诗文信息：
-      标题：${title}
-      作者：${author}
-      内容：${poem}
-      
-      要求：
-      - 分析要具体，结合诗词的具体内容
-      - 语言要流畅、简洁
-      - 回答长度控制在50-100字之间
-      - 请按照JSON格式返回结果，包含以下字段：
-      - daily_life_explanation: 生活化诗意解释
-      
-      示例JSON格式：
-      {"daily_life_explanation": "..."}
-      `;
+    return `将《${title}》${author ? '（' + author + '）' : ''}转化为现代生活场景：
+
+${poem}
+
+要求：80-120字，生动形象，让读者有代入感。
+返回JSON：{"daily_life_explanation":"内容"}`;
   } else if (explanationType === "keyword_analysis") {
-    return `
-      请赏析以下古诗文，重点从关键词深度解析的角度进行分析：
-      对核心意象、典故、修辞手法的专业解读
-      
-      古诗文信息：
-      标题：${title}
-      作者：${author}
-      内容：${poem}
-      
-      要求：
-      - 分析要具体，结合诗词的具体内容
-      - 语言要流畅、简洁
-      - 回答长度控制在50-100字之间
-      - 请按照JSON格式返回结果，包含以下字段：
-      - keyword_analysis: 关键词深度解析
-      
-      示例JSON格式：
-      {"keyword_analysis": "..."}
-      `;
+    return `分析《${title}》${author ? '（' + author + '）' : ''}的关键词：
+
+${poem}
+
+请分析3-5个核心关键词，每个关键词包含以下字段：
+- keyword: 关键词（2-4字）
+- description: 词语含义和出处（10-20字）
+- effect: 在诗中的作用和表达效果（15-25字）
+
+【重要】严格按以下JSON格式返回，不要添加任何额外字段：
+{"keyword_analysis":[{"keyword":"关键词1","description":"含义说明","effect":"表达效果"},{"keyword":"关键词2","description":"含义说明","effect":"表达效果"}]}`;
   } else if (explanationType === "artistic_conception") {
-    return `
-      请赏析以下古诗文，重点从意境赏析的角度进行分析：
-      分析诗词营造的具体意境，表达的情感和思想
-      
-      古诗文信息：
-      标题：${title}
-      作者：${author}
-      内容：${poem}
-      
-      要求：
-      - 分析要具体，结合诗词的具体内容
-      - 语言要流畅、简洁
-      - 回答长度控制在50-100字之间
-      - 请按照JSON格式返回结果，包含以下字段：
-      - artistic_conception: 意境赏析
-      
-      示例JSON格式：
-      {"artistic_conception": "..."}
-      `;
+    return `赏析《${title}》${author ? '（' + author + '）' : ''}的意境：
+
+${poem}
+
+要求：80-120字，描绘画面感，分析情感基调与艺术魅力。
+返回JSON：{"artistic_conception":"内容"}`;
   } else if (explanationType === "thinking_questions") {
-    return `
-      请赏析以下古诗文，重点从引导性思考题的角度进行分析：
-      设计开放性问题，促进深度学习与思考
-      
-      古诗文信息：
-      标题：${title}
-      作者：${author}
-      内容：${poem}
-      
-      要求：
-      - 问题要具体，结合诗词的具体内容
-      - 语言要流畅、简洁
-      - 请设计3个问题，每个问题控制在20-30字之间
-      - 请按照JSON格式返回结果，包含以下字段：
-      - thinking_questions: 引导性思考题（数组格式）
-      
-      示例JSON格式：
-      {"thinking_questions": ["...", "...", "..."]}
-      `;
+    return `为《${title}》设计3个深度思考题：
+
+${poem}
+
+要求：
+1. 第一题：理解层面，关注具体诗句含义
+2. 第二题：赏析层面，分析艺术手法
+3. 第三题：感悟层面，联系人生体验
+每题20-30字，有启发性。
+
+返回JSON：{"thinking_questions":["问题1","问题2","问题3"]}`;
   } else {
-    return `
-      请赏析以下古诗文，从以下四个方面进行分析：
-      1. 生活化诗意解释：将诗词意境转化为现代生活场景描述
-      2. 关键词深度解析：对核心意象、典故、修辞手法的解读
-      3. 意境赏析：分析诗词营造的具体意境，表达的情感
-      4. 引导性思考题：设计开放性问题，促进思考
-      
-      古诗文信息：
-      标题：${title}
-      作者：${author}
-      内容：${poem}
-      
-      要求：
-      - 分析要具体，结合诗词的具体内容
-      - 语言要流畅、简洁
-      - 前三个方面的回答长度各控制在50-100字之间
-      - 请设计3个引导性问题，每个问题控制在20-30字之间
-      - 请按照JSON格式返回结果，包含以下字段：
-      - daily_life_explanation: 生活化诗意解释
-      - keyword_analysis: 关键词深度解析
-      - artistic_conception: 意境赏析
-      - thinking_questions: 引导性思考题（数组格式）
-      
-      示例JSON格式：
-      {"daily_life_explanation": "...", "keyword_analysis": "...", "artistic_conception": "...", "thinking_questions": ["...", "...", "..."]}
-      `;
+    return `赏析《${title}》${author ? '（' + author + '）' : ''}：
+
+${poem}
+
+从四个角度分析（各80-120字）：
+1. daily_life_explanation：生活化场景解读
+2. keyword_analysis：关键词意象分析
+3. artistic_conception：意境情感赏析
+4. thinking_questions：3个递进式思考题
+
+返回JSON：{"daily_life_explanation":"...","keyword_analysis":"...","artistic_conception":"...","thinking_questions":["...","...","..."]}`;
   }
 }
 
 // AI背诵检测（使用硅基流动 Qwen/Qwen2.5-7B-Instruct）
 async function getAIRecitationCheck(original, input, poemTitle, poemAuthor, learningRecord) {
   try {
-    const apiKey = config.zhipu.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
       console.error('[aiService] 缺少硅基流动API密钥');
       return getMockRecitationCheck(original, input, learningRecord);
@@ -423,7 +607,7 @@ ${input}
       originalLength: original.length
     });
 
-    const result = await callZhipuGenerateJSON(prompt, systemContent, { temperature: 0.2, maxTokens: 600 });
+    const result = await callSiliconFlowGenerateJSON(prompt, systemContent, { temperature: 0.2, maxTokens: 600 });
 
     if (result && result.score !== undefined) {
       console.log('[aiService] AI背诵检测成功:', { score: result.score });
@@ -521,6 +705,45 @@ function getMockRecitationCheck(original, input, learningRecord) {
   };
 }
 
+async function generateReciteAdvice(poemTitle, poemAuthor, original, input, score, wrongChars, missing, extra) {
+  const apiKey = config.siliconflow.apiKey;
+  if (!apiKey) {
+    console.log('[aiService] 缺少硅基流动API密钥，使用本地建议');
+    return null;
+  }
+
+  let errorSummary = '';
+  if (wrongChars && wrongChars.length > 0) {
+    errorSummary += '错字：' + wrongChars.map(e => `"${e.input}"应为"${e.original}"`).join('、') + '。';
+  }
+  if (missing && missing.length > 0) {
+    errorSummary += '漏字：' + missing.map(e => `"${e.char}"`).join('、') + '。';
+  }
+  if (extra && extra.length > 0) {
+    errorSummary += '多字：' + extra.map(e => `"${e.char}"`).join('、') + '。';
+  }
+  if (!errorSummary) {
+    errorSummary = '无错误';
+  }
+
+  const prompt = `诗词背诵检测：
+诗名：《${poemTitle || '未知'}》${poemAuthor ? '（' + poemAuthor + '）' : ''}
+得分：${score}分
+错误：${errorSummary}
+
+请给出30-50字的学习建议，语气亲切鼓励。返回JSON：{"advice":"建议内容"}`;
+
+  const systemPrompt = '你是语文老师，给出简短的学习建议。';
+
+  try {
+    const result = await callSiliconFlowGenerateJSON(prompt, systemPrompt, { temperature: 0.5, maxTokens: 100 });
+    return result?.advice || null;
+  } catch (error) {
+    console.error('[aiService] 生成学习建议失败:', error.message);
+    return null;
+  }
+}
+
 // 获取AI讲解（使用硅基流动 Qwen/Qwen2.5-7B-Instruct）
 async function getAIExplanation(poem, title, author, explanationType) {
   try {
@@ -532,7 +755,7 @@ async function getAIExplanation(poem, title, author, explanationType) {
       return cachedData;
     }
     
-    const apiKey = config.zhipu.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
       console.error('[aiService] 缺少硅基流动API密钥');
       return getMockExplanation(title, author, explanationType);
@@ -544,12 +767,12 @@ async function getAIExplanation(poem, title, author, explanationType) {
       hasApiKey: !!apiKey
     });
 
-    const systemContent = "你是一位精通中国古典文学的专家，善于简洁明了地分析古诗文。你的分析应该具体、简洁，控制在50-100字之间，避免冗长和模板化语言。请严格按照JSON格式返回结果。";
+    const systemContent = "你是古典文学专家，分析古诗文要具体生动，有画面感和启发性。严格返回JSON格式。";
     const userPrompt = buildPrompt(poem, title, author, explanationType);
 
-    const result = await callZhipuGenerateJSON(userPrompt, systemContent, { 
+    const result = await callSiliconFlowGenerateJSON(userPrompt, systemContent, { 
       temperature: 0.3, 
-      maxTokens: 500 
+      maxTokens: 800 
     });
 
     if (!result) {
@@ -561,11 +784,22 @@ async function getAIExplanation(poem, title, author, explanationType) {
     if (explanationType === 'daily_life_explanation') {
       finalResponseData = { daily_life_explanation: result.daily_life_explanation || '暂无生活化解释' };
     } else if (explanationType === 'keyword_analysis') {
-      finalResponseData = { keyword_analysis: result.keyword_analysis || '暂无关键词解析' };
+      const fixedResult = fixKeywordAnalysis(result);
+      let keywordData = fixedResult.keyword_analysis;
+      if (Array.isArray(keywordData) && keywordData.length > 0) {
+        keywordData = keywordData.map(item => ({
+          keyword: (item.keyword || '').trim(),
+          description: (item.description || '').trim(),
+          effect: (item.effect || '').trim()
+        })).filter(item => item.keyword);
+      } else {
+        keywordData = [];
+      }
+      finalResponseData = { keyword_analysis: keywordData };
     } else if (explanationType === 'artistic_conception') {
       finalResponseData = { artistic_conception: result.artistic_conception || '暂无意境赏析' };
     } else if (explanationType === 'thinking_questions') {
-      finalResponseData = { thinking_questions: result.thinking_questions || ['请思考这首诗表达了怎样的情感？', '诗中的哪些意象给你留下了深刻印象？', '你认为这首诗在艺术上有什么特色？'] };
+      finalResponseData = { thinking_questions: result.thinking_questions || ['诗中哪个意象最打动你？它唤起了你怎样的联想？', '诗人运用了哪些艺术手法来表达情感？效果如何？', '这首诗让你想到了自己生活中的哪些经历和感悟？'] };
     } else {
       finalResponseData = result;
     }
@@ -588,10 +822,18 @@ async function getAIExplanation(poem, title, author, explanationType) {
 // 模拟讲解数据
 function getMockExplanation(title, author, explanationType) {
   const mockExplanation = {
-    daily_life_explanation: `这首诗《${title || '未知'}》由${author || '未知作者'}所作，通过简洁的语言表达了深刻的情感。诗句结构紧凑，意境深远，展现了诗人对生活的独特感悟。`,
-    keyword_analysis: `诗中运用了多种修辞手法，如比喻、拟人等，使诗歌更加生动有趣。核心意象鲜明，表达了诗人的情感和思想。`,
-    artistic_conception: `诗中描绘的场景生动形象，仿佛将读者带入了一个宁静而美好的世界。诗人通过细腻的观察和丰富的想象，创造出了独特的艺术意境，给人以美的享受。`,
-    thinking_questions: ['请思考这首诗表达了怎样的情感？', '诗中的哪些意象给你留下了深刻印象？', '你认为这首诗在艺术上有什么特色？'],
+    daily_life_explanation: `这首诗描绘的场景，就像我们在忙碌生活中偶尔停下脚步，抬头望见的那轮明月。诗人用简洁的语言，将我们带入一个宁静而深远的意境，让人不禁想起自己曾经经历过的那些美好时刻。`,
+    keyword_analysis: [
+      { keyword: '明月', description: '天空中明亮的月亮', effect: '寄托思乡之情，营造宁静意境' },
+      { keyword: '故乡', description: '诗人的家乡', effect: '表达对家乡的深切思念' },
+      { keyword: '霜', description: '秋夜的寒霜', effect: '渲染清冷氛围，烘托孤独感' }
+    ],
+    artistic_conception: `诗中描绘的场景如一幅淡雅的水墨画，月光如水般倾泻而下，照亮了诗人内心的孤独与思念。诗人通过细腻的观察和丰富的想象，创造出了独特的艺术意境，给人以美的享受和心灵的触动。`,
+    thinking_questions: [
+      '诗中哪个意象最打动你？它唤起了你怎样的联想？',
+      '诗人运用了哪些艺术手法来表达情感？效果如何？',
+      '这首诗让你想到了自己生活中的哪些经历和感悟？'
+    ],
     is_mock: true
   };
   
@@ -782,7 +1024,7 @@ async function getAIResponse(poem, title, author, question, history = []) {
       question: question.substring(0, 50)
     });
     
-    const apiKey = config.zhipu.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
       console.error('[aiService] 缺少硅基流动API密钥');
       return {
@@ -818,11 +1060,11 @@ async function getAIResponse(poem, title, author, question, history = []) {
     };
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.zhipu.timeout || 30000);
+    const timeoutId = setTimeout(() => controller.abort(), config.siliconflow.timeout || 30000);
     
     try {
       console.log('[aiService] 发送AI助教请求...');
-      const response = await fetch(config.zhipu.apiUrl, {
+      const response = await fetch(config.siliconflow.apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -969,16 +1211,16 @@ function buildSimplifiedExplanationPrompt(poem, title, author, originalExplanati
 // 改写诗意
 async function getAIrewritePoem(poem, title, author) {
   try {
-    const apiKey = config.ai.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
-      console.error('[aiService] 缺少API密钥');
+      console.error('[aiService] 缺少硅基流动API密钥');
       return {
         rewrite: `这首诗《${title || '未知'}》由${author || '未知作者'}所作，通过简洁的语言表达了深刻的情感。`
       };
     }
     
     const requestData = {
-      model: config.ai.model,
+      model: config.siliconflow.model,
       messages: [
         {
           role: "system",
@@ -995,14 +1237,14 @@ async function getAIrewritePoem(poem, title, author) {
       stream: false
     };
     
-    const response = await fetch(config.ai.apiUrl, {
+    const response = await fetch(config.siliconflow.apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify(requestData),
-      timeout: config.ai.timeout
+      timeout: config.siliconflow.timeout
     });
     
     if (!response.ok) {
@@ -1026,16 +1268,16 @@ async function getAIrewritePoem(poem, title, author) {
 // 维度解释
 async function getDimensionExplanation(poem, title, author, dimension) {
   try {
-    const apiKey = config.ai.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
-      console.error('[aiService] 缺少API密钥');
+      console.error('[aiService] 缺少硅基流动API密钥');
       return {
         explanation: `从${dimension}角度分析，这首诗《${title || '未知'}》由${author || '未知作者'}所作，具有独特的艺术价值。`
       };
     }
     
     const requestData = {
-      model: config.ai.model,
+      model: config.siliconflow.model,
       messages: [
         {
           role: "system",
@@ -1052,14 +1294,14 @@ async function getDimensionExplanation(poem, title, author, dimension) {
       stream: false
     };
     
-    const response = await fetch(config.ai.apiUrl, {
+    const response = await fetch(config.siliconflow.apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify(requestData),
-      timeout: config.ai.timeout
+      timeout: config.siliconflow.timeout
     });
     
     if (!response.ok) {
@@ -1087,16 +1329,16 @@ async function getDimensionExplanation(poem, title, author, dimension) {
 // 学习建议
 async function getLearningAdvice(poem, title, author) {
   try {
-    const apiKey = config.ai.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
-      console.error('[aiService] 缺少API密钥');
+      console.error('[aiService] 缺少硅基流动API密钥');
       return {
         advice: `学习《${title || '未知'}》时，建议重点理解诗的意境和情感，多读多背。`
       };
     }
     
     const requestData = {
-      model: config.ai.model,
+      model: config.siliconflow.model,
       messages: [
         {
           role: "system",
@@ -1113,14 +1355,14 @@ async function getLearningAdvice(poem, title, author) {
       stream: false
     };
     
-    const response = await fetch(config.ai.apiUrl, {
+    const response = await fetch(config.siliconflow.apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify(requestData),
-      timeout: config.ai.timeout
+      timeout: config.siliconflow.timeout
     });
     
     if (!response.ok) {
@@ -1148,16 +1390,16 @@ async function getLearningAdvice(poem, title, author) {
 // 简化解释
 async function getSimplifiedExplanation(poem, title, author, originalExplanation) {
   try {
-    const apiKey = config.ai.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
-      console.error('[aiService] 缺少API密钥');
+      console.error('[aiService] 缺少硅基流动API密钥');
       return {
         simplified: `《${title || '未知'}》是一首表达情感的诗，通过描写具体场景，让读者感受到诗人的内心世界。`
       };
     }
     
     const requestData = {
-      model: config.ai.model,
+      model: config.siliconflow.model,
       messages: [
         {
           role: "system",
@@ -1174,14 +1416,14 @@ async function getSimplifiedExplanation(poem, title, author, originalExplanation
       stream: false
     };
     
-    const response = await fetch(config.ai.apiUrl, {
+    const response = await fetch(config.siliconflow.apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify(requestData),
-      timeout: config.ai.timeout
+      timeout: config.siliconflow.timeout
     });
     
     if (!response.ok) {
@@ -1209,14 +1451,14 @@ async function getSimplifiedExplanation(poem, title, author, originalExplanation
 // 字符信息
 async function getCharInfo(prompt) {
   try {
-    const apiKey = config.ai.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
-      console.error('[aiService] 缺少API密钥');
+      console.error('[aiService] 缺少硅基流动API密钥');
       return JSON.stringify({ phonetic: '未知', meaning: '暂无注释' });
     }
     
     const requestData = {
-      model: config.ai.model,
+      model: config.siliconflow.model,
       messages: [
         {
           role: "system",
@@ -1239,10 +1481,10 @@ async function getCharInfo(prompt) {
     
     while (retries >= 0) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), config.ai.timeout || 60000);
+      const timeoutId = setTimeout(() => controller.abort(), config.siliconflow.timeout || 60000);
       
       try {
-        response = await fetch(config.ai.apiUrl, {
+        response = await fetch(config.siliconflow.apiUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1492,36 +1734,25 @@ async function generatePoemImage(poem, title, author) {
 // 飞花令评判（使用Qwen/Qwen2.5-7B-Instruct模型）
 async function evaluateFeihuaPoem(poem, keyword, difficulty = 'medium', usedPoems = []) {
   try {
-    const apiKey = config.zhipu.apiKey;
+    const apiKey = config.siliconflow.apiKey;
     if (!apiKey) {
       console.error('[aiService] 缺少硅基流动API密钥');
       return getMockFeihuaEvaluation(poem, keyword);
     }
 
-    const prompt = `请严格判断以下诗句是否符合飞花令要求。
+    const prompt = `判断诗句是否符合飞花令：
+诗句：${poem}
+令字：${keyword}
 
-待验证诗句：「${poem}」
-令字：「${keyword}」
+规则：1. 包含令字 2. 是真实古典诗词
 
-请回答两个问题：
-1. 该诗句中是否包含令字「${keyword}」？
-2. 该诗句是否是真实存在的中国古典诗词？
+返回JSON：{"isValid": true/false}`;
 
-只有当以上两个问题的答案都是"是"时，isValid才为true。
+    const systemContent = "飞花令验证专家，只返回JSON判断结果。";
 
-请严格返回JSON格式：
-{
-  "isValid": true或false,
-  "hasKeyword": true或false,
-  "isRealPoem": true或false,
-  "reason": "简要说明原因"
-}`;
-
-    const systemContent = "你是一位精通中国古典诗词的专家，专门负责飞花令游戏的诗句验证。请严格按照要求判断，不要遗漏任何细节。只返回JSON，不要有其他文字。";
-
-    const result = await callZhipuGenerateJSON(prompt, systemContent, {
+    const result = await callSiliconFlowGenerateJSON(prompt, systemContent, {
       temperature: 0.05,
-      maxTokens: 150
+      maxTokens: 50
     });
 
     if (!result || typeof result.isValid !== 'boolean') {
@@ -1534,7 +1765,7 @@ async function evaluateFeihuaPoem(poem, keyword, difficulty = 'medium', usedPoem
     return {
       isValid: result.isValid,
       score: result.isValid ? 100 : 0,
-      reason: result.reason || (result.isValid ? '诗句有效' : '诗句无效'),
+      reason: result.isValid ? '正确' : '错误',
       poemInfo: { title: null, author: null }
     };
   } catch (error) {
@@ -1580,27 +1811,13 @@ async function validateFeihuaPoem(poem, keyword) {
       };
     }
 
-    const prompt = `你是一位飞花令诗句验证专家。请严格验证以下诗句。
-
+    const prompt = `判断诗句是否符合飞花令：
+诗句：${poem}
 令字：${keyword}
-待验证诗句：${poem}
 
-验证要求：
-1. 诗句中必须包含「${keyword}」字
-2. 诗句必须是真实存在于中华诗词传统中的经典诗句，不可是自创、改编或虚构的
-3. 诗句符合基本格律，语义通顺
+规则：1. 包含令字 2. 是真实古典诗词
 
-直接返回JSON：
-{
-  "valid": true或false,
-  "message": "简短说明",
-  "poem": { "poem": "完整诗句", "keyword": "${keyword}", "title": "标题", "author": "作者" },
-  "analysis": "简要分析"
-}
-
-重要提示：如果你不确定某诗句是否真实存在，请务必返回 valid: false。
-
-`;
+返回JSON：{"valid": true/false}`;
 
     const feihuaModel = 'Qwen/Qwen2.5-7B-Instruct';
     const feihuaApiUrl = 'https://api.siliconflow.cn/v1/chat/completions';
@@ -1610,7 +1827,7 @@ async function validateFeihuaPoem(poem, keyword) {
       messages: [
         {
           role: "system",
-          content: "你是一位严格的飞花令诗句验证专家。"
+          content: "飞花令验证专家，只返回JSON判断结果。"
         },
         {
           role: "user",
@@ -1618,13 +1835,13 @@ async function validateFeihuaPoem(poem, keyword) {
         }
       ],
       temperature: 0.1,
-      max_tokens: 500,
+      max_tokens: 50,
       stream: false,
       response_format: { type: "json_object" }
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.ai.timeout || 30000);
+    const timeoutId = setTimeout(() => controller.abort(), config.ai.timeout || 15000);
 
     try {
       const response = await fetch(feihuaApiUrl, {
@@ -1651,11 +1868,12 @@ async function validateFeihuaPoem(poem, keyword) {
       }
 
       const result = JSON.parse(content);
+      const isValid = result.valid === true;
       return {
-        valid: result.valid === true,
-        message: result.message || (result.valid ? '诗句正确' : '诗句不正确'),
-        poem: result.poem || { poem, keyword, title: null, author: null },
-        analysis: result.analysis || ''
+        valid: isValid,
+        message: isValid ? '正确' : '错误',
+        poem: isValid ? { poem, keyword } : null,
+        analysis: isValid ? '正确' : '错误'
       };
     } catch (fetchError) {
       clearTimeout(timeoutId);
@@ -2447,7 +2665,7 @@ async function getPoemBackground(title, author, dynasty, content) {
 
 // 获取趣味故事
 async function getPoemStory(title, author, content) {
-  const apiKey = config.zhipu.apiKey;
+  const apiKey = config.siliconflow.apiKey;
   if (!apiKey) {
     return null;
   }
@@ -2455,17 +2673,17 @@ async function getPoemStory(title, author, content) {
   const prompt = `用100字讲一个关于《${title || '未知'}》的趣味故事，可以是诗人趣事或诗词典故。`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), config.zhipu.timeout || 30000);
+  const timeoutId = setTimeout(() => controller.abort(), config.siliconflow.timeout || 30000);
 
   try {
-    const response = await fetch(config.zhipu.apiUrl, {
+    const response = await fetch(config.siliconflow.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: config.zhipu.model,
+        model: config.siliconflow.model,
         messages: [
           { role: 'system', content: '你是一位风趣幽默的故事大王，擅长将诗词背后的故事讲得生动有趣。' },
           { role: 'user', content: prompt }
@@ -2609,6 +2827,7 @@ module.exports = {
   getCharInfo,
   callAIGenerateJSON,
   callZhipuGenerateJSON,
+  callSiliconFlowGenerateJSON,
   generateChallengeQuestion,
   verifyChallengeAnswer,
   generateAIHelp,
@@ -2627,7 +2846,168 @@ module.exports = {
   analyzeSearchResults,
   detectSearchEmotion,
   generateAuthorAvatar,
+  generateReciteAdvice,
+  synthesizeSpeech,
 };
+
+const TTS_CACHE = new Map();
+const TTS_CACHE_MAX_SIZE = 100;
+
+async function synthesizeSpeech(text, options = {}) {
+  const apiKey = process.env.DASHSCOPE_API_KEY || process.env.ALIYUN_BAILIAN_API_KEY;
+  if (!apiKey) {
+    console.error('[aiService] 缺少DASHSCOPE_API_KEY');
+    return { success: false, message: 'API密钥未配置' };
+  }
+
+  if (!text || typeof text !== 'string') {
+    return { success: false, message: '缺少文本内容' };
+  }
+
+  const cleanText = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9，。！？、；：""''（）\s]/g, '').trim();
+  if (!cleanText) {
+    return { success: false, message: '文本内容为空' };
+  }
+
+  const cacheKey = cleanText + '_' + (options.voice || 'libai_v2');
+  if (TTS_CACHE.has(cacheKey)) {
+    const cached = TTS_CACHE.get(cacheKey);
+    if (Date.now() - cached.timestamp < 3600000) {
+      console.log('[aiService] TTS缓存命中');
+      return { success: true, audioBase64: cached.audioBase64, format: cached.format, fromCache: true };
+    }
+    TTS_CACHE.delete(cacheKey);
+  }
+
+  const model = options.model || 'cosyvoice-v2';
+  const voice = options.voice || 'libai_v2';
+  const format = options.format || 'wav';
+  const sampleRate = options.sampleRate || 16000;
+  const rate = options.rate || 0.85;
+  const pitch = options.pitch || 1.0;
+
+  console.log('[aiService] TTS请求:', { 
+    textLength: cleanText.length, 
+    model, 
+    voice, 
+    format,
+    sampleRate
+  });
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch('https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        input: {
+          text: cleanText,
+          voice: voice,
+          format: format,
+          sample_rate: sampleRate,
+          rate: rate,
+          pitch: pitch
+        }
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    const contentType = response.headers.get('content-type') || '';
+    console.log('[aiService] TTS响应状态:', response.status);
+    console.log('[aiService] TTS响应Content-Type:', contentType);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[aiService] TTS请求失败:', response.status, errorText);
+      return { success: false, message: `TTS请求失败: ${response.status}` };
+    }
+    
+    if (contentType.includes('application/json')) {
+      const jsonData = await response.json();
+      console.log('[aiService] TTS JSON响应:', JSON.stringify(jsonData).substring(0, 500));
+      
+      if (jsonData.output && jsonData.output.audio) {
+        const audioInfo = jsonData.output.audio;
+        
+        if (audioInfo.url) {
+          console.log('[aiService] 获取音频URL:', audioInfo.url);
+          const audioResponse = await fetch(audioInfo.url);
+          if (!audioResponse.ok) {
+            console.error('[aiService] 下载音频失败:', audioResponse.status);
+            return { success: false, message: '下载音频失败' };
+          }
+          const audioBuffer = await audioResponse.arrayBuffer();
+          const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+          console.log('[aiService] 下载音频成功, base64长度:', audioBase64.length);
+          
+          if (TTS_CACHE.size >= TTS_CACHE_MAX_SIZE) {
+            const firstKey = TTS_CACHE.keys().next().value;
+            TTS_CACHE.delete(firstKey);
+          }
+          TTS_CACHE.set(cacheKey, {
+            audioBase64: audioBase64,
+            format: format,
+            timestamp: Date.now()
+          });
+
+          return { success: true, audioBase64: audioBase64, format: format };
+        }
+        
+        if (audioInfo.data) {
+          const audioBase64 = audioInfo.data;
+          console.log('[aiService] 获取到音频base64, 长度:', audioBase64.length);
+          
+          if (TTS_CACHE.size >= TTS_CACHE_MAX_SIZE) {
+            const firstKey = TTS_CACHE.keys().next().value;
+            TTS_CACHE.delete(firstKey);
+          }
+          TTS_CACHE.set(cacheKey, {
+            audioBase64: audioBase64,
+            format: format,
+            timestamp: Date.now()
+          });
+
+          return { success: true, audioBase64: audioBase64, format: format };
+        }
+      }
+      console.error('[aiService] TTS响应格式错误:', jsonData);
+      return { success: false, message: 'TTS响应格式错误' };
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    console.log('[aiService] TTS二进制响应, 大小:', arrayBuffer.byteLength);
+    const audioBase64 = Buffer.from(arrayBuffer).toString('base64');
+    console.log('[aiService] 转换为base64, 长度:', audioBase64.length);
+
+    if (TTS_CACHE.size >= TTS_CACHE_MAX_SIZE) {
+      const firstKey = TTS_CACHE.keys().next().value;
+      TTS_CACHE.delete(firstKey);
+    }
+    TTS_CACHE.set(cacheKey, {
+      audioBase64: audioBase64,
+      format: format,
+      timestamp: Date.now()
+    });
+
+    return { success: true, audioBase64: audioBase64, format: format };
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('[aiService] TTS请求超时');
+      return { success: false, message: 'TTS请求超时' };
+    }
+    console.error('[aiService] TTS请求异常:', error);
+    return { success: false, message: error.message || 'TTS请求异常' };
+  }
+}
 
 // 生成诗句意境图
 async function generatePoemSceneImage(poemLine, poemTitle, poemAuthor, lineNumber = null, totalLines = null) {

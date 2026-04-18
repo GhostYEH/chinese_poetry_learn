@@ -128,8 +128,11 @@
             v-if="speechSynthesisSupported"
             class="read-btn"
             @click="toggleRead"
+            :disabled="ttsLoading"
           >
-            {{ isReading ? '⏹ 停止' : '🔊 朗读' }}
+            <template v-if="ttsLoading">⏳ 加载中...</template>
+            <template v-else-if="isReading">⏹ 停止</template>
+            <template v-else>🔊 朗读</template>
           </button>
         </div>
         
@@ -429,10 +432,29 @@
           </div>
           
           <!-- 关键字词分析 -->
-          <div v-if="aiExplanations.keyword_analysis" class="explanation-content">
+          <div v-if="aiExplanations.keyword_analysis && (Array.isArray(aiExplanations.keyword_analysis) ? aiExplanations.keyword_analysis.length > 0 : aiExplanations.keyword_analysis)" class="explanation-content">
             <div class="explanation-section">
               <h3>🔍 关键字词分析</h3>
-              <p>{{ aiExplanations.keyword_analysis }}</p>
+              <div v-if="Array.isArray(aiExplanations.keyword_analysis)" class="keyword-analysis-list">
+                <div 
+                  v-for="(item, index) in aiExplanations.keyword_analysis" 
+                  :key="index"
+                  class="keyword-item"
+                >
+                  <div class="keyword-header">
+                    <span class="keyword-text">{{ item.keyword }}</span>
+                  </div>
+                  <div class="keyword-details">
+                    <p v-if="item.description" class="keyword-description">
+                      <span class="label">含义：</span>{{ item.description }}
+                    </p>
+                    <p v-if="item.effect" class="keyword-effect">
+                      <span class="label">效果：</span>{{ item.effect }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <p v-else>{{ aiExplanations.keyword_analysis }}</p>
             </div>
           </div>
           
@@ -718,9 +740,11 @@ export default {
       loading: true,
       error: '',
       // 语音朗读相关状态
-      speechSynthesisSupported: 'speechSynthesis' in window,
+      speechSynthesisSupported: true,
       isReading: false,
       speechUtterance: null,
+      ttsLoading: false,
+      audioElement: null,
       // AI讲解相关状态
       aiExplanations: {
         daily_life_explanation: null,
@@ -1912,68 +1936,72 @@ export default {
     },
     // 切换朗读状态
     toggleRead() {
-      if (!this.speechSynthesisSupported) {
-        alert('您的浏览器不支持语音朗读功能');
-        return;
-      }
-      
       if (this.isReading) {
-        // 直接停止朗读
-        speechSynthesis.cancel();
-        this.isReading = false;
+        this.stopReading();
       } else {
-        // 开始朗读
         this.startReading();
       }
     },
-    // 开始朗读诗词
-    startReading() {
+    // 停止朗读
+    stopReading() {
+      if (this.audioElement) {
+        this.audioElement.pause();
+        this.audioElement.currentTime = 0;
+      }
+      this.isReading = false;
+      this.ttsLoading = false;
+    },
+    // 开始朗读诗词（使用阿里云百炼TTS）
+    async startReading() {
       if (!this.poem || !this.poem.content) return;
       
-      // 取消之前的朗读
-      speechSynthesis.cancel();
+      this.stopReading();
+      this.ttsLoading = true;
       
-      let text = this.poem.content;
-      // 预处理：规范化标点，确保每句有停顿
-      text = text.replace(/([。！？；])\s*/g, '$1，').replace(/\n/g, '。');
-      
-      // 分割成句子数组（按。！？；, 分）
-      const sentences = text.split(/(?<=[。！？；，])/).filter(s => s.trim());
-      
-      let queue = [...sentences]; // 队列朗读
-      
-      const speakNext = () => {
-        if (queue.length === 0) {
-          this.isReading = false;
-          return;
+      try {
+        let text = this.poem.content;
+        text = text.replace(/([。！？；])\s*/g, '$1，').replace(/\n/g, '。');
+        
+        const response = await fetch(`${API_BASE_URL}/api/ai/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            text: text,
+            voice: 'libai_v2',
+            rate: 0.85
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.audio) {
+          const audioData = `data:audio/${data.format || 'mp3'};base64,${data.audio}`;
+          
+          if (!this.audioElement) {
+            this.audioElement = new Audio();
+          }
+          
+          this.audioElement.src = audioData;
+          this.audioElement.onended = () => {
+            this.isReading = false;
+          };
+          this.audioElement.onerror = () => {
+            console.error('音频播放失败');
+            this.isReading = false;
+          };
+          
+          this.isReading = true;
+          this.ttsLoading = false;
+          await this.audioElement.play();
+        } else {
+          throw new Error(data.message || 'TTS请求失败');
         }
-        
-        const utterance = new SpeechSynthesisUtterance(queue.shift());
-        utterance.lang = 'zh-CN';
-        utterance.rate = 0.8;    // 稍慢，更有节奏
-        utterance.pitch = 1.1;   // 略高，模拟吟诵
-        utterance.volume = 1;
-        
-        // 优先选柔和女声（名字因系统而异）
-        const voices = speechSynthesis.getVoices();
-        const preferred = voices.find(v => 
-          v.name.includes('Xiaoxiao') || 
-          v.name.includes('Yunxi') || 
-          v.name.includes('女') ||
-          v.name.includes('Chinese')
-        );
-        if (preferred) utterance.voice = preferred;
-        
-        // 句末加长停顿
-        utterance.onend = () => {
-          setTimeout(speakNext, 600); // 每句后停0.6秒
-        };
-        
-        speechSynthesis.speak(utterance);
-      };
-      
-      this.isReading = true;
-      speakNext();
+      } catch (error) {
+        console.error('朗读失败:', error);
+        this.ttsLoading = false;
+        this.isReading = false;
+        alert('朗读服务暂时不可用，请稍后重试');
+      }
     },
 
     // 滚动聊天窗口到底部
@@ -3348,6 +3376,59 @@ input:checked + .slider:before {
   height: 8px;
   background-color: #4CAF50;
   border-radius: 50%;
+}
+
+/* 关键字词分析样式 */
+.keyword-analysis-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.keyword-item {
+  background: rgba(76, 175, 80, 0.05);
+  border: 1px solid rgba(76, 175, 80, 0.15);
+  border-radius: 8px;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+
+.keyword-item:hover {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.keyword-header {
+  margin-bottom: 10px;
+}
+
+.keyword-text {
+  display: inline-block;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.15), rgba(76, 175, 80, 0.05));
+  padding: 4px 12px;
+  border-radius: 4px;
+}
+
+.keyword-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keyword-description,
+.keyword-effect {
+  font-size: 14px;
+  color: #555;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.keyword-details .label {
+  font-weight: 500;
+  color: #333;
 }
 
 .ai-btn {

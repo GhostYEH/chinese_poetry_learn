@@ -119,8 +119,11 @@
                 v-if="speechSynthesisSupported"
                 class="read-btn"
                 @click.stop="toggleRead(dailyPoem)"
+                :disabled="ttsLoading && readingPoemId === dailyPoem.id"
               >
-                {{ isReading && readingPoemId === dailyPoem.id ? '⏹ 停止' : '🔊 朗读' }}
+                <template v-if="ttsLoading && readingPoemId === dailyPoem.id">⏳</template>
+                <template v-else-if="isReading && readingPoemId === dailyPoem.id">⏹</template>
+                <template v-else>🔊</template>
               </button>
               <button class="start-learn-btn" @click.stop="navigateToDetail(dailyPoem.id)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
@@ -274,8 +277,11 @@
                 v-if="speechSynthesisSupported"
                 class="read-btn-small"
                 @click.stop="toggleRead(poem)"
+                :disabled="ttsLoading && readingPoemId === poem.id"
               >
-                {{ isReading && readingPoemId === poem.id ? '⏹' : '🔊' }}
+                <template v-if="ttsLoading && readingPoemId === poem.id">⏳</template>
+                <template v-else-if="isReading && readingPoemId === poem.id">⏹</template>
+                <template v-else>🔊</template>
               </button>
             </div>
           </template>
@@ -380,10 +386,12 @@ export default {
       // 每日一诗
       dailyPoem: null,
       currentDate: new Date(),
-      speechSynthesisSupported: 'speechSynthesis' in window,
+      speechSynthesisSupported: true,
       isReading: false,
       readingPoemId: null,
       speechUtterance: null,
+      ttsLoading: false,
+      audioElement: null,
       // 一言
       hitokotoText: '心有猛虎，细嗅蔷薇',
       hitokotoFrom: '余光中',
@@ -753,53 +761,76 @@ export default {
       this.hasMore = true
       this.fetchPoems()
     },
-    // 朗读
+    // 朗读（使用阿里云百炼TTS）
     toggleRead(poem) {
-      if (!this.speechSynthesisSupported) {
-        return
-      }
-      if (this.isReading) {
-        speechSynthesis.cancel()
-        this.isReading = false
-        this.readingPoemId = null
+      if (this.isReading && this.readingPoemId === poem.id) {
+        this.stopReading()
         return
       }
       this.startReading(poem)
     },
-    startReading(poem) {
-      if (!poem || !poem.content) return
-      speechSynthesis.cancel()
-      let text = poem.content
-      text = text.replace(/([。！？；])\s*/g, '$1，').replace(/\n/g, '。')
-      const sentences = text.split(/(?<=[。！？；，])/).filter(s => s.trim())
-      let queue = [...sentences]
-      const speakNext = () => {
-        if (queue.length === 0) {
-          this.isReading = false
-          this.readingPoemId = null
-          return
-        }
-        const utterance = new SpeechSynthesisUtterance(queue.shift())
-        utterance.lang = 'zh-CN'
-        utterance.rate = 0.8
-        utterance.pitch = 1.1
-        utterance.volume = 1
-        const voices = speechSynthesis.getVoices()
-        const preferred = voices.find(v =>
-          v.name.includes('Xiaoxiao') ||
-          v.name.includes('Yunxi') ||
-          v.name.includes('女') ||
-          v.name.includes('Chinese')
-        )
-        if (preferred) utterance.voice = preferred
-        utterance.onend = () => {
-          setTimeout(speakNext, 600)
-        }
-        speechSynthesis.speak(utterance)
+    stopReading() {
+      if (this.audioElement) {
+        this.audioElement.pause()
+        this.audioElement.currentTime = 0
       }
-      this.isReading = true
+      this.isReading = false
+      this.readingPoemId = null
+      this.ttsLoading = false
+    },
+    async startReading(poem) {
+      if (!poem || !poem.content) return
+      
+      this.stopReading()
+      this.ttsLoading = true
       this.readingPoemId = poem.id
-      speakNext()
+      
+      try {
+        let text = poem.content
+        text = text.replace(/([。！？；])\s*/g, '$1，').replace(/\n/g, '。')
+        
+        const response = await fetch('http://localhost:3000/api/ai/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            text: text,
+            voice: 'libai_v2',
+            rate: 0.85
+          })
+        })
+        
+        const data = await response.json()
+        
+        if (data.success && data.audio) {
+          const audioData = `data:audio/${data.format || 'mp3'};base64,${data.audio}`
+          
+          if (!this.audioElement) {
+            this.audioElement = new Audio()
+          }
+          
+          this.audioElement.src = audioData
+          this.audioElement.onended = () => {
+            this.isReading = false
+            this.readingPoemId = null
+          }
+          this.audioElement.onerror = () => {
+            console.error('音频播放失败')
+            this.isReading = false
+            this.readingPoemId = null
+          }
+          
+          this.isReading = true
+          this.ttsLoading = false
+          await this.audioElement.play()
+        } else {
+          throw new Error(data.message || 'TTS请求失败')
+        }
+      } catch (error) {
+        console.error('朗读失败:', error)
+        this.ttsLoading = false
+        this.isReading = false
+        this.readingPoemId = null
+      }
     },
   },
 }

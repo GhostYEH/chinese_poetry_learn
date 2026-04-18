@@ -339,9 +339,9 @@ function getLearningDashboard(userId) {
 // 生成AI学习建议
 async function generateAiLearningAdvice(userId) {
   const config = require('../config/config');
-  const { callZhipuGenerateJSON } = require('./aiService');
+  const { callSiliconFlowGenerateJSON } = require('./aiService');
 
-  const apiKey = config.zhipu.apiKey;
+  const apiKey = config.siliconflow.apiKey;
 
   if (!apiKey) {
     const err = new Error('AI 服务未配置');
@@ -606,7 +606,7 @@ ${recentPoemsText}
 {"summary":"学习概况总结，概述学生的学习状态和整体表现","strength":"优势亮点，指出学生做得好的地方","weakness":"薄弱环节，客观指出需要改进的地方","suggestion":"改进建议，给出具体可操作的学习方法","plan":["任务1","任务2","任务3"],"encourage":"激励寄语，用温暖的话语鼓励学生"}`;
 
   try {
-    const result = await callZhipuGenerateJSON(
+    const result = await callSiliconFlowGenerateJSON(
       prompt,
       '你是经验丰富、温暖亲切的古诗词学习导师。请根据学生数据生成个性化学习建议，直接返回JSON结果。',
       { temperature: 0.7, maxTokens: 2000 }

@@ -352,94 +352,38 @@ router.post('/assist/score', optionalAuthenticateToken, async (req, res) => {
     const escapedGenre = genre ? JSON.stringify(genre).slice(1, -1) : '未知';
     const escapedTheme = theme ? JSON.stringify(theme).slice(1, -1) : '未知';
 
-    // 严格评分 + 详细解释的系统 prompt
-    const systemContent = `你是一位极其严格、专业的古诗词评审专家。你只对真正优秀的作品给出高分，对大多数普通作品给 50-70 分，对明显敷衍或错误的作品敢于给 30 分以下。你的评价以古典诗词的黄金时代（唐诗）为最高标准，要求格律严谨、意象精准、情感真挚。`;
+    const systemContent = `你是古诗词评审专家，评分严格客观，以唐诗为标准。`;
 
-    const prompt = `请对以下诗词作品进行严格评审打分。
+    const prompt = `评审诗词并评分。
 
-【作品信息】
-标题：${escapedTitle}
-体裁：${escapedGenre}
-主题：${escapedTheme}
-正文：
+【作品】标题：${escapedTitle}，体裁：${escapedGenre}，主题：${escapedTheme}
 ${escapedPoem}
 
-【评分维度及严格标准】
+【评分维度】(每项0-100分)
+- content：内容契合度，意象是否精准、情感是否真挚
+- rhythm：韵律美感，格律是否工整、押韵是否和谐
+- mood：意境表达，画面感、共鸣感
+- language：语言流畅度，用词是否准确典雅
+- creativity：创意性，立意是否新颖
 
-一、内容契合度（content，0-100）
-- 95-100：意象选择精妙绝伦，情感表达丝丝入扣，与主题浑然一体，字字紧扣题意
-- 85-94：意象基本精准，情感较真挚，与主题较为契合，有少量游离之处
-- 75-84：意象选择尚可，情感表达一般，与主题有一定关联但缺乏深度
-- 65-74：意象偏离主题或过于堆砌，情感空洞，与主题关联薄弱
-- 50-64：内容与主题貌合神离，意象杂乱，情感不真
-- 30-49：内容与主题严重不符，意象堆砌不知所云
-- 0-29：完全跑题或毫无诗意可言
+【总分】五维度平均分
 
-二、韵律美感（rhythm，0-100）
-- 95-100：格律严丝合缝，押韵工稳，节奏如行云流水，朗朗上口
-- 85-94：基本符合格律，押韵正确，节奏流畅
-- 75-84：偶有格律小瑕疵，押韵基本正确，节奏尚可
-- 65-74：格律有明显问题（平仄不合或押韵不工），节奏感一般
-- 50-64：格律混乱（多字少字或平仄全错），韵脚生硬
-- 30-49：毫无格律可言，节奏全无
-- 0-29：句子支离破碎
+【建议格式】亮点+不足+改进方向，共60-100字
 
-三、意境表达（mood，0-100）
-- 95-100：意境深远，画面感极强，能引发读者强烈共鸣，余韵悠长
-- 85-94：意境较好，有画面感，能引发一定共鸣
-- 75-84：意境尚可，但不够深远或画面感不足
-- 65-74：意境浅薄，表达生硬，共鸣感弱
-- 50-64：无意境可言，情感表达生硬或空洞
-- 30-49：意象堆砌，无情感，味同嚼蜡
-- 0-29：毫无意境
+返回JSON：{"total":总分,"dimensions":{"content":分,"rhythm":分,"mood":分,"language":分,"creativity":分},"suggestions":"【亮点】...\\n【不足】...\\n【建议】..."}`;
 
-四、语言流畅度（language，0-100）
-- 95-100：语言精炼如诗，字字珠玑，用词典雅而准确，千年名句之资
-- 85-94：语言流畅，用词准确，有一定文采
-- 75-84：语言基本通顺，偶有搭配不当或生造词
-- 65-74：用词不当较多，表达时有歧义或生硬
-- 50-64：语言粗糙，词不达意，语法错误明显
-- 30-49：语言混乱，难以理解
-- 0-29：完全不知所云
-
-五、创意性（creativity，0-100）
-- 95-100：立意独到，视角新颖，化用经典不着痕迹，令人拍案叫绝
-- 85-94：有一定新意，能在传统题材中翻出新意
-- 75-84：较为常规，但在用词或表达上有小亮点
-- 65-74：陈词滥调较多，模仿痕迹明显
-- 50-64：套话连篇，缺乏个人风格
-- 30-49：几乎照搬或套用名句
-- 0-29：抄袭或严重雷同
-
-【总分计算】总分 = 五维度之和 ÷ 5，保留一位小数。
-
-【修改建议要求】
-必须包含以下三个部分，格式严格遵循：
-1. 亮点（1-2句）：指出作品中真正闪光的地方，要具体到哪个词/哪个意象/哪句写得精彩
-2. 不足（2-4句）：严厉指出2-4个核心问题，要具体到"第X句的XX词语搭配不当"、"韵脚XX字与XX字不和谐"等，不能泛泛而谈
-3. 改进方向（1-2句）：给出可操作的修改建议
-
-【JSON格式要求】（严格返回，不要有任何额外文字）：
-{"total":总分数值,"dimensions":{"content":分数,"rhythm":分数,"mood":分数,"language":分数,"creativity":分数},"suggestions":"【亮点】...（不超过30字）\n【不足】...（60-100字）\n【建议】...（不超过30字）"}`;
-
-    // 并行调用AI评分和文生图（评分使用硅基流动 Qwen/Qwen2.5-7B-Instruct）
-    const [scoreResult, imageResult] = await Promise.all([
-      aiService.callZhipuGenerateJSON(prompt, systemContent, { temperature: 0.1, maxTokens: 800 }),
-      aiService.generatePoemImage(escapedPoem, escapedTitle, escapedAuthor)
-    ]);
+    const scoreResult = await aiService.callZhipuGenerateJSON(prompt, systemContent, { temperature: 0.1, maxTokens: 800 });
 
     if (scoreResult) {
-      // 防御：确保总分在合理范围
       if (typeof scoreResult.total !== 'number' || scoreResult.total < 0 || scoreResult.total > 100) {
         const dims = scoreResult.dimensions || {};
         const vals = Object.values(dims).filter(v => typeof v === 'number');
         scoreResult.total = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10 : 0;
       }
-      const responseData = { ...scoreResult, image: imageResult };
       console.log('[creationRoutes] 评分 成功', { userId, total: scoreResult.total });
-      return res.json({ success: true, data: responseData, message: '评分成功' + (imageResult ? '，已生成意境图' : '') });
+      return res.json({ success: true, data: scoreResult, message: '评分成功' });
     } else {
-      const mockData = { total: 0, dimensions: { content: 0, rhythm: 0, mood: 0, language: 0, creativity: 0 }, suggestions: 'AI服务暂时不可用，请稍后重试。', image: imageResult || null };
+      const mockData = { total: 0, dimensions: { content: 0, rhythm: 0, mood: 0, language: 0, creativity: 0 }, suggestions: 'AI服务暂时不可用，请稍后重试。' };
       console.error('[creationRoutes] 评分 AI失败，返回空分', { userId });
       return res.json({ success: false, data: mockData, message: 'AI服务暂时不可用，请稍后重试' });
     }

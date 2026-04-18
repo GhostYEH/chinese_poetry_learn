@@ -338,16 +338,19 @@ async function generateAIAnalysisReport(userId, wrongQuestions, challengeRecords
     return getMockAnalysisReport(summary);
   }
 
-  const apiKey = process.env.ZHIPU_API_KEY;
+  const config = require('../config/config');
+  const { callSiliconFlowGenerateJSON } = require('./aiService');
+  
+  const apiKey = config.siliconflow.apiKey;
   if (!apiKey) {
-    console.log('[personalizedService] 无智谱API Key，返回模拟分析');
+    console.log('[personalizedService] 无硅基流动API Key，返回模拟分析');
     return getMockAnalysisReport(summary);
   }
 
   try {
-    console.log('[personalizedService] 开始调用智谱AI生成分析报告...');
+    console.log('[personalizedService] 开始调用硅基流动AI生成分析报告...');
 
-    const result = await callZhipuGenerateJSON(
+    const result = await callSiliconFlowGenerateJSON(
       `请根据以下学生的真实学习数据，生成一份高度个性化的诗词学习分析报告。
 
 【学生数据摘要】
