@@ -120,11 +120,6 @@
           <button class="add-line-btn" @click="addLine" v-if="canAddLine">
             <span>+</span> 添加诗句
           </button>
-          <button class="ai-generate-btn" @click="generateFullPoem" :disabled="isGenerating">
-            <span v-if="isGenerating" class="loading-spinner-small"></span>
-            <span v-else>☀</span>
-            <span>{{ isGenerating ? 'AI创作中...' : 'AI续写整首' }}</span>
-          </button>
         </div>
       </div>
 
@@ -239,16 +234,12 @@ export default {
       type: Array,
       default: () => []
     },
-    isGenerating: {
-      type: Boolean,
-      default: false
-    },
     isPolishing: {
       type: Boolean,
       default: false
     }
   },
-  emits: ['update:title', 'update:lines', 'recommend', 'generate', 'polish', 'score', 'save', 'back'],
+  emits: ['update:title', 'update:lines', 'recommend', 'polish', 'score', 'save', 'back'],
   setup(props, { emit }) {
     const localTitle = ref(props.title);
     const localLines = ref([...props.lines]);
@@ -419,48 +410,122 @@ export default {
         return;
       }
 
-      // 简单的韵律检查
-      const lastChar = filledLines[filledLines.length - 1].slice(-1);
-      const prevLastChar = filledLines[filledLines.length - 2].slice(-1);
+      const currentGenre = props.genre;
+      const lastLineText = filledLines[filledLines.length - 1];
+      const lastCharOfCurrent = lastLineText.slice(-1);
+
+      let rhymeOk = true;
+      let rhymeStatus = '良好';
+
+      // 律诗和绝句的押韵规则
+      if (currentGenre.includes('绝句') || currentGenre.includes('律诗')) {
+        const rhymingLines = [];
+        if (currentGenre.includes('绝句')) { // 绝句二四句押韵
+          if (filledLines.length >= 2) rhymingLines.push(filledLines[1]);
+          if (filledLines.length >= 4) rhymingLines.push(filledLines[3]);
+        } else { // 律诗偶数句押韵，首句可入韵
+          if (filledLines.length >= 1 && currentGenre.includes('律诗')) rhymingLines.push(filledLines[0]); // 首句可入韵
+          if (filledLines.length >= 2) rhymingLines.push(filledLines[1]);
+          if (filledLines.length >= 4) rhymingLines.push(filledLines[3]);
+          if (filledLines.length >= 6) rhymingLines.push(filledLines[5]);
+          if (filledLines.length >= 8) rhymingLines.push(filledLines[7]);
+        }
+
+        // 检查当前行是否是押韵句，并与之前的押韵句比较
+        const currentLineIndex = filledLines.length - 1;
+        const isCurrentLineRhyming = (currentGenre.includes('绝句') && (currentLineIndex === 1 || currentLineIndex === 3)) ||
+                                     (currentGenre.includes('律诗') && (currentLineIndex % 2 === 1 || currentLineIndex === 0));
+
+        if (isCurrentLineRhyming && rhymingLines.length > 1) {
+          const firstRhymingChar = rhymingLines[0].slice(-1);
+          if (lastCharOfCurrent !== firstRhymingChar) {
+            rhymeOk = false;
+            rhymeStatus = '韵脚不一致，建议调整';
+          }
+        }
+      }
+
+      const structureOk = filledLines.length === expectedLines.value || expectedLines.value === 0;
+      const structureStatus = structureOk ? '完整' : '进行中';
 
       rhymeAnalysis.value = {
-        rhymeOk: lastChar === prevLastChar || Math.random() > 0.3, // 模拟检查
-        rhymeStatus: lastChar === prevLastChar ? '良好' : '建议调整',
-        structureOk: filledLines.length >= expectedLines.value || expectedLines.value === 0,
-        structureStatus: filledLines.length >= expectedLines.value || expectedLines.value === 0 ? '完整' : '进行中'
+        rhymeOk: rhymeOk,
+        rhymeStatus: rhymeStatus,
+        structureOk: structureOk,
+        structureStatus: structureStatus
       };
     };
 
     const updateCurrentTips = (index) => {
       const tips = [];
+      const currentLineText = localLines.value[index].trim();
+      const filledLinesCount = localLines.value.filter(l => l.trim()).length;
+      const isLastLine = index === localLines.value.length - 1;
 
-      if (index === 0 && !localLines.value[0].trim()) {
-        tips.push('起句要新颖，吸引读者注意');
-      }
-
+      // 1. 字数检查
       const charCount = getLineCharCount(index);
       if (charCount > 0 && charCount !== expectedChars.value) {
-        tips.push(`注意每句应为${expectedChars.value}字，当前${charCount}字`);
+        tips.push(`注意：当前句应为${expectedChars.value}字，您已输入${charCount}字。`);
       }
 
-      if (index === 2) {
-        tips.push('转句是诗眼，需要有新意');
+      // 2. 结构指导
+      const currentRole = structureRoles.value[index];
+      if (currentRole) {
+        switch (currentRole) {
+          case '起':
+            tips.push('起句：开篇点题，或以景物烘托气氛，引人入胜。');
+            break;
+          case '承':
+            tips.push('承句：承接起句，展开描写或叙述，深化意境。');
+            break;
+          case '转':
+            tips.push('转句：转换角度，或引入新意，使诗意跌宕起伏。');
+            break;
+          case '合':
+            tips.push('合句：收束全篇，点明主旨，或留下余韵。');
+            break;
+        }
       }
 
-      if (index === localLines.value.length - 1 && localLines.value.every(l => l.trim())) {
-        tips.push('恭喜！已完成创作，可以进行评分');
+      // 3. 押韵提醒
+      if (rhymeAnalysis.value && !rhymeAnalysis.value.rhymeOk) {
+        tips.push(`韵律提示：${rhymeAnalysis.value.rhymeStatus}。请检查押韵字是否一致。`);
+      }
+
+      // 4. 对仗提醒 (仅律诗)
+      if (props.genre.includes('律诗')) {
+        if (index === 1 || index === 3 || index === 5) { // 颔联、颈联、尾联的上句
+          if (localLines.value[index].trim() && !localLines.value[index + 1]?.trim()) {
+            tips.push('律诗对仗：请注意本句与下一句（出句与对句）的词性、结构对仗。');
+          }
+        }
+      }
+
+      // 5. 关键词融入建议
+      if (props.keywords && props.keywords.length > 0 && filledLinesCount < expectedLines.value) {
+        const usedKeywords = props.keywords.filter(kw => currentLineText.includes(kw));
+        const unusedKeywords = props.keywords.filter(kw => !usedKeywords.includes(kw));
+        if (unusedKeywords.length > 0) {
+          tips.push(`建议融入关键词：${unusedKeywords.slice(0, 2).join('、')}...`);
+        }
+      }
+
+      // 6. 避免常见问题
+      if (currentLineText.length > 0) {
+        if (currentLineText.includes('很') || currentLineText.includes('非常') || currentLineText.includes('特别')) {
+          tips.push('用词建议：避免口语化词汇，力求典雅。');
+        }
+        if (currentLineText.match(/[0-9a-zA-Z]/)) {
+          tips.push('用词建议：避免现代词汇或英文。');
+        }
+      }
+
+      // 7. 完成提示
+      if (filledLinesCount === expectedLines.value && expectedLines.value > 0) {
+        tips.push('恭喜！诗歌已完成，可以进行评分和保存。');
       }
 
       currentTips.value = tips;
-    };
-
-    const generateFullPoem = () => {
-      emit('generate', {
-        theme: props.theme,
-        genre: props.genre,
-        keywords: props.keywords,
-        existingLines: localLines.value.filter(l => l.trim()).join('\n')
-      });
     };
 
     const clearAll = () => {
@@ -532,7 +597,6 @@ export default {
       applyRecommendation,
       addLine,
       removeLine,
-      generateFullPoem,
       clearAll,
       setRecommendations,
       setLines,
@@ -942,35 +1006,6 @@ export default {
 .add-line-btn:hover {
   border-color: #8b7355;
   background: rgba(139, 115, 85, 0.05);
-}
-
-.ai-generate-btn {
-  background: linear-gradient(135deg, #8b7355, #a08060);
-  border: none;
-  color: white;
-}
-
-.ai-generate-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(139, 115, 85, 0.25);
-}
-
-.ai-generate-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.loading-spinner-small {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 /* AI辅助面板 */

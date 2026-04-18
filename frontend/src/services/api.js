@@ -217,6 +217,16 @@ export const api = {
     reciteCheck: (data) => request('/ai/recite-check', {
       method: 'POST',
       body: JSON.stringify(data)
+    }),
+    tts: (text, options = {}) => request('/ai/tts', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        text, 
+        voice: options.voice,
+        rate: options.rate,
+        pitch: options.pitch
+      }),
+      timeout: 30000
     })
   },
   
@@ -344,12 +354,6 @@ export const api = {
     }),
     // 结构引导 - 获取写作结构提示 (AI生成需要约60秒)
     getStructureGuide: (params) => request('/creation/structure/guide', {
-      method: 'POST',
-      body: JSON.stringify(params),
-      timeout: 120000
-    }),
-    // AI生成完整诗词 (AI生成需要约60秒)
-    generatePoem: (params) => request('/creation/generate', {
       method: 'POST',
       body: JSON.stringify(params),
       timeout: 120000

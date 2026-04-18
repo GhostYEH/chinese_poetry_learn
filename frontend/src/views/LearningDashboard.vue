@@ -401,7 +401,10 @@
               <div class="advice-icon">📅</div>
               <div class="advice-content">
                 <h4>本周计划</h4>
-                <p>{{ aiAdviceData.plan }}</p>
+                <ul v-if="Array.isArray(aiAdviceData.plan)" class="advice-list">
+                  <li v-for="(item, index) in aiAdviceData.plan" :key="index">{{ item }}</li>
+                </ul>
+                <p v-else>{{ aiAdviceData.plan }}</p>
               </div>
             </div>
             <div class="advice-card encourage">
@@ -816,7 +819,17 @@ const fetchAiAdvice = async () => {
   try {
     const res = await api.learn.aiSuggestions()
     if (res.success && res.data?.content) {
-      const content = res.data.content
+      let content = res.data.content
+      // Attempt to parse content if it's a string
+      if (typeof content === 'string') {
+        try {
+          content = JSON.parse(content)
+        } catch (parseError) {
+          console.error('Failed to parse AI advice content as JSON:', parseError)
+          // If parsing fails, keep content as string and let the typewriter handle it
+        }
+      }
+
       if (typeof content === 'object' && content.summary) {
         aiAdviceData.value = content
         aiAdviceFull.value = 'loaded'

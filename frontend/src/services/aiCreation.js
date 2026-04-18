@@ -67,15 +67,6 @@ export const aiCreationService = {
     return result.data;
   },
 
-  generatePoem: async ({ theme, genre, keywords, structure }) => {
-    const result = await request('/creation/generate', {
-      method: 'POST',
-      body: JSON.stringify({ theme, genre, keywords, structure }),
-      timeout: 120000
-    });
-    return result.data;
-  },
-
   recommendNextLine: async ({ currentLines, genre, theme, maxLength = 7 }) => {
     const result = await request('/creation/recommend/next-line', {
       method: 'POST',

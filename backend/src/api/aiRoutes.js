@@ -72,16 +72,19 @@ router.post('/explainPoem/batch', async function(req, res) {
       poemLength: poem.length
     });
 
-    const dailyLifeResult = await aiService.getAIExplanation(poem, title, author, 'daily_life_explanation');
-    const keywordResult = await aiService.getAIExplanation(poem, title, author, 'keyword_analysis');
-    const artisticResult = await aiService.getAIExplanation(poem, title, author, 'artistic_conception');
-    const questionsResult = await aiService.getAIExplanation(poem, title, author, 'thinking_questions');
+    const [dailyLifeResult, keywordResult, artisticResult, questionsResult] = await Promise.all([
+      aiService.getAIExplanation(poem, title, author, 'daily_life_explanation'),
+      aiService.getAIExplanation(poem, title, author, 'keyword_analysis'),
+      aiService.getAIExplanation(poem, title, author, 'artistic_conception'),
+      aiService.getAIExplanation(poem, title, author, 'thinking_questions')
+    ]);
 
-    const batchResult = {};
-    batchResult.daily_life_explanation = dailyLifeResult.daily_life_explanation;
-    batchResult.keyword_analysis = keywordResult.keyword_analysis;
-    batchResult.artistic_conception = artisticResult.artistic_conception;
-    batchResult.thinking_questions = questionsResult.thinking_questions;
+    const batchResult = {
+      daily_life_explanation: dailyLifeResult.daily_life_explanation,
+      keyword_analysis: keywordResult.keyword_analysis,
+      artistic_conception: artisticResult.artistic_conception,
+      thinking_questions: questionsResult.thinking_questions
+    };
 
     res.json(batchResult);
   } catch (error) {
@@ -307,18 +310,24 @@ router.post('/recite-check', optionalAuthenticateToken, async function(req, res)
       return;
     }
 
-    // 使用程序检测（快速响应）
     const programResult = aiService.checkRecitation(original, input);
-    
-    // 使用本地生成的建议（不调用 AI API，避免延迟）
-    const mockResult = aiService.getMockRecitationCheck(original, input, null);
+
+    let aiAdvice = await aiService.generateReciteAdvice(
+      poem_title, poem_author, original, input,
+      programResult.score, programResult.wrongChars, programResult.missing, programResult.extra
+    );
+
+    if (!aiAdvice) {
+      const mockResult = aiService.getMockRecitationCheck(original, input, null);
+      aiAdvice = mockResult.aiAdvice;
+    }
 
     const result = {
       score: programResult.score,
       wrongChars: programResult.wrongChars,
       missing: programResult.missing,
       extra: programResult.extra,
-      aiAdvice: mockResult.aiAdvice
+      aiAdvice: aiAdvice
     };
 
     if (poem_id && result.score < 90) {
@@ -961,7 +970,7 @@ router.post('/image/carousel', async function(req, res) {
   }
 });
 
-// 智谱AI文生图 - 为选中的诗句生成意境画面
+// 硅基流动文生图 - 为选中的诗句生成意境画面
 router.post('/scene-image', async function(req, res) {
   try {
     const poemLine = req.body.poemLine;
@@ -1096,6 +1105,72 @@ router.post('/feihua-validate', async function(req, res) {
   } catch (error) {
     console.error('飞花令验证失败:', error);
     res.status(500).json({ message: '验证失败，请稍后重试' });
+  }
+});
+
+const ttsRateLimits = new Map();
+const TTS_MAX_REQUESTS_PER_MINUTE = 20;
+
+function checkTTSRateLimit(userId) {
+  const now = Date.now();
+  let userLimit = ttsRateLimits.get(userId);
+  if (!userLimit) {
+    userLimit = { count: 0, lastReset: now };
+  }
+
+  if (now - userLimit.lastReset > 60000) {
+    userLimit = { count: 1, lastReset: now };
+    ttsRateLimits.set(userId, userLimit);
+    return true;
+  }
+
+  if (userLimit.count >= TTS_MAX_REQUESTS_PER_MINUTE) {
+    return false;
+  }
+
+  userLimit.count = userLimit.count + 1;
+  ttsRateLimits.set(userId, userLimit);
+  return true;
+}
+
+router.post('/tts', optionalAuthenticateToken, async function(req, res) {
+  try {
+    const text = req.body.text;
+    const voice = req.body.voice;
+    const rate = req.body.rate;
+    const pitch = req.body.pitch;
+    const userId = req.user?.userId || 'anonymous';
+
+    if (!text) {
+      res.status(400).json({ success: false, message: '缺少文本内容' });
+      return;
+    }
+
+    if (!checkTTSRateLimit(userId)) {
+      res.status(429).json({ success: false, message: '请求过于频繁，请稍后重试' });
+      return;
+    }
+
+    const options = {};
+    if (voice) options.voice = voice;
+    if (rate) options.rate = rate;
+    if (pitch) options.pitch = pitch;
+
+    const result = await aiService.synthesizeSpeech(text, options);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        audio: result.audioBase64,
+        format: result.format,
+        fromCache: result.fromCache || false
+      });
+    } else {
+      res.status(500).json({ success: false, message: result.message || '语音合成失败' });
+    }
+  } catch (error) {
+    console.error('TTS请求失败:', error);
+    res.status(500).json({ success: false, message: '语音合成失败' });
   }
 });
 

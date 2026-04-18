@@ -23,7 +23,7 @@ module.exports = {
   ai: {
     model: process.env.AI_MODEL || (
       process.env.SILICONFLOW_API_KEY
-        ? 'Qwen/Qwen3-8B'
+        ? 'Qwen/Qwen2.5-7B-Instruct'
         : 'qwen-flash'
     ),
     // URL：SiliconFlow key存在则走SiliconFlow，否则走DashScope
@@ -42,8 +42,8 @@ module.exports = {
               || process.env.DASHSCOPE_API_KEY
   },
   
-  // 智谱AI配置 - 诗词创作模块专用（已切换为硅基流动）
-  zhipu: {
+  // 硅基流动配置 - 诗词创作模块专用
+  siliconflow: {
     apiKey: process.env.SILICONFLOW_API_KEY || process.env.ZHIPU_API_KEY,
     apiUrl: 'https://api.siliconflow.cn/v1/chat/completions',
     model: 'Qwen/Qwen2.5-7B-Instruct',
